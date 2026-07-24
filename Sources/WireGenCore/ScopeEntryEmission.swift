@@ -16,10 +16,13 @@
 /// matching scope).
 /// The scope-entry thunk lines for `binding` when it is a bridging contributor proxy (a scope-bound
 /// type carrying a `_wireEnterScope` dependency), else `nil` — the entry point the bootstrap emitter
-/// calls per binding.
+/// calls per binding. `resolvingLocal` is `nil` in the bootstrap body (where borrows are captured
+/// locals), and the borrow-access-path resolver in the contributor-proxy facade (where borrows read off
+/// the `wireGraph` parameter, since the facade doesn't reconstruct the app singletons).
 func scopeEntryThunkLines(
     forBridgeProxy binding: DiscoveredBinding,
-    scopes: [String: SeedScopeEmission]
+    scopes: [String: SeedScopeEmission],
+    resolvingLocal: ((String) -> String?)? = nil
 ) -> [String]? {
     guard case .scopeBound(let proxy) = binding,
         let scopeEntry = proxy.dependencies.first(where: { $0.name == contributorProxyScopeEntryFieldName })
@@ -30,7 +33,11 @@ func scopeEntryThunkLines(
     // which `async throws` needs — so the emitted thunk's type, local name, and return match the proxy's
     // specialised construction argument, not the raw generic form (whose bare `Repository` isn't in scope
     // in `_wireBootstrap`). A non-generic proxy is not a lift node, so its thunk type is unchanged.
-    return scopeEntryThunkLines(thunkType: liftSpecialised(scopeEntry.type, in: binding), scopes: scopes)
+    return scopeEntryThunkLines(
+        thunkType: liftSpecialised(scopeEntry.type, in: binding),
+        scopes: scopes,
+        resolvingLocal: resolvingLocal
+    )
 }
 
 /// Substitute a lift node's determined generic parameters with their `some Constraint` form in `type`,
@@ -48,7 +55,8 @@ private func liftSpecialised(_ type: String, in binding: DiscoveredBinding) -> S
 
 private func scopeEntryThunkLines(
     thunkType: String,
-    scopes: [String: SeedScopeEmission]
+    scopes: [String: SeedScopeEmission],
+    resolvingLocal: ((String) -> String?)? = nil
 ) -> [String]? {
     guard let (seed, subject, doubles) = parsedContributorScopeEntryThunkType(thunkType),
         let scope = scopes[seed]
@@ -86,7 +94,11 @@ private func scopeEntryThunkLines(
     let parameterList = doubles.map { "\(seedLocal): \(seed), doubles: \($0)" } ?? "\(seedLocal): \(seed)"
     var lines: [String] = ["    let \(thunkLocal) = { @Sendable (\(parameterList)) async throws in"]
     for alias in aliases.upFront {
-        lines.append(contentsOf: existentialAliasLines(alias, boundTo: alias.producerLocalName, indent: "        "))
+        // A promoted *borrowed* producer has no local here; when the caller supplies a borrow resolver
+        // (the contributor-proxy facade, which borrows the graph rather than reconstructing it), bind the
+        // alias off the borrow's access path instead of a non-existent local.
+        let producer = resolvingLocal?(alias.producerLocalName) ?? alias.producerLocalName
+        lines.append(contentsOf: existentialAliasLines(alias, boundTo: producer, indent: "        "))
     }
     for binding in scope.topologicalOrder {
         if let reachable, !reachable.contains(binding.identity) { continue }
@@ -94,7 +106,7 @@ private func scopeEntryThunkLines(
         // A borrowed singleton resolves to the captured bootstrap local of the same identity name, so
         // it is not re-constructed here; the seed's `let seed = seed` shadow is likewise redundant.
         if scope.borrowedBindingPropertyNames.contains(name) { continue }
-        let construction = constructionExpression(for: binding)
+        let construction = constructionExpression(for: binding, resolvingLocal: resolvingLocal)
         if name == construction { continue }
         lines.append("        let \(name) = \(construction)")
         lines.append(

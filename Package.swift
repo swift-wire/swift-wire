@@ -42,6 +42,17 @@ let package = Package(
                 .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
             ]
         ),
+        // Test-only macro plugin: hosts `@RouteController` (a stand-in adapter marker) so swift-wire's
+        // IntegrationTests can induce a contributor proxy. Only `WireTestLibrary` depends on it, so it is
+        // never built into a consumer's macro plugin the way `WireMacrosImpl` is.
+        .macro(
+            name: "WireTestMacrosImpl",
+            dependencies: [
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
+                .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
+            ]
+        ),
         .target(
             name: "WireGenCore",
             dependencies: [
@@ -80,7 +91,7 @@ let package = Package(
         // re-parses its sources.
         .target(
             name: "WireTestLibrary",
-            dependencies: ["Wire"]
+            dependencies: ["Wire", "WireTestMacrosImpl"]
         ),
         .testTarget(
             name: "IntegrationTests",

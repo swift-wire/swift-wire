@@ -532,7 +532,11 @@ extension WireGen {
     /// validated production bindings; a module with no `TestingKey` yields none, leaving the emitted output
     /// byte-for-byte unchanged.
     fileprivate static func renderGraphFile(_ inputs: GraphFileInputs, outputPath: String) throws {
-        let testingVariants = buildTestingVariants(in: inputs.aggregate, appEdges: inputs.defaultGraph.edges)
+        let testingVariants = buildTestingVariants(
+            in: inputs.aggregate,
+            appEdges: inputs.defaultGraph.edges,
+            defaultOrder: inputs.defaultOrder
+        )
         failIfAnyTestingVariantInvalid(testingVariants)
 
         let seedScopeOrders =
@@ -549,7 +553,7 @@ extension WireGen {
                 factories: inputs.factories,
                 proxyIdentities: inputs.proxyIdentities,
                 in: inputs.aggregate.allBindings
-            ) + testingVariants.map { $0.doublesStruct },
+            ) + testingVariants.map { $0.doublesStruct } + testingVariants.flatMap { $0.contributorFacades },
             // Rule 3 — the default graph's promotions plus every container's and every test variant's, so
             // each `appendStruct` finds the ones whose consumers it constructs.
             existentialPromotions: inputs.defaultGraph.existentialPromotions
