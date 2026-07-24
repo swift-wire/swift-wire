@@ -54,7 +54,12 @@ struct ContributorProxyFacadeEmissionTests {
                 typeKind: "struct",
                 genericParameterNames: [],
                 dependencies: dependencies.map {
-                    DependencyParameter(name: $0.name, type: $0.type, kind: .injectInitParameter, location: mockLocation("\(name).swift"))
+                    DependencyParameter(
+                        name: $0.name,
+                        type: $0.type,
+                        kind: .injectInitParameter,
+                        location: mockLocation("\(name).swift")
+                    )
                 },
                 location: mockLocation("\(name).swift"),
                 scopeKey: ScopeKey(seed: seed),
@@ -76,9 +81,24 @@ struct ContributorProxyFacadeEmissionTests {
             typeKind: "struct",
             genericParameterNames: [],
             dependencies: [
-                DependencyParameter(name: "seed", type: seed, kind: .injectInitParameter, location: mockLocation("A.swift")),
-                DependencyParameter(name: "resource", type: "AResource", kind: .injectInitParameter, location: mockLocation("A.swift")),
-                DependencyParameter(name: "repo", type: "BackendRepository", kind: .injectInitParameter, location: mockLocation("A.swift")),
+                DependencyParameter(
+                    name: "seed",
+                    type: seed,
+                    kind: .injectInitParameter,
+                    location: mockLocation("A.swift")
+                ),
+                DependencyParameter(
+                    name: "resource",
+                    type: "AResource",
+                    kind: .injectInitParameter,
+                    location: mockLocation("A.swift")
+                ),
+                DependencyParameter(
+                    name: "repo",
+                    type: "BackendRepository",
+                    kind: .injectInitParameter,
+                    location: mockLocation("A.swift")
+                ),
             ],
             location: mockLocation("A.swift"),
             scopeKey: ScopeKey(seed: seed),
@@ -107,7 +127,10 @@ struct ContributorProxyFacadeEmissionTests {
         let controller = scoped(
             "AController",
             seed: seed,
-            dependencies: [(name: "seed", type: seed), (name: "resource", type: "AResource"), (name: "repo", type: "BackendRepository")]
+            dependencies: [
+                (name: "seed", type: seed), (name: "resource", type: "AResource"),
+                (name: "repo", type: "BackendRepository"),
+            ]
         )
         let scope = SeedScopeEmission(
             seedTypeExpression: seed,
@@ -142,7 +165,11 @@ struct ContributorProxyFacadeEmissionTests {
         #expect(facade.contains("let backendRepository = doubles.backendRepository"))
         // The routed subject and its reachable resource construct, wired to the double.
         #expect(facade.contains("let aResource = AResource(seed: requestSeed)"))
-        #expect(facade.contains("let aController = AController(seed: requestSeed, resource: aResource, repo: backendRepository)"))
+        #expect(
+            facade.contains(
+                "let aController = AController(seed: requestSeed, resource: aResource, repo: backendRepository)"
+            )
+        )
         // (b) Pruning — the sibling sharing the seed is unreachable from the routed subject, so it is not
         // constructed by this entry.
         #expect(!facade.contains("BController("))
