@@ -254,7 +254,7 @@ func wireGraphFieldType(
 /// bare `structName` otherwise. This is the type the bootstrap/façade returns, and the type any
 /// seed scope borrowing from this graph must name for its `wireGraph:` parameter — a bare
 /// `_WireGraph` there fails to compile once the graph is generic.
-func openGraphTypeReference(structName: String, topologicalOrder: [DiscoveredBinding]) -> String {
+package func openGraphTypeReference(structName: String, topologicalOrder: [DiscoveredBinding]) -> String {
     let liftedConstraints =
         topologicalOrder
         .filter { $0.boundType.hasPrefix("some ") }

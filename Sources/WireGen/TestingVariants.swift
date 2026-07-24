@@ -15,6 +15,11 @@ extension WireGen {
     struct TestingVariant {
         let doublesStruct: String
         let seedScopes: [SeedScopeEmission]
+        /// The doubles-threaded contributor-proxy artifacts this variant emits — for each production
+        /// bridging proxy over a `@Scoped(seed:)` subject the variant touches, the variant proxy `struct`
+        /// declaration and its `Wire.bootstrap<Variant>_<Subject>Contributor(wireGraph:)` facade. Each is a
+        /// full declaration emitted alongside the doubles struct; empty when the variant proxies nothing.
+        let contributorFacades: [String]
         let existentialPromotions: [ExistentialPromotion]
         let validationFailures: [(name: String, errors: GraphResult.ValidationErrors)]
         let diagnostics: [Diagnostic]
@@ -58,8 +63,14 @@ extension WireGen {
     /// resolved adjacency, which the cascade walks.
     static func buildTestingVariants(
         in aggregate: DiscoveryAggregate,
-        appEdges: [BindingIdentity: [BindingIdentity]]
+        appEdges: [BindingIdentity: [BindingIdentity]],
+        defaultOrder: [DiscoveredBinding]
     ) -> [TestingVariant] {
+        // The opaque-erased reused graph type a variant proxy facade borrows from (`_WireGraph`, or
+        // `_WireGraph<some P>` when the app graph lifts opaque axes) — the same reference the seed-scope
+        // facade names for its `wireGraph:` parameter.
+        let parentGraphTypeReference = openGraphTypeReference(structName: "_WireGraph", topologicalOrder: defaultOrder)
+        let productionProxies = productionBridgeProxies(in: aggregate)
         // Production default-graph singletons and the borrow set the variant scopes reuse — the variant
         // borrows the production `_WireGraph` for every app singleton it does not lift.
         let defaultSingletons =
@@ -80,42 +91,72 @@ extension WireGen {
             borrows: borrows
         )
 
+        let inputs = VariantBuildInputs(
+            partitionInputs: partitionInputs,
+            aggregate: aggregate,
+            allProductionBindings: allProductionBindings,
+            productionProxies: productionProxies,
+            parentGraphTypeReference: parentGraphTypeReference
+        )
+
         var variants: [TestingVariant] = []
         var seen: Set<String> = []
-        for key in aggregate.testingKeys {
-            guard seen.insert(key.keyReference).inserted else { continue }
-            let variantName = key.keyReference.split(separator: ".").map(String.init).joined(separator: "_")
-            let doublesType = doublesStructTypeName(forKeyReference: key.keyReference)
-            let scopeContext = VariantScopeContext(
-                keyReference: key.keyReference,
-                variantName: variantName,
-                doublesType: doublesType,
-                aggregate: aggregate
-            )
-
-            let accumulation = accumulateVariantScopes(key: key, partitions: partitionInputs, context: scopeContext)
-
-            // A `@BindType` whose slot no production binding produces is stale — surfaced, not discarded.
-            var diagnostics = accumulation.diagnostics
-            diagnostics += unmatchedSubstitutions(key.substitutions, against: allProductionBindings)
-                .map(unmatchedBindTypeDiagnostic)
-
-            guard !accumulation.doublesFields.isEmpty || !accumulation.failures.isEmpty || !diagnostics.isEmpty
-            else { continue }
-            variants.append(
-                TestingVariant(
-                    doublesStruct: renderDoublesStruct(
-                        typeName: doublesType,
-                        fields: accumulation.doublesFields.values.sorted { $0.name < $1.name }
-                    ),
-                    seedScopes: accumulation.seedScopes,
-                    existentialPromotions: accumulation.promotions,
-                    validationFailures: accumulation.failures,
-                    diagnostics: diagnostics
-                )
-            )
+        for key in aggregate.testingKeys where seen.insert(key.keyReference).inserted {
+            if let variant = buildVariant(for: key, inputs: inputs) { variants.append(variant) }
         }
         return variants
+    }
+
+    /// The production-graph inputs `buildVariant` reuses across every testing key — the seed-partition
+    /// accumulation inputs, the aggregate, the whole production binding set (for stale-`@BindType`
+    /// diagnostics), the production bridging proxies to re-emit doubles-threaded, and the reused graph type
+    /// reference the proxy facades borrow from.
+    fileprivate struct VariantBuildInputs {
+        let partitionInputs: VariantPartitionInputs
+        let aggregate: DiscoveryAggregate
+        let allProductionBindings: [DiscoveredBinding]
+        let productionProxies: [DiscoveredScopeBoundType]
+        let parentGraphTypeReference: String
+    }
+
+    /// Build one testing key's variant — its doubles struct, doubles-threaded seed scopes, contributor-proxy
+    /// artifacts, promotions, validation failures, and diagnostics — or `nil` when the key touches nothing
+    /// (no substituted/lifted slot, no failure, no diagnostic), so it emits no code.
+    fileprivate static func buildVariant(for key: DiscoveredTestingKey, inputs: VariantBuildInputs) -> TestingVariant? {
+        let variantName = key.keyReference.split(separator: ".").map(String.init).joined(separator: "_")
+        let doublesType = doublesStructTypeName(forKeyReference: key.keyReference)
+        let scopeContext = VariantScopeContext(
+            keyReference: key.keyReference,
+            variantName: variantName,
+            doublesType: doublesType,
+            aggregate: inputs.aggregate
+        )
+        let accumulation = accumulateVariantScopes(key: key, partitions: inputs.partitionInputs, context: scopeContext)
+
+        // A `@BindType` whose slot no production binding produces is stale — surfaced, not discarded.
+        var diagnostics = accumulation.diagnostics
+        diagnostics += unmatchedSubstitutions(key.substitutions, against: inputs.allProductionBindings)
+            .map(unmatchedBindTypeDiagnostic)
+
+        guard !accumulation.doublesFields.isEmpty || !accumulation.failures.isEmpty || !diagnostics.isEmpty
+        else { return nil }
+        return TestingVariant(
+            doublesStruct: renderDoublesStruct(
+                typeName: doublesType,
+                fields: accumulation.doublesFields.values.sorted { $0.name < $1.name }
+            ),
+            seedScopes: accumulation.seedScopes,
+            contributorFacades: buildVariantContributorFacades(
+                seedScopes: accumulation.seedScopes,
+                productionProxies: inputs.productionProxies,
+                variantName: variantName,
+                doublesType: doublesType,
+                parentGraphTypeReference: inputs.parentGraphTypeReference
+            ),
+            existentialPromotions: accumulation.promotions,
+            validationFailures: accumulation.failures,
+            diagnostics: diagnostics
+        )
     }
 
     /// Accumulate one testing key's variant seed scopes across the default-graph seed partitions. Per

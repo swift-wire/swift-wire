@@ -80,7 +80,7 @@ let package = Package(
         // re-parses its sources.
         .target(
             name: "WireTestLibrary",
-            dependencies: ["Wire"]
+            dependencies: ["Wire", "WireMacrosImpl"]
         ),
         .testTarget(
             name: "IntegrationTests",

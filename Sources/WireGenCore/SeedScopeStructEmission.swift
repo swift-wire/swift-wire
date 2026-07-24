@@ -154,7 +154,7 @@ func appendSeedScopeStruct(
 /// (`_WireGraph.logger`). The returned map's keys are borrow property names; values are the substitution
 /// expressions read straight off each borrow's `accessPath`. Unused borrows produce no output: their
 /// let-lines are skipped and no consumer refers to them, so they vanish from the emitted bootstrap.
-private func borrowedAccessPaths(in scope: SeedScopeEmission) -> [String: String] {
+func borrowedAccessPaths(in scope: SeedScopeEmission) -> [String: String] {
     var borrowAccessPaths: [String: String] = [:]
     for binding in scope.topologicalOrder {
         let name = propertyName(for: binding)

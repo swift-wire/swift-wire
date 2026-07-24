@@ -15,5 +15,6 @@ struct WireMacrosPlugin: CompilerPlugin {
         ReplacesMacro.self,
         BindTypeMacro.self,
         ScopableMacro.self,
+        RouteControllerMacro.self,
     ]
 }
