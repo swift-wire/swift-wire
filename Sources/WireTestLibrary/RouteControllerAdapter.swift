@@ -10,13 +10,13 @@ import Wire
 /// The proxy-contributing marker. A no-op peer macro (`RouteControllerMacro`) so the attribute compiles; the
 /// build plugin reads the `WireAdapterAnnotationV1` declaration below to learn what it directs.
 @attached(peer)
-public macro RouteController() = #externalMacro(module: "WireMacrosImpl", type: "RouteControllerMacro")
+package macro RouteController() = #externalMacro(module: "WireTestMacrosImpl", type: "RouteControllerMacro")
 
 /// Binds `@RouteController` to a `.liftsPeersToProxy` directive — a standalone, directly-addressable proxy
 /// contributing to no multibinding (so the fixture needs no contributor protocol or witness). The build
 /// plugin discovers this declaration and synthesises the proxy for every `@RouteController` subject.
-public enum WireTestRouteAdapter {
-    public static let routeController = WireAdapterAnnotationV1(
+package enum WireTestRouteAdapter {
+    package static let routeController = WireAdapterAnnotationV1(
         annotation: "RouteController",
         capability: .liftsPeersToProxy(proxyTypePrefix: "_WireRouteContributor_", proxyScope: .singleton)
     )
