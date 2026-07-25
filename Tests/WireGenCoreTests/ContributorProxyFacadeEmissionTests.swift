@@ -280,4 +280,62 @@ struct ContributorProxyFacadeEmissionTests {
         }
         #expect(facade.ranges(of: "_wireGraph.storeService").count == 1)
     }
+
+    @Test func facadeBindsLiftedFactoryInstanceFromTheGraph() {
+        // A proxy carrying a lifted `@Factory` dependency (`_wireFactory_<key>`) — its construction references
+        // the factory by bare name, so the facade must bind that instance off the graph before constructing
+        // the proxy (else the bare reference resolves to the `_WireFactory_<key>` type, not an instance).
+        let doublesType = "_MyTests_bindMockDoubles"
+        let seed = "RequestSeed"
+        let proxy = DiscoveredScopeBoundType(
+            typeName: "_MyTests_bindMock_WireRouteContributor_AController",
+            typeKind: "struct",
+            genericParameterNames: [],
+            dependencies: [
+                DependencyParameter(
+                    name: contributorProxyScopeEntryFieldName,
+                    type: contributorScopeEntryThunkType(seed: seed, subject: "AController", doubles: doublesType),
+                    kind: .scopeEntryThunk,
+                    location: mockLocation("A.swift")
+                ),
+                DependencyParameter(
+                    name: "_wireFactory_Keys_probe",
+                    type: "_WireFactory_Keys_probe",
+                    kind: .injectInitParameter,
+                    location: mockLocation("A.swift")
+                ),
+            ],
+            location: mockLocation("A.swift"),
+            scopeKey: ScopeKey(seed: seed),
+            originModule: testModule
+        )
+        let controller = scoped("AController", seed: seed, dependencies: [(name: "seed", type: seed)])
+        let scope = SeedScopeEmission(
+            seedTypeExpression: seed,
+            identifierSuffix: "MyTests_bindMock_RequestSeed",
+            parentGraphType: "_WireGraph",
+            topologicalOrder: [syntheticSeed(seed, accessPath: "requestSeed"), controller],
+            borrowedBindingPropertyNames: [],
+            doublesType: doublesType
+        )
+
+        let facade = renderContributorProxyFacade(
+            proxy: proxy,
+            scope: scope,
+            parentGraphTypeReference: "_WireGraph",
+            facadeMethodName: "bootstrapMyTests_bindMock_AControllerContributor"
+        )
+
+        // The factory instance is bound off the graph, before the thunk, and the construction references the
+        // bare local (an instance), not the `_WireFactory_Keys_probe` type.
+        #expect(facade.contains("let _WireFactory_Keys_probe = _wireGraph._WireFactory_Keys_probe"))
+        #expect(facade.contains("_wireFactory_Keys_probe: _WireFactory_Keys_probe)"))
+        let factoryRange = facade.firstRange(of: "let _WireFactory_Keys_probe = _wireGraph._WireFactory_Keys_probe")
+        let thunkRange = facade.firstRange(of: "= { @Sendable")
+        #expect(factoryRange != nil)
+        #expect(thunkRange != nil)
+        if let factoryRange, let thunkRange {
+            #expect(factoryRange.lowerBound < thunkRange.lowerBound)
+        }
+    }
 }

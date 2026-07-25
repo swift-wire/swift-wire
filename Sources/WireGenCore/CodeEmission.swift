@@ -818,6 +818,23 @@ private func renderArguments(
         }.joined(separator: ", ")
 }
 
+/// The graph-binding local names a bridging contributor proxy's construction references beyond its
+/// scope-entry thunk — its lifted input edges (each `@Factory`-synthesised `_wireFactory_<key>` dependency
+/// and each adapter `@X(T.self)` / `@X(key)` dependency), resolved to the property names they carry on the
+/// graph (the same names `renderArguments` produces for the construction, and that the graph stores them
+/// under). The contributor-proxy facade binds each as `let <local> = _wireGraph.<local>` before constructing
+/// the variant proxy, so the bare reference in the construction resolves to the graph's instance, not the
+/// type. Empty for a proxy with no lifted input edges. Deterministic in dependency order.
+func proxyGraphDependencyLocals(for proxy: DiscoveredScopeBoundType) -> [String] {
+    proxy.dependencies.compactMap { dependency in
+        // The subject (positional, `name == nil`) and the scope-entry thunk / capture deps are not graph
+        // bindings the facade borrows: the subject arrives via the thunk, and capture deps pass no argument.
+        guard dependency.kind == .injectInitParameter, dependency.name != nil else { return nil }
+        let identity = bridgedDependencyIdentity(dependency, in: .scopeBound(proxy))
+        return identifierName(forType: identity.displayType, key: identity.key)
+    }
+}
+
 /// Emit the post-construction member-injection block for every
 /// binding in the topological order. Each `MemberInjection`
 /// renders to one source line — either a property assignment
