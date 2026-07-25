@@ -180,4 +180,82 @@ struct ContributorProxyFacadeEmissionTests {
         // (d) The facade returns the constructed variant proxy, entered with `_wireEnterScope(seed, doubles:)`.
         #expect(facade.contains("return _MyTests_bindMock_WireRouteContributor_AController(_wireEnterScope:"))
     }
+
+    @Test func facadeBindsBorrowedSingletonsAsLocalsOutsideTheThunk() {
+        // A routed subject that borrows a plain app `@Singleton` (`StoreService`) alongside its `@BindType`d
+        // repository. The borrow must be bound as a `let` off `_wireGraph` OUTSIDE the `@Sendable` thunk (so
+        // the thunk captures the Sendable value, not the non-Sendable graph); the thunk references the bare
+        // local.
+        let doublesType = "_MyTests_bindMockDoubles"
+        let seed = "RequestSeed"
+        let subject = DiscoveredScopeBoundType(
+            typeName: "AController",
+            typeKind: "struct",
+            genericParameterNames: [],
+            dependencies: [
+                DependencyParameter(name: "seed", type: seed, kind: .injectInitParameter, location: mockLocation("A.swift")),
+                DependencyParameter(name: "store", type: "StoreService", kind: .injectInitParameter, location: mockLocation("A.swift")),
+                DependencyParameter(name: "repo", type: "BackendRepository", kind: .injectInitParameter, location: mockLocation("A.swift")),
+            ],
+            location: mockLocation("A.swift"),
+            scopeKey: ScopeKey(seed: seed),
+            originModule: testModule
+        )
+        let proxy = contributorProxyBinding(
+            for: subject,
+            key: nil,
+            prefix: "_MyTests_bindMock_WireRouteContributor_",
+            proxyScope: .singleton,
+            doubles: doublesType
+        )
+        let seedBinding = syntheticSeed(seed, accessPath: "requestSeed")
+        let repo = doublesSourced("BackendRepository", field: "backendRepository", seed: seed)
+        let store = DiscoveredBinding.provider(
+            DiscoveredProvider(
+                boundType: "StoreService",
+                accessPath: "_wireGraph.storeService",
+                form: .property,
+                dependencies: [],
+                genericParameterNames: [],
+                location: mockLocation("<borrow>"),
+                scopeKey: ScopeKey(seed: seed),
+                originModule: testModule
+            )
+        )
+        let controller = scoped(
+            "AController",
+            seed: seed,
+            dependencies: [(name: "seed", type: seed), (name: "store", type: "StoreService"), (name: "repo", type: "BackendRepository")]
+        )
+        let scope = SeedScopeEmission(
+            seedTypeExpression: seed,
+            identifierSuffix: "MyTests_bindMock_RequestSeed",
+            parentGraphType: "_WireGraph",
+            topologicalOrder: [seedBinding, repo, store, controller],
+            borrowedBindingPropertyNames: ["storeService"],
+            edges: [controller.identity: [seedBinding.identity, store.identity, repo.identity]],
+            doublesType: doublesType
+        )
+
+        let facade = renderContributorProxyFacade(
+            proxy: proxy,
+            scope: scope,
+            parentGraphTypeReference: "_WireGraph",
+            facadeMethodName: "bootstrapMyTests_bindMock_AControllerContributor"
+        )
+
+        // The borrow is a local bound off `_wireGraph`, and the construction references the bare local.
+        #expect(facade.contains("let storeService = _wireGraph.storeService"))
+        #expect(facade.contains("let aController = AController(seed: requestSeed, store: storeService, repo: backendRepository)"))
+        // It is bound OUTSIDE the thunk (before the `@Sendable` closure opens) and read only there — the
+        // graph is never touched inside the thunk (exactly one `_wireGraph.storeService`, the let-binding).
+        let borrowRange = facade.firstRange(of: "let storeService = _wireGraph.storeService")
+        let thunkRange = facade.firstRange(of: "= { @Sendable")
+        #expect(borrowRange != nil)
+        #expect(thunkRange != nil)
+        if let borrowRange, let thunkRange {
+            #expect(borrowRange.lowerBound < thunkRange.lowerBound)
+        }
+        #expect(facade.ranges(of: "_wireGraph.storeService").count == 1)
+    }
 }

@@ -49,9 +49,12 @@ let (subject, teardown) = try await variantProxy._wireEnterScope(request, double
 ```
 `Variant` = key reference `.`→`_`; the variant proxy type is `_<Variant>_<ProductionProxyType>`. Gate: an emission unit test + a runtime IntegrationTests fixture (via a no-op `@RouteController` test-support marker in `WireTestLibrary`) proving init-time mock read + teardown runs + sibling pruning, all through one shared mock instance.
 
-**Two follow-up increments (not blocking; avoidable in the H2.2b example by controller shape):**
-- *Factory-carrying proxies* — a subject with `@Middleware(key)`/factory-injected deps yields `_wireFactory_<key>` proxy fields the facade doesn't yet resolve. Wire the facade to borrow/construct factories from `wireGraph`.
-- *Generic subjects* — the facade's return type erases generics best-effort. The idiomatic `@BindType` consumer injects the concrete slot directly (non-generic); the generic opaque-lift needs a later pass.
+A spike over generic + borrowing subjects then reclassified the limitations:
+- *Generic subjects* — **work.** The facade return type erases the opaque axes while the thunk concretizes at construction (`doubles.<field>` is the concrete mock), so `HelloController<G: Greeter>` under `@BindType` resolves — covered by fixtures (full + partial concretization).
+- *Borrowed app singletons* — the spike surfaced (and this milestone **fixed**) a capture bug: the facade inlined `_wireGraph.<prop>` borrows *inside* the `@Sendable` thunk, capturing the non-`Sendable` graph. Any subject borrowing an app `@Singleton` (idiomatic controllers) broke. Fixed by binding those borrows as `Sendable` locals *outside* the thunk (via `reachableBorrows`), mirroring the production bootstrap. Covered by a borrow-regression fixture.
+
+**One remaining follow-up (not blocking; avoidable in the H2.2b example):**
+- *Factory-carrying proxies* — a subject with its own `@Middleware(key)`/factory-injected deps yields `_wireFactory_<key>` proxy fields the facade doesn't yet resolve. Wire the facade to borrow/construct factories from `wireGraph` when the examples need it (global front-layer middleware doesn't trigger it).
 
 #### H2.2b — wire-mvc: the keyed dispatch
 After swift-wire re-pin: `TestingKey` discovery in `WireMVCCodegen`; a `.wiremvc(key)` factory + a per-key `static let _<Key>DoublesStore = TestBindStore<_<Key>Doubles>()` + the generated typed `withBindValues(...)`; and the dispatch branch in `RouteCodegen.scopeEntryProloguePrefix` that reads `X-WireMVC-Test-Binds` → `correlationID(fromHeaderValue:)` → `store.value(for:)` → `self._wireEnterScope(request, doubles:)`. Emit only when `WireMVCTesting` is a dependency + a `TestingKey` is present; production dispatch unchanged.

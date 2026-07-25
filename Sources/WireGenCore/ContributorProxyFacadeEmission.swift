@@ -18,9 +18,11 @@
 /// Render the `Wire.bootstrap<...>Contributor(wireGraph:)` facade for one doubles-threaded variant proxy —
 /// an `extension Wire` whose static method borrows the reused production graph, emits the proxy's
 /// doubles-threaded scope-entry thunk (the same tuple + per-root pruning + Phase-2 `@Scopable` cascade the
-/// production thunk uses, driven from `scope`), and constructs the variant proxy. The facade is not
-/// `async`/`throws`: it only *builds* the proxy (the closure captures the graph's borrows and the doubles
-/// ride the later `_wireEnterScope` call), so entering the scope stays on the consumer's per-request path.
+/// production thunk uses, driven from `scope`), and constructs the variant proxy. The app-singletons the
+/// thunk borrows are bound as `let <prop> = _wireGraph.<prop>` locals *outside* the `@Sendable` thunk, so it
+/// captures Sendable borrowed values rather than the non-Sendable graph. The facade is not `async`/`throws`:
+/// it only *builds* the proxy (the closure captures the borrow locals and the doubles ride the later
+/// `_wireEnterScope` call), so entering the scope stays on the consumer's per-request path.
 ///
 /// `proxy` is the variant proxy binding (its `_wireEnterScope` dependency already re-typed to carry the
 /// doubles); `scope` is the matching variant seed scope (carrying `doublesType` + `edges`);
@@ -36,23 +38,22 @@ package func renderContributorProxyFacade(
     let wireGraphExternal = wireGraphParameterLabel(forType: scope.parentGraphType)
     let wireGraphInternal = wireGraphParameterInternalName(forType: scope.parentGraphType)
 
-    // Borrows read off the `wireGraph` parameter (`_wireGraph.<prop>`) rather than reconstructing the app
-    // singletons — the facade doesn't rebuild the graph, it borrows it. The thunk captures the parameter.
-    let borrowAccessPaths = borrowedAccessPaths(in: scope)
-    let resolveBorrow: (String) -> String? = { borrowAccessPaths[$0] }
-
-    let thunkLines =
-        scopeEntryThunkLines(
-            forBridgeProxy: .scopeBound(proxy),
-            scopes: [scope.seedTypeExpression: scope],
-            resolvingLocal: resolveBorrow
-        ) ?? []
-    let construction = constructionExpression(for: .scopeBound(proxy), resolvingLocal: resolveBorrow)
+    // The app-singletons the thunk borrows, bound as locals *outside* the thunk: `let <prop> =
+    // _wireGraph.<prop>`. The `@Sendable` thunk then references the bare Sendable local (mirroring the
+    // bootstrap body's captured singleton locals) rather than reading `_wireGraph.<prop>` inside itself —
+    // which would capture the non-Sendable `_WireGraph` and fail to compile. Pruned to the thunk's reachable
+    // set, so no borrow the routed subject doesn't reach leaves a dead local.
+    let borrows = reachableBorrows(forBridgeProxy: .scopeBound(proxy), scopes: [scope.seedTypeExpression: scope])
+    let thunkLines = scopeEntryThunkLines(forBridgeProxy: .scopeBound(proxy), scopes: [scope.seedTypeExpression: scope]) ?? []
+    let construction = constructionExpression(for: .scopeBound(proxy))
 
     let signature =
         "\(facadeMethodName)(\(wireGraphExternal) \(wireGraphInternal): \(parentGraphTypeReference))"
     var lines: [String] = ["extension Wire {"]
     lines.append("    static func \(signature) -> \(variantProxyTypeReference(proxy)) {")
+    for borrow in borrows {
+        lines.append("        let \(borrow.property) = \(borrow.accessPath)")
+    }
     // The thunk lines are indented for a `_wireBootstrap()` body (4 spaces); one more level nests them
     // inside the facade's static method.
     for line in thunkLines {
