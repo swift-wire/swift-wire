@@ -1,0 +1,34 @@
+import Testing
+import WireTestLibrary
+
+/// H2.2a `@Replaces` + `@BindType` composition gate. The precedence chain per type is
+///     real → `@Replaces` (all graphs) → `@BindType` (its keyed variant only, wins).
+/// Proves the combination compiles (no `multiple bindings; ambiguous`), the keyless scope-entry resolves to
+/// the `@Replaces` Fake, the keyed variant (with doubles) resolves to the `@BindType` Mock, and the real
+/// binding is never constructed in either path.
+@Suite("ReplacesBindTypeCompose")
+struct ReplacesBindTypeComposeTests {
+    @Test func replacesAndBindTypeComposeWithCorrectPrecedence() async throws {
+        let graph = try await Wire.bootstrap()
+
+        // Keyless scope-entry → the @Replaces Fake supersedes the library's real binding.
+        let defaultScope = try await Wire.bootstrapComposeRequestSeedScope(
+            seed: ComposeRequestSeed(id: "req-default"),
+            wireGraph: graph
+        )
+        #expect(defaultScope.composeConsumer.label() == "fake")
+
+        // Keyed variant scope-entry → @BindType Mock supersedes on top, in this variant only.
+        let mock = MockComposeWidget()
+        let doubles = _ComposeFixture_bindMockDoubles(composeWidget: mock)
+        let variantScope = try await Wire.bootstrapComposeFixture_bindMock_ComposeRequestSeedScope(
+            seed: ComposeRequestSeed(id: "req-variant"),
+            wireGraph: graph,
+            doubles: doubles
+        )
+        #expect(variantScope.composeConsumer.label() == "mock")
+
+        // The real binding is superseded in every graph — it was never constructed in either path.
+        #expect(realComposeWidgetInits.load(ordering: .relaxed) == 0)
+    }
+}

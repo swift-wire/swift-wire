@@ -12,3 +12,4 @@ Package.resolved
 # version control.
 /_*WireGraph.*
 /_WireKeyChecks.*
+/RouteMiddlewareMacro.*
