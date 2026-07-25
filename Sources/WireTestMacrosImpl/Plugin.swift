@@ -8,6 +8,6 @@ import SwiftSyntaxMacros
 struct WireTestMacrosPlugin: CompilerPlugin {
     let providingMacros: [Macro.Type] = [
         RouteControllerMacro.self,
-        RouteMiddlewareMacro.self
+        RouteMiddlewareMacro.self,
     ]
 }
