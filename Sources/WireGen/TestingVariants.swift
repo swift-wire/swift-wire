@@ -71,16 +71,24 @@ extension WireGen {
         // facade names for its `wireGraph:` parameter.
         let parentGraphTypeReference = openGraphTypeReference(structName: "_WireGraph", topologicalOrder: defaultOrder)
         let productionProxies = productionBridgeProxies(in: aggregate)
+        // Resolve `@Replaces` per partition *before* deriving the variant, so the variant is built from the
+        // same `@Replaces`-resolved set the production graphs use — the replaced (real) binding is gone from
+        // every graph, and the `@Replaces` fake is the sole binding a later `@BindType` supersedes. Deriving
+        // from the raw real+fake pair would substitute both into doubles-sourced providers and leave the
+        // variant graph unable to dedup them (`multiple bindings; ambiguous`).
+        let resolvedBindings = aggregate.allBindings.mapValues {
+            replacesResolvedBindings($0, homeModule: aggregate.module)
+        }
         // Production default-graph singletons and the borrow set the variant scopes reuse — the variant
         // borrows the production `_WireGraph` for every app singleton it does not lift.
         let defaultSingletons =
-            aggregate.allBindings
+            resolvedBindings
             .filter { $0.key.container == nil && $0.key.scope == nil }
             .flatMap { $0.value }
         let borrows = syntheticSingletonBorrowBindings(from: defaultSingletons, inWireGraphOfType: "_WireGraph")
         // Default-graph seed partitions, deterministically ordered by seed.
         let seedPartitions =
-            aggregate.allBindings
+            resolvedBindings
             .filter { $0.key.container == nil && $0.key.scope != nil }
             .sorted { ($0.key.scope?.seed ?? "") < ($1.key.scope?.seed ?? "") }
         let allProductionBindings = defaultSingletons + seedPartitions.flatMap { $0.value }
