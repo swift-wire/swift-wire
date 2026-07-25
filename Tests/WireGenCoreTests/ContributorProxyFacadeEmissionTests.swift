@@ -193,9 +193,24 @@ struct ContributorProxyFacadeEmissionTests {
             typeKind: "struct",
             genericParameterNames: [],
             dependencies: [
-                DependencyParameter(name: "seed", type: seed, kind: .injectInitParameter, location: mockLocation("A.swift")),
-                DependencyParameter(name: "store", type: "StoreService", kind: .injectInitParameter, location: mockLocation("A.swift")),
-                DependencyParameter(name: "repo", type: "BackendRepository", kind: .injectInitParameter, location: mockLocation("A.swift")),
+                DependencyParameter(
+                    name: "seed",
+                    type: seed,
+                    kind: .injectInitParameter,
+                    location: mockLocation("A.swift")
+                ),
+                DependencyParameter(
+                    name: "store",
+                    type: "StoreService",
+                    kind: .injectInitParameter,
+                    location: mockLocation("A.swift")
+                ),
+                DependencyParameter(
+                    name: "repo",
+                    type: "BackendRepository",
+                    kind: .injectInitParameter,
+                    location: mockLocation("A.swift")
+                ),
             ],
             location: mockLocation("A.swift"),
             scopeKey: ScopeKey(seed: seed),
@@ -225,7 +240,10 @@ struct ContributorProxyFacadeEmissionTests {
         let controller = scoped(
             "AController",
             seed: seed,
-            dependencies: [(name: "seed", type: seed), (name: "store", type: "StoreService"), (name: "repo", type: "BackendRepository")]
+            dependencies: [
+                (name: "seed", type: seed), (name: "store", type: "StoreService"),
+                (name: "repo", type: "BackendRepository"),
+            ]
         )
         let scope = SeedScopeEmission(
             seedTypeExpression: seed,
@@ -246,7 +264,11 @@ struct ContributorProxyFacadeEmissionTests {
 
         // The borrow is a local bound off `_wireGraph`, and the construction references the bare local.
         #expect(facade.contains("let storeService = _wireGraph.storeService"))
-        #expect(facade.contains("let aController = AController(seed: requestSeed, store: storeService, repo: backendRepository)"))
+        #expect(
+            facade.contains(
+                "let aController = AController(seed: requestSeed, store: storeService, repo: backendRepository)"
+            )
+        )
         // It is bound OUTSIDE the thunk (before the `@Sendable` closure opens) and read only there — the
         // graph is never touched inside the thunk (exactly one `_wireGraph.storeService`, the let-binding).
         let borrowRange = facade.firstRange(of: "let storeService = _wireGraph.storeService")

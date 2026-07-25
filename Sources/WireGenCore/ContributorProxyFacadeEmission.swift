@@ -44,7 +44,8 @@ package func renderContributorProxyFacade(
     // which would capture the non-Sendable `_WireGraph` and fail to compile. Pruned to the thunk's reachable
     // set, so no borrow the routed subject doesn't reach leaves a dead local.
     let borrows = reachableBorrows(forBridgeProxy: .scopeBound(proxy), scopes: [scope.seedTypeExpression: scope])
-    let thunkLines = scopeEntryThunkLines(forBridgeProxy: .scopeBound(proxy), scopes: [scope.seedTypeExpression: scope]) ?? []
+    let thunkLines =
+        scopeEntryThunkLines(forBridgeProxy: .scopeBound(proxy), scopes: [scope.seedTypeExpression: scope]) ?? []
     let construction = constructionExpression(for: .scopeBound(proxy))
 
     let signature =
