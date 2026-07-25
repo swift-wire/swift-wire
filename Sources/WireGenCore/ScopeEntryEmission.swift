@@ -16,13 +16,13 @@
 /// matching scope).
 /// The scope-entry thunk lines for `binding` when it is a bridging contributor proxy (a scope-bound
 /// type carrying a `_wireEnterScope` dependency), else `nil` — the entry point the bootstrap emitter
-/// calls per binding. `resolvingLocal` is `nil` in the bootstrap body (where borrows are captured
-/// locals), and the borrow-access-path resolver in the contributor-proxy facade (where borrows read off
-/// the `wireGraph` parameter, since the facade doesn't reconstruct the app singletons).
+/// calls per binding. Borrowed app-singletons resolve to captured locals of the same identity name: in the
+/// bootstrap body those are the singletons it already constructed; in the contributor-proxy facade they are
+/// the `let <prop> = _wireGraph.<prop>` locals the facade binds outside this `@Sendable` thunk (see
+/// `reachableBorrows(forBridgeProxy:scopes:)`), so the thunk captures Sendable values, not the graph.
 func scopeEntryThunkLines(
     forBridgeProxy binding: DiscoveredBinding,
-    scopes: [String: SeedScopeEmission],
-    resolvingLocal: ((String) -> String?)? = nil
+    scopes: [String: SeedScopeEmission]
 ) -> [String]? {
     guard case .scopeBound(let proxy) = binding,
         let scopeEntry = proxy.dependencies.first(where: { $0.name == contributorProxyScopeEntryFieldName })
@@ -33,11 +33,7 @@ func scopeEntryThunkLines(
     // which `async throws` needs — so the emitted thunk's type, local name, and return match the proxy's
     // specialised construction argument, not the raw generic form (whose bare `Repository` isn't in scope
     // in `_wireBootstrap`). A non-generic proxy is not a lift node, so its thunk type is unchanged.
-    return scopeEntryThunkLines(
-        thunkType: liftSpecialised(scopeEntry.type, in: binding),
-        scopes: scopes,
-        resolvingLocal: resolvingLocal
-    )
+    return scopeEntryThunkLines(thunkType: liftSpecialised(scopeEntry.type, in: binding), scopes: scopes)
 }
 
 /// Substitute a lift node's determined generic parameters with their `some Constraint` form in `type`,
@@ -55,8 +51,7 @@ private func liftSpecialised(_ type: String, in binding: DiscoveredBinding) -> S
 
 private func scopeEntryThunkLines(
     thunkType: String,
-    scopes: [String: SeedScopeEmission],
-    resolvingLocal: ((String) -> String?)? = nil
+    scopes: [String: SeedScopeEmission]
 ) -> [String]? {
     guard let (seed, subject, doubles) = parsedContributorScopeEntryThunkType(thunkType),
         let scope = scopes[seed]
@@ -94,11 +89,7 @@ private func scopeEntryThunkLines(
     let parameterList = doubles.map { "\(seedLocal): \(seed), doubles: \($0)" } ?? "\(seedLocal): \(seed)"
     var lines: [String] = ["    let \(thunkLocal) = { @Sendable (\(parameterList)) async throws in"]
     for alias in aliases.upFront {
-        // A promoted *borrowed* producer has no local here; when the caller supplies a borrow resolver
-        // (the contributor-proxy facade, which borrows the graph rather than reconstructing it), bind the
-        // alias off the borrow's access path instead of a non-existent local.
-        let producer = resolvingLocal?(alias.producerLocalName) ?? alias.producerLocalName
-        lines.append(contentsOf: existentialAliasLines(alias, boundTo: producer, indent: "        "))
+        lines.append(contentsOf: existentialAliasLines(alias, boundTo: alias.producerLocalName, indent: "        "))
     }
     for binding in scope.topologicalOrder {
         if let reachable, !reachable.contains(binding.identity) { continue }
@@ -106,7 +97,7 @@ private func scopeEntryThunkLines(
         // A borrowed singleton resolves to the captured bootstrap local of the same identity name, so
         // it is not re-constructed here; the seed's `let seed = seed` shadow is likewise redundant.
         if scope.borrowedBindingPropertyNames.contains(name) { continue }
-        let construction = constructionExpression(for: binding, resolvingLocal: resolvingLocal)
+        let construction = constructionExpression(for: binding)
         if name == construction { continue }
         lines.append("        let \(name) = \(construction)")
         lines.append(
@@ -142,6 +133,35 @@ private func reachableBindings(from subjectLocal: String, in scope: SeedScopeEmi
         queue.append(contentsOf: scope.edges[identity] ?? [])
     }
     return reachable
+}
+
+/// The borrowed app-singletons the pruned scope-entry thunk for `binding` references — the borrows in the
+/// reachable set from the routed subject, as `(property, accessPath)` pairs (`accessPath` is the graph read,
+/// e.g. `_wireGraph.userStore`). The contributor-proxy facade binds each as a Sendable local **outside** its
+/// `@Sendable` thunk (`let userStore = _wireGraph.userStore`), so the thunk captures the borrowed value, not
+/// the non-Sendable graph. Pruned to the reachable set so an unreferenced borrow produces no dead local. The
+/// bootstrap body needs none of this — its borrows are already singleton locals. Empty when `binding` isn't
+/// a bridge proxy, its scope is absent, or the reachable set borrows nothing.
+func reachableBorrows(
+    forBridgeProxy binding: DiscoveredBinding,
+    scopes: [String: SeedScopeEmission]
+) -> [(property: String, accessPath: String)] {
+    guard case .scopeBound(let proxy) = binding,
+        let scopeEntry = proxy.dependencies.first(where: { $0.name == contributorProxyScopeEntryFieldName }),
+        let parsed = parsedContributorScopeEntryThunkType(liftSpecialised(scopeEntry.type, in: binding)),
+        let scope = scopes[parsed.seed]
+    else { return [] }
+    let reachable = reachableBindings(from: identifierName(forType: parsed.subject, key: nil), in: scope)
+    var borrows: [(property: String, accessPath: String)] = []
+    for scopeBinding in scope.topologicalOrder {
+        let property = propertyName(for: scopeBinding)
+        guard scope.borrowedBindingPropertyNames.contains(property),
+            reachable?.contains(scopeBinding.identity) ?? true,
+            case .provider(let provider) = scopeBinding
+        else { continue }
+        borrows.append((property: property, accessPath: provider.accessPath))
+    }
+    return borrows
 }
 
 /// The scope-entry thunk's teardown-closure local name. `wireMVC`-free (this is swift-wire), just a
