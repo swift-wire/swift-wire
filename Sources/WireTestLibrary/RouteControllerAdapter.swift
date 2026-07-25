@@ -12,12 +12,25 @@ import Wire
 @attached(peer)
 package macro RouteController() = #externalMacro(module: "WireTestMacrosImpl", type: "RouteControllerMacro")
 
+/// A factory-injecting marker (stand-in for WireMVC's `@Middleware(key)`). A no-op peer macro so the
+/// attribute compiles; the `.injectsFromGraph` declaration below tells the build plugin to lift the named
+/// `@Factory` onto the annotated subject's contributor proxy as a `_wireFactory_<key>` field.
+@attached(peer)
+package macro RouteMiddleware(_ key: FactoryKey) =
+    #externalMacro(module: "WireTestMacrosImpl", type: "RouteMiddlewareMacro")
+
 /// Binds `@RouteController` to a `.liftsPeersToProxy` directive — a standalone, directly-addressable proxy
-/// contributing to no multibinding (so the fixture needs no contributor protocol or witness). The build
-/// plugin discovers this declaration and synthesises the proxy for every `@RouteController` subject.
+/// contributing to no multibinding (so the fixture needs no contributor protocol or witness) — and
+/// `@RouteMiddleware` to `.injectsFromGraph` (the factory-injection input edge). The build plugin discovers
+/// these and synthesises the proxy (carrying any lifted factories) for every `@RouteController` subject.
 package enum WireTestRouteAdapter {
     package static let routeController = WireAdapterAnnotationV1(
         annotation: "RouteController",
         capability: .liftsPeersToProxy(proxyTypePrefix: "_WireRouteContributor_", proxyScope: .singleton)
+    )
+
+    package static let routeMiddleware = WireAdapterAnnotationV1(
+        annotation: "RouteMiddleware",
+        capability: .injectsFromGraph
     )
 }
