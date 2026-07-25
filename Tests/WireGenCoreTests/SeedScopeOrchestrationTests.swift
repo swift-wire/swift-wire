@@ -402,4 +402,51 @@ struct SeedScopeOrchestrationTests {
         // is lowercased, so `HTTPClient` yields `hTTPClient`.
         #expect(orchestration.borrowedBindingPropertyNames == ["hTTPClient"])
     }
+
+    // MARK: - `@Replaces` on a borrowed app singleton (regression)
+
+    @Test func replacedAppSingletonBorrowResolvesInScopeBuild() throws {
+        // A consumer module's `@Replaces` supersedes an app module's binding for the same slot
+        // (`ServerConfig`), and a seed scope borrows the app singletons. The borrow set is synthesised from
+        // the raw, pre-`@Replaces` singleton set (the override is resolved per-graph, inside
+        // `buildDependencyGraph`), so the replaced slot yields two same-identity borrows. The scope's own
+        // graph build must resolve the override rather than report a spurious duplicate — and it must do so
+        // even though `ServerConfig` is unreachable from the scope (the subject reaches only its seed).
+        // Regression: `syntheticBorrowBinding` used to drop the `@Replaces` marker, leaving neither borrow an
+        // active replacer, so the scope build failed with a duplicate for a slot the scope never touches.
+        func serverConfig(_ accessPath: String, module: String, replaces: Bool) -> DiscoveredBinding {
+            .provider(
+                DiscoveredProvider(
+                    boundType: "ServerConfig",
+                    accessPath: accessPath,
+                    form: .function,
+                    dependencies: [],
+                    genericParameterNames: [],
+                    location: mockLocation("\(accessPath).swift"),
+                    isReplacer: replaces,
+                    originModule: module
+                )
+            )
+        }
+
+        let subject = scopedSingleton(
+            "RequestInfo",
+            seed: "RequestSeed",
+            dependencies: [("request", "RequestSeed")]
+        )
+        let orchestration = orchestrateSeedScope(
+            seedKey: ScopeKey(seed: "RequestSeed"),
+            scopeBindings: [subject],
+            borrowBindings: syntheticSingletonBorrowBindings(from: [
+                serverConfig("serverConfig", module: "AppServer", replaces: false),
+                serverConfig("testServerConfig", module: "AppTests", replaces: true),
+            ]),
+            typealiases: [],
+            module: "AppTests",
+            homeModule: "AppTests"
+        )
+
+        // The override resolved: no duplicate-binding ambiguity for `ServerConfig`.
+        #expect(orchestration.result.outcome.validationErrors == nil)
+    }
 }

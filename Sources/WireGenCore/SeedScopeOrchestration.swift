@@ -250,6 +250,12 @@ private func syntheticBorrowBinding(
         genericParameterNames: [],
         location: singleton.location,
         keyIdentifier: singleton.keyIdentifier,
+        // Carry the `@Replaces` marker through so a seed scope's own graph build resolves the override
+        // over the borrowed singletons. The borrow set is synthesised from the raw, pre-`@Replaces`
+        // singleton set (the override is resolved per-graph, inside `buildDependencyGraph`), so a replaced
+        // app singleton yields two same-identity borrows; without the marker neither is an active replacer,
+        // and the scope build reports a spurious duplicate for a slot the scope may not even reach.
+        isReplacer: singleton.isReplacer,
         originModule: singleton.originModule
     )
 }
