@@ -173,9 +173,15 @@ extension WireGen {
         // axis, so the variant graph shares the production axes.
         let bridgeProxyIdentities = Set(inputs.productionProxies.map { DiscoveredBinding.scopeBound($0).identity })
         var seedScopes = accumulation.seedScopes
-        let appGraphOrder = inputs.defaultOrder.filter {
-            !accumulation.liftedIdentities.contains($0.identity) && !bridgeProxyIdentities.contains($0.identity)
-        }
+        // Drop the mocked/lifted bindings and the contributor proxies, then rewrite any surviving aggregate to
+        // shed its dropped contributors — a `routeContributors` fan-in keeps its non-scoped contributors and
+        // sheds the dropped scoped-subject proxies (the harness registers those from the variant proxies), so
+        // its `[…]` fold references only surviving locals rather than a dropped proxy's bare type.
+        let dropped = accumulation.liftedIdentities.union(bridgeProxyIdentities)
+        let appGraphOrder = droppingRemovedAggregateContributors(
+            from: inputs.defaultOrder.filter { !dropped.contains($0.identity) },
+            dropped: dropped
+        )
         // Re-point this variant's seed + proxy façades' `wireGraph:` parameter *type* to the variant app
         // graph (the borrow name stays `_wireGraph`). A dropped opaque (`some P`) binding drops its axis, so
         // the reference is re-indexed off the filtered order — consistent across the struct, façades, seed

@@ -195,4 +195,66 @@ struct TestingGraphTests {
         // The binding set is unchanged.
         #expect(result.bindings.first?.boundType == "BackendRepository")
     }
+
+    /// A collected-key aggregate over the named contributors, matching the fan-in shape (each contributor's
+    /// dependency identity matches its binding).
+    private func collectedAggregate(_ keyReference: String, element: String, contributors: [String]) -> DiscoveredBinding {
+        .aggregate(
+            DiscoveredAggregate(
+                keyReference: keyReference,
+                collectionType: "[\(element)]",
+                flavour: .collected,
+                contributors: contributors.map {
+                    AggregateContributor(
+                        dependency: DependencyParameter(
+                            name: nil,
+                            type: $0,
+                            kind: .injectInitParameter,
+                            location: mockLocation("\($0).swift")
+                        )
+                    )
+                },
+                location: mockLocation("\(keyReference).swift"),
+                originModule: testModule
+            )
+        )
+    }
+
+    /// The variant-app-graph aggregate rewrite: a `routeContributors`-shaped fan-in sheds the contributors the
+    /// variant dropped (the scoped-subject proxies) and keeps the survivors (the non-scoped controllers), so
+    /// its emitted `[…]` fold references only surviving locals — the wire-mvc real-aggregate case swift-wire's
+    /// own `.liftsPeersToProxy` fixtures never exercise.
+    @Test func variantAggregateShedsDroppedContributorsAndKeepsSurvivors() {
+        let aggregate = collectedAggregate(
+            "RouteKeys.contributors",
+            element: "any RouteContributor",
+            contributors: ["_WireRouteContributor_Surviving", "_WireRouteContributor_Dropped"]
+        )
+        let droppedProxy = scopedController("_WireRouteContributor_Dropped", seed: "RequestSeed", dependencies: [])
+
+        let filtered = droppingRemovedAggregateContributors(from: [aggregate], dropped: [droppedProxy.identity])
+
+        guard case .aggregate(let result) = filtered[0] else {
+            Issue.record("expected an aggregate binding")
+            return
+        }
+        #expect(result.contributors.map(\.dependency.type) == ["_WireRouteContributor_Surviving"])
+    }
+
+    @Test func variantAggregateRewriteIsANoOpWhenNothingDropped() {
+        let aggregate = collectedAggregate(
+            "RouteKeys.contributors",
+            element: "any RouteContributor",
+            contributors: ["_WireRouteContributor_Alpha", "_WireRouteContributor_Beta"]
+        )
+        let other = scopedController("SomethingElse", seed: "RequestSeed", dependencies: [])
+
+        let filtered = droppingRemovedAggregateContributors(from: [aggregate], dropped: [other.identity])
+
+        guard case .aggregate(let result) = filtered[0] else {
+            Issue.record("expected an aggregate binding")
+            return
+        }
+        #expect(result.contributors.map(\.dependency.type) == ["_WireRouteContributor_Alpha", "_WireRouteContributor_Beta"])
+    }
 }
