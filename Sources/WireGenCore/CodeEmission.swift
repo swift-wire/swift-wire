@@ -152,11 +152,12 @@ package func renderWireGraph(
         + seedScopeOrders.flatMap { $0.topologicalOrder }
     lines.append(contentsOf: renderActorWeakSetterExtensions(for: allBindings))
 
-    // Adapter-declared graph conformances — `extension _WireGraph: <Protocol>`
-    // mapping the protocol's members to the default graph's aggregate bindings.
-    appendGraphConformances(
+    // Adapter-declared graph conformances — `extension _WireGraph: <Protocol>` on the default graph and each
+    // variant app graph (`apply(variantGraph)` needs the conformance too).
+    appendAllGraphConformances(
         graphConformances,
-        topologicalOrder: topologicalOrder,
+        defaultOrder: topologicalOrder,
+        variantAppOrders: variantAppOrders,
         multibindingKeys: multibindingKeys,
         into: &lines
     )

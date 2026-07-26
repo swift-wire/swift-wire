@@ -12,8 +12,37 @@
 /// `apply` then works whether or not this particular graph feeds it. The imports the
 /// referenced protocol and element types need are collected upstream (a conformance is
 /// an import source, like a binding — see `WireGen`).
+/// Emit the adapter-declared graph conformances on the default graph and on each variant app graph — the
+/// variant's aggregate carries the same key (only its dropped contributors are shed), so the member mapping
+/// is identical apart from the struct name, and `apply(variantGraph)` needs the conformance just as the
+/// default graph does.
+func appendAllGraphConformances(
+    _ conformances: [DiscoveredGraphConformance],
+    defaultOrder: [DiscoveredBinding],
+    variantAppOrders: [String: [DiscoveredBinding]],
+    multibindingKeys: [DiscoveredMultibindingKey],
+    into lines: inout [String]
+) {
+    appendGraphConformances(
+        conformances,
+        topologicalOrder: defaultOrder,
+        multibindingKeys: multibindingKeys,
+        into: &lines
+    )
+    for (name, order) in variantAppOrders.sorted(by: { $0.key < $1.key }) {
+        appendGraphConformances(
+            conformances,
+            structName: "_\(name)WireGraph",
+            topologicalOrder: order,
+            multibindingKeys: multibindingKeys,
+            into: &lines
+        )
+    }
+}
+
 func appendGraphConformances(
     _ conformances: [DiscoveredGraphConformance],
+    structName: String = "_WireGraph",
     topologicalOrder: [DiscoveredBinding],
     multibindingKeys: [DiscoveredMultibindingKey],
     into lines: inout [String]
@@ -37,7 +66,7 @@ func appendGraphConformances(
 
     for conformance in conformances {
         lines.append("")
-        lines.append("extension _WireGraph: \(conformance.protocolName) {")
+        lines.append("extension \(structName): \(conformance.protocolName) {")
         for member in conformance.members {
             if let aggregate = aggregatesByKey[member.keyReference] {
                 lines.append(
