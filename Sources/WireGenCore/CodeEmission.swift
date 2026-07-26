@@ -40,6 +40,10 @@ package func renderWireGraph(
     imports: [String],
     topologicalOrder: [DiscoveredBinding],
     containerTopologicalOrders: [String: [DiscoveredBinding]] = [:],
+    // One entry per `TestingKey` that emits a variant app graph: `<Variant>` → `_<Variant>WireGraph` +
+    // `Wire.bootstrap<Variant>()`, over the variant's topological order (production minus the `@BindType`'d/
+    // lifted bindings + the contributor proxies). Emitted with the same machinery as container graphs.
+    variantAppOrders: [String: [DiscoveredBinding]] = [:],
     seedScopeOrders: [SeedScopeEmission] = [],
     graphConformances: [DiscoveredGraphConformance] = [],
     multibindingKeys: [DiscoveredMultibindingKey] = [],
@@ -91,23 +95,21 @@ package func renderWireGraph(
         entries: &bootstrapEntries
     )
 
-    // Per-container graphs — sorted by container name for deterministic
-    // output. Each gets its own struct + free-function pair following
-    // the same delegation pattern as the default. The free-function
-    // discriminator is the container name so multiple containers don't
-    // collide at module scope.
-    for (containerName, order) in containerTopologicalOrders.sorted(by: { $0.key < $1.key }) {
-        appendStruct(
-            structName: "_\(containerName)WireGraph",
-            bootstrapFunction: "_wireBootstrap\(containerName)",
-            bootstrapMethod: "bootstrap\(containerName)",
-            topologicalOrder: order,
-            seedScopes: seedScopeMap(forParent: "_\(containerName)WireGraph"),
-            existentialPromotions: existentialPromotions,
-            into: &lines,
-            entries: &bootstrapEntries
-        )
-    }
+    // Per-container graphs and per-`TestingKey` variant app graphs — identical delegation shape to the
+    // default (its own struct + `_wireBootstrap<Name>` + `Wire.bootstrap<Name>()`, the name discriminating
+    // them at module scope). Container and variant names are disjoint, so one loop over the merge is safe
+    // and deterministic. A variant graph is over the *dropped* order (production minus the `@BindType`'d/
+    // lifted bindings + contributor proxies), so a mocked eager `@Singleton`/`@Provides` init never runs
+    // under `Wire.bootstrap<Variant>()`; a variant seed façade re-points its `wireGraph:` parameter type
+    // to this graph (`variantAppGraphReference`).
+    appendNamedGraphs(
+        container: containerTopologicalOrders,
+        variant: variantAppOrders,
+        seedScopeMap: { seedScopeMap(forParent: $0) },
+        existentialPromotions: existentialPromotions,
+        into: &lines,
+        entries: &bootstrapEntries
+    )
 
     // Per-seed scope graphs. Each emits a `_<Suffix>WireScope` struct
     // whose `bootstrap(seed:wireGraph:)` takes the externally-owned
@@ -123,10 +125,15 @@ package func renderWireGraph(
         parentGraphBindings["_\(containerName)WireGraph"] = order
     }
     for scope in seedScopeOrders.sorted(by: { $0.identifierSuffix < $1.identifierSuffix }) {
-        let parentGraphTypeReference = openGraphTypeReference(
-            structName: scope.parentGraphType,
-            topologicalOrder: parentGraphBindings[scope.parentGraphType] ?? []
-        )
+        // A variant seed scope's façade takes its variant app graph (`_<Variant>WireGraph<…>`) — dropped
+        // `@BindType`'d/lifted bindings, so their eager inits don't run under the mock — while its borrow
+        // name stays `parentGraphType`'s (`_wireGraph`). Production/keyless scopes use the derived reference.
+        let parentGraphTypeReference =
+            scope.variantAppGraphReference
+            ?? openGraphTypeReference(
+                structName: scope.parentGraphType,
+                topologicalOrder: parentGraphBindings[scope.parentGraphType] ?? []
+            )
         appendSeedScopeStruct(
             scope: scope,
             parentGraphTypeReference: parentGraphTypeReference,
@@ -166,6 +173,35 @@ package func renderWireGraph(
     return lines.joined(separator: "\n")
 }
 
+/// Emit a per-container / per-`TestingKey`-variant graph for each named order — the same struct +
+/// `_wireBootstrap<Name>` + `Wire.bootstrap<Name>()` shape as the default graph, the name discriminating
+/// them at module scope. Container and variant names are disjoint, so the merge is collision-free and
+/// deterministic. A variant order is production minus the dropped (`@BindType`'d/lifted + proxy) bindings,
+/// so a mocked eager binding's init never runs under `Wire.bootstrap<Variant>()`.
+private func appendNamedGraphs(
+    container: [String: [DiscoveredBinding]],
+    variant: [String: [DiscoveredBinding]],
+    seedScopeMap: (String) -> [String: SeedScopeEmission],
+    existentialPromotions: [ExistentialPromotion],
+    into lines: inout [String],
+    entries: inout [BootstrapEntry]
+) {
+    let named = container.merging(variant, uniquingKeysWith: { first, _ in first })
+    for (name, order) in named.sorted(by: { $0.key < $1.key }) {
+        let structName = "_\(name)WireGraph"
+        appendStruct(
+            structName: structName,
+            bootstrapFunction: "_wireBootstrap\(name)",
+            bootstrapMethod: "bootstrap\(name)",
+            topologicalOrder: order,
+            seedScopes: seedScopeMap(structName),
+            existentialPromotions: existentialPromotions,
+            into: &lines,
+            entries: &entries
+        )
+    }
+}
+
 /// Emission-side description of one per-seed scope graph. Mirrors
 /// the orchestration result's relevant fields: the seed type
 /// expression for the bootstrap seed-parameter type, the parent
@@ -199,6 +235,13 @@ package struct SeedScopeEmission: Sendable {
     /// substituted binding resolves to. `nil` is a production scope (seed only), whose emission is
     /// unchanged.
     package let doublesType: String?
+    /// The opaque-erased **variant app graph** type (`_<Variant>WireGraph<…>`) this variant seed scope's
+    /// `bootstrap(seed:wireGraph:doubles:)` façade takes as its `wireGraph:` parameter — set when the key
+    /// emits a variant app graph (production minus the `@BindType`'d/lifted bindings, so their eager inits
+    /// don't run under the mock). Only the façade's parameter *type* re-points; the borrow *name* stays
+    /// `parentGraphType`'s (`_wireGraph`), so the contributor-proxy façades and production façades are
+    /// untouched. `nil` → the façade takes `parentGraphType`'s production graph, as before.
+    package var variantAppGraphReference: String?
 
     package init(
         seedTypeExpression: String,
@@ -208,7 +251,8 @@ package struct SeedScopeEmission: Sendable {
         borrowedBindingPropertyNames: Set<String>,
         edges: [BindingIdentity: [BindingIdentity]] = [:],
         existentialPromotions: [ExistentialPromotion] = [],
-        doublesType: String? = nil
+        doublesType: String? = nil,
+        variantAppGraphReference: String? = nil
     ) {
         self.seedTypeExpression = seedTypeExpression
         self.identifierSuffix = identifierSuffix
@@ -218,6 +262,7 @@ package struct SeedScopeEmission: Sendable {
         self.edges = edges
         self.existentialPromotions = existentialPromotions
         self.doublesType = doublesType
+        self.variantAppGraphReference = variantAppGraphReference
     }
 }
 
@@ -261,92 +306,6 @@ package func openGraphTypeReference(structName: String, topologicalOrder: [Disco
         .map { String($0.boundType.dropFirst("some ".count)) }
     guard !liftedConstraints.isEmpty else { return structName }
     return "\(structName)<" + liftedConstraints.map { "some \($0)" }.joined(separator: ", ") + ">"
-}
-
-/// How one body binds its existential aliases: those whose producer is
-/// constructed here, emitted right after that construction line, and those whose
-/// producer is already in scope — a borrowed singleton, or a captured bootstrap
-/// local — which are bound up front instead, since no construction line will
-/// come along to hang them off.
-struct ExistentialAliasPlan {
-    let afterConstruction: [BindingIdentity: ExistentialPromotion]
-    let upFront: [ExistentialPromotion]
-}
-
-/// Plan one body's existential aliases. `consumers` is the set of identities
-/// actually constructed in that body (already reachability-pruned by the caller):
-/// an alias nothing reads would be an unused local, which Swift warns on. At most
-/// one alias per producer even when several consumers share it — they all derive
-/// the same name from the same identity, so a second would be an invalid
-/// redeclaration. See `ExistentialPromotion`.
-func existentialAliasPlan(
-    from promotions: [ExistentialPromotion],
-    consumers: Set<BindingIdentity>,
-    producersWithLetLine: Set<BindingIdentity>
-) -> ExistentialAliasPlan {
-    let needed = Dictionary(
-        grouping: promotions.filter { consumers.contains($0.consumer) },
-        by: \.producer
-    ).compactMapValues { sharing in
-        // Deterministic pick: consumers may spell the existential differently
-        // (`any P` vs `any  P`) while sharing one alias.
-        sharing.min { $0.existentialType < $1.existentialType }
-    }
-    var afterConstruction: [BindingIdentity: ExistentialPromotion] = [:]
-    var upFront: [ExistentialPromotion] = []
-    for producer in needed.keys.sorted() {
-        guard let alias = needed[producer] else { continue }
-        if producersWithLetLine.contains(producer) {
-            afterConstruction[producer] = alias
-        } else {
-            upFront.append(alias)
-        }
-    }
-    return ExistentialAliasPlan(afterConstruction: afterConstruction, upFront: upFront)
-}
-
-/// The `let anyP: any P = someP` line binding one existential alias, or nothing
-/// when this binding isn't promoted to by anything in the body.
-func existentialAliasLines(
-    _ alias: ExistentialPromotion?,
-    boundTo value: String,
-    indent: String = "    "
-) -> [String] {
-    guard let alias else { return [] }
-    return ["\(indent)let \(alias.aliasName): \(alias.existentialType) = \(value)"]
-}
-
-/// A scope body's alias plan. Both scope bodies — the whole-scope façade and the
-/// per-request thunk — share it: `constructedHere` is whatever that body actually
-/// builds (reachability-pruned for the thunk), and a *borrowed* producer gets no
-/// construction line in either, so its alias lands in `upFront`.
-func scopeExistentialAliasPlan(
-    _ scope: SeedScopeEmission,
-    constructedHere: [DiscoveredBinding]
-) -> ExistentialAliasPlan {
-    existentialAliasPlan(
-        from: scope.existentialPromotions,
-        consumers: Set(constructedHere.map(\.identity)),
-        producersWithLetLine: Set(
-            constructedHere
-                .filter { !scope.borrowedBindingPropertyNames.contains(propertyName(for: $0)) }
-                .map(\.identity)
-        )
-    )
-}
-
-/// The bootstrap body constructs everything it references, so every alias hangs
-/// off the producer it aliases and none needs binding up front.
-private func bootstrapExistentialAliasPlan(
-    _ promotions: [ExistentialPromotion],
-    constructedIn topologicalOrder: [DiscoveredBinding]
-) -> ExistentialAliasPlan {
-    let identities = Set(topologicalOrder.map(\.identity))
-    return existentialAliasPlan(
-        from: promotions,
-        consumers: identities,
-        producersWithLetLine: identities
-    )
 }
 
 private func appendStruct(

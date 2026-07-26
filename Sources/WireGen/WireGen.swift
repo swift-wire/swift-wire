@@ -542,10 +542,16 @@ extension WireGen {
         let seedScopeOrders =
             collectSeedScopeOrders(inputs.seedScopeOrchestrations)
             + testingVariants.flatMap { $0.seedScopes }
+        // One variant app graph per testing key that emits one (a seed-façade, non-opaque-dropping variant).
+        let variantAppOrders = Dictionary(
+            testingVariants.filter { !$0.appGraphOrder.isEmpty }.map { ($0.appGraphName, $0.appGraphOrder) },
+            uniquingKeysWith: { first, _ in first }
+        )
         let generated = renderWireGraph(
             imports: inputs.imports,
             topologicalOrder: inputs.defaultOrder,
             containerTopologicalOrders: inputs.containerOrders,
+            variantAppOrders: variantAppOrders,
             seedScopeOrders: seedScopeOrders,
             graphConformances: inputs.aggregate.graphConformances,
             multibindingKeys: inputs.aggregate.multibindingKeys,
