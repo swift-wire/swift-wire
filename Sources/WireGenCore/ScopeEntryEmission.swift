@@ -166,13 +166,13 @@ func reachableBorrows(
 
 /// The scope-entry thunk's teardown-closure local name. `wireMVC`-free (this is swift-wire), just a
 /// bootstrap-local identifier the thunk returns.
-private let scopeTeardownLocalName = "_wireScopeTeardown"
+let scopeTeardownLocalName = "_wireScopeTeardown"
 
 /// The lines for the scope's teardown closure, emitted inside the scope-entry thunk. Mirrors the graph's
 /// captured `_wireTeardown` (reverse construction order, errors collected not thrown) but scoped to the
 /// seed scope's own `@Teardown` bindings and indented for the thunk body. Always emitted (an empty scope
 /// yields `{ … return errors }` with no calls) so the thunk's return type stays uniform.
-private func scopeTeardownClosureLines(
+func scopeTeardownClosureLines(
     _ scope: SeedScopeEmission,
     local: String,
     reachable: Set<BindingIdentity>?
