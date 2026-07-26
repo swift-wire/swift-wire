@@ -7,7 +7,7 @@ import Testing
 @Suite("BorrowingProxyContributor")
 struct BorrowingProxyContributorTests {
     @Test func variantProxyBorrowsAppSingletonAcrossScopeEntry() async throws {
-        let graph = try await Wire.bootstrap()
+        let graph = try await Wire.bootstrapBorrowFixture_bindMock()
 
         let mock = MockBorrowRepository()
         let doubles = _BorrowFixture_bindMockDoubles(borrowRepository: mock)

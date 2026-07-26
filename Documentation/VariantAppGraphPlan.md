@@ -160,13 +160,30 @@ gate — the first generic keyed subject in the suite.
   seed facade): counter **1**, consumer gets real. `@Replaces`+`@BindType` (#223) still composes. swift-wire
   `swift test` green; SwiftLint 0.
 
-### Phase 2 — re-point **proxy** facades + resolve the route-collation (O1)
+### Phase 2 — re-point **proxy** facades onto the variant graph — **DONE**
 - `renderContributorProxyFacade` takes the variant graph reference; the variant graph omits contributor
-  proxies for variant subjects (extend the drop rule).
-- Migrate the proxy-facade gates: `BindTypeProxyContributor`, `FactoryProxyContributor`,
-  `BorrowingProxyContributor`, `GenericProxyContributor` → build proxies from `Wire.bootstrap<Variant>()`.
-- **Gate:** each proxy facade builds from the variant graph; a proxy subject over an eager `@Singleton(as:T)`
-  dependency does not run `RealT.init` (counter 0); teardown + pruning intact (the H2.2a properties).
+  proxies for variant subjects (the drop rule already filtered `bridgeProxyIdentities`; the phase-1
+  `contributorFacades.isEmpty` guard was lifted, keeping only the `dropsOpaqueAxis` guard for phase 3). The
+  facade already borrows via the `_wireGraph` *parameter instance*, so re-typing that parameter is the whole
+  mechanism (`TestingVariants.buildVariant`: compute `appGraphReference` before the facades, pass it as
+  `facadeParentReference`).
+- Migrated the proxy-facade gates: `BindTypeProxyContributor`, `FactoryProxyContributor`,
+  `BorrowingProxyContributor` → build proxies from `Wire.bootstrap<Variant>()`. `GenericProxyContributor`
+  stays on `Wire.bootstrap()` — its subject drops an *opaque* axis (`dropsOpaqueAxis` fallback), which is
+  phase 3.
+- **Gate (met):** each proxy facade builds from the variant graph; `BindTypeProxyContributor` gained a
+  leak-freedom test — the `@Scopable`-lifted eager `@Singleton` (`ProxyAccountController`) is dropped, so
+  `Wire.bootstrap<Variant>()` runs `RealProxyRepository.init` **0** times vs **1** for keyless; teardown +
+  pruning intact (the H2.2a properties). swift-wire `swift test` green (710); SwiftLint 0.
+
+> **O1 scope refinement (found while building phase 2).** The `routeContributors` fan-in **aggregate** is a
+> *wire-mvc* concept: swift-wire's own in-repo `@RouteController` adapter uses `.liftsPeersToProxy`, so its
+> bridging proxies carry `contributions: []` and there is **no aggregate** in swift-wire's suite to collate.
+> So the swift-wire phase-2 work is purely the facade/graph re-pointing above — dropping the (non-contributing)
+> production proxies strands nothing. The load-bearing collation (path a/b — mixing borrowed production-proxy
+> values with variant-façade calls into `[any RouteContributor]`) only arises once wire-mvc's
+> `.contributesProxy(to: WireMVCKeys.routeContributors)` proxies + keyed `RouteContributor` witness are in play
+> — it lands with **phase 4** (the wire-mvc keyed registration), not here.
 
 ### Phase 3 — the generic subject (bug 2)
 - swift-wire: confirm the generic partial-concretization variant proxy + `_<Key>Doubles` render correctly
