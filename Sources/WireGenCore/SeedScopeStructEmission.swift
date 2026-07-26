@@ -51,6 +51,8 @@ func appendSeedScopeStruct(
         parentGraphTypeReference: parentGraphTypeReference
     )
 
+    let fieldParameterForIdentity = liftedFieldParameters(lift, for: storedBindings, doubles: scope.doublesFields)
+
     // A test-graph variant threads a `doubles` value in alongside the seed and wire graph: the scope
     // holds one or more `@BindType`d bindings whose construction reads `doubles.<field>`, so the bootstrap
     // grows a `doubles:` parameter (internal name `doubles`, matching those access paths). A production
@@ -88,7 +90,7 @@ func appendSeedScopeStruct(
     for binding in storedBindings {
         let property = propertyName(for: binding)
         lines.append(
-            "    let \(property): \(wireGraphFieldType(for: binding, liftedParameterForIdentity: lift.parameterForIdentity))"
+            "    let \(property): \(wireGraphFieldType(for: binding, liftedParameterForIdentity: fieldParameterForIdentity))"
         )
     }
     lines.append("}")
@@ -154,6 +156,31 @@ func appendSeedScopeStruct(
     }.joined(separator: ", ")
     lines.append("    return \(structName)(\(returnArgs))")
     lines.append("}")
+}
+
+/// Merge the axis lift's `T0` map with concrete spellings for lifted opaque mocked bindings. A
+/// `doubles.<field>`-sourced `some P` binding has no parent axis to thread as a `T0` parameter, and its
+/// double is the concrete `Mock` — so `wireGraphFieldType` spells both the lifted binding's own field and
+/// any generic consumer's parameter (`Controller<Mock>`) with the concrete mock type. The concrete entries
+/// add no generic-clause parameter (a fully-concretized slot needs none).
+private func liftedFieldParameters(
+    _ lift: SeedScopeLift,
+    for storedBindings: [DiscoveredBinding],
+    doubles doublesFields: [DoublesField]
+) -> [String: String] {
+    let mockTypeForField = Dictionary(
+        doublesFields.map { ($0.name, $0.mockType) },
+        uniquingKeysWith: { first, _ in first }
+    )
+    var merged = lift.parameterForIdentity
+    for binding in storedBindings where binding.boundType.hasPrefix("some ") {
+        guard case .provider(let provider) = binding, provider.accessPath.hasPrefix("doubles.") else { continue }
+        let field = String(provider.accessPath.dropFirst("doubles.".count))
+        if let mockType = mockTypeForField[field] {
+            merged[canonicalTypeName(binding.boundType)] = mockType
+        }
+    }
+    return merged
 }
 
 /// Borrowed-singleton bindings get inlined at their consumers' arg sites rather than declared as locals —
