@@ -3,21 +3,30 @@ import Testing
 /// H2.2a "B" gate — `@BindType` as a true complete-replacement. The eager `@BindType`'d binding (`any
 /// EagerWidget`, backed by `RealEagerWidget.init`'s side-effect) is DROPPED from the variant app graph, so
 /// `Wire.bootstrapEagerFixture_bindMock()` never constructs it; the keyless `Wire.bootstrap()` keeps it. The
-/// structural drop is asserted via the graph's deterministic `introspect()` (the global side-effect counter
-/// can't be isolated — every `Wire.bootstrap()` across the parallel suite bumps it — but a binding absent
-/// from the graph is never constructed, which is exactly "its `init` doesn't run"). The variant scope then
-/// resolves the consumer to the mock; the keyless scope to the real.
+/// gate asserts the side-effect *directly* via a task-local-scoped init counter (`0` under the variant, `1`
+/// under keyless), with the graph's deterministic `introspect()` presence/absence as a complementary check.
+/// The variant scope then resolves the consumer to the mock; the keyless scope to the real.
 @Suite("EagerSingletonBindType")
 struct EagerSingletonBindTypeTests {
     @Test func eagerBindTypedBindingIsDroppedFromTheVariantAppGraph() async throws {
-        // The variant app graph = production minus the `@BindType`'d `any EagerWidget` — so
-        // `_wireBootstrapEagerFixture_bindMock()` never calls the provider, and `RealEagerWidget.init` (its
-        // side-effect) never runs under the variant.
-        let variantGraph = try await Wire.bootstrapEagerFixture_bindMock()
+        // The variant app graph = production minus the `@BindType`'d `any EagerWidget`, so
+        // `_wireBootstrapEagerFixture_bindMock()` never calls the provider — the real init's side-effect
+        // does NOT run under the variant. Assert that directly via the task-local probe (0 inits), with
+        // the structural `introspect()` absence as a complementary check.
+        let variantInits = EagerInitCounter()
+        let variantGraph = try await EagerInitProbe.$current.withValue(variantInits) {
+            try await Wire.bootstrapEagerFixture_bindMock()
+        }
+        #expect(variantInits.count == 0)
         #expect(!variantGraph.introspect().bindings.contains { $0.type == "any EagerWidget" })
 
-        // The keyless production graph keeps it (constructed at app bootstrap; the production suite needs it).
-        let productionGraph = try await Wire.bootstrap()
+        // The keyless production graph constructs it once at app bootstrap (the production suite needs it) —
+        // the real init's side-effect DOES run.
+        let keylessInits = EagerInitCounter()
+        let productionGraph = try await EagerInitProbe.$current.withValue(keylessInits) {
+            try await Wire.bootstrap()
+        }
+        #expect(keylessInits.count == 1)
         #expect(productionGraph.introspect().bindings.contains { $0.type == "any EagerWidget" })
 
         // Variant scope-entry → the consumer resolves to the supplied mock.

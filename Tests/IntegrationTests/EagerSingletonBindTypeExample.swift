@@ -11,15 +11,25 @@ protocol EagerWidget: Sendable {
     func label() -> String
 }
 
-/// Bumped by `RealEagerWidget.init` — the observable side-effect (a CouchDB connect, a registry register).
-/// The gate proves it can't run under the variant *structurally* (the binding is dropped from the variant
-/// app graph, via `introspect()`), rather than by an absolute counter — the global counter can't be isolated
-/// because every `Wire.bootstrap()` across the parallel suite bumps it.
-let realEagerWidgetInits = Atomic<Int>(0)
+/// Counts `RealEagerWidget.init`s (the observable side-effect — a CouchDB connect, a registry register).
+/// A reference-type counter so the `@TaskLocal` can carry it: `Atomic` is `~Copyable` and a task-local
+/// (copied into child tasks) can't hold one, so the atomic lives behind a `final class` reference.
+final class EagerInitCounter: Sendable {
+    private let value = Atomic<Int>(0)
+    func increment() { value.add(1, ordering: .relaxed) }
+    var count: Int { value.load(ordering: .relaxed) }
+}
 
-/// Its `init` records — the observable side-effect that must not run under the mocked variant.
+/// Task-local-scoped so it's isolated in the parallel suite: a bootstrap that binds a counter tallies only
+/// its own `RealEagerWidget.init`s; an unrelated `Wire.bootstrap()` elsewhere (probe unbound → `nil`) doesn't
+/// touch it. That lets the gate assert the side-effect *directly* — init count `0` under the variant.
+enum EagerInitProbe {
+    @TaskLocal static var current: EagerInitCounter?
+}
+
+/// Its `init` records into the current probe — the observable side-effect that must not run under the mock.
 final class RealEagerWidget: EagerWidget {
-    init() { realEagerWidgetInits.add(1, ordering: .relaxed) }
+    init() { EagerInitProbe.current?.increment() }
     func label() -> String { "real" }
 }
 
