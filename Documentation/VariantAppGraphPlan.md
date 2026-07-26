@@ -222,7 +222,14 @@ registered by wire-mvc from the variant proxies (path b / hand-assembly — conf
 against wire-mvc). Unit-tested in `TestingGraphTests` (swift-wire has no `.contributesProxy` integration
 fixture; wire-mvc is the integration proof).
 
-**Remaining (wire-mvc repo, after the swift-wire prerequisite merges + the pin bumps):**
+**Prerequisite 2 — swift-wire variant graph conformance (DONE, found during wire-mvc integration).**
+`WireMVC.apply(graph)` requires the graph conform to `WireMVCComposable` (surfacing `routeContributors` +
+`services`). swift-wire emitted the adapter-declared graph conformances (`appendGraphConformances`) only on the
+default `_WireGraph`, so `apply(variantGraph)` failed to compile. Fix: `appendAllGraphConformances` also emits
+`extension _<Variant>WireGraph: <Protocol>` for each variant graph — the aggregate field name is unchanged
+(only its dropped contributors are shed), so the member mapping is identical apart from the struct name.
+
+**Remaining (wire-mvc repo — DONE + validated locally, awaiting the prerequisite-2 merge + pin bump):**
 - The keyed `.wiremvc(_:)` factory's `let graph = try await Wire.bootstrap()` (from `bootstrapBuildLines`,
   keyed call site only) becomes `Wire.bootstrap<Variant>()`, and `graph` is now `_<Variant>WireGraph`; the
   variant proxy facades take it. Keyless `.wiremvc()` + `@main` keep `Wire.bootstrap()`.
