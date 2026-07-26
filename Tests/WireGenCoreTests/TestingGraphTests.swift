@@ -198,7 +198,11 @@ struct TestingGraphTests {
 
     /// A collected-key aggregate over the named contributors, matching the fan-in shape (each contributor's
     /// dependency identity matches its binding).
-    private func collectedAggregate(_ keyReference: String, element: String, contributors: [String]) -> DiscoveredBinding {
+    private func collectedAggregate(
+        _ keyReference: String,
+        element: String,
+        contributors: [String]
+    ) -> DiscoveredBinding {
         .aggregate(
             DiscoveredAggregate(
                 keyReference: keyReference,
@@ -255,6 +259,8 @@ struct TestingGraphTests {
             Issue.record("expected an aggregate binding")
             return
         }
-        #expect(result.contributors.map(\.dependency.type) == ["_WireRouteContributor_Alpha", "_WireRouteContributor_Beta"])
+        #expect(
+            result.contributors.map(\.dependency.type) == ["_WireRouteContributor_Alpha", "_WireRouteContributor_Beta"]
+        )
     }
 }
