@@ -94,6 +94,35 @@ package func renderDoublesStruct(typeName: String, fields: [DoublesField]) -> St
     return lines.joined(separator: "\n")
 }
 
+/// Rewrite a variant app graph's aggregate bindings to drop the contributors the variant removed from the
+/// graph — the `@BindType`'d/lifted bindings and the contributor proxies. A production aggregate's fan-in
+/// lists every contributor by graph edge; the emitted `[a, b, …]` fold references each contributor's local.
+/// When the variant drops a contributor's binding, that local no longer exists (the reference resolves to the
+/// dropped type itself), so the fold won't compile. Keeping only the surviving contributors leaves the
+/// aggregate valid — a `routeContributors` multibinding keeps its non-scoped contributors and sheds the
+/// dropped scoped-subject proxies, which the test harness registers separately from the variant proxies.
+package func droppingRemovedAggregateContributors(
+    from order: [DiscoveredBinding],
+    dropped: Set<BindingIdentity>
+) -> [DiscoveredBinding] {
+    order.map { binding in
+        guard case .aggregate(let aggregate) = binding else { return binding }
+        let kept = aggregate.contributors.filter { !dropped.contains($0.dependency.identity) }
+        guard kept.count != aggregate.contributors.count else { return binding }
+        return .aggregate(
+            DiscoveredAggregate(
+                keyReference: aggregate.keyReference,
+                collectionType: aggregate.collectionType,
+                flavour: aggregate.flavour,
+                builderTypeName: aggregate.builderTypeName,
+                contributors: kept,
+                location: aggregate.location,
+                originModule: aggregate.originModule
+            )
+        )
+    }
+}
+
 // MARK: - Phase 2 — the `@Scopable` cascade
 
 /// One app-scoped hop on the path from a `@BindType`d binding up to a seeded-scope

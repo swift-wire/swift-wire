@@ -208,10 +208,32 @@ The `dropsOpaqueAxis` guard is lifted: every variant now emits its app graph, dr
   sorting *before* the mocked one — is a wire-mvc gate.
 
 ### Phase 4 — the wire-mvc contract (keyed factory → `Wire.bootstrap<Variant>()`)
+
+**Prerequisite — swift-wire aggregate filter (DONE, the O1 collation that phase 2 mis-scoped).** Building the
+variant graph against wire-mvc's *real* `routeContributors` aggregate revealed the go/no-go: the variant graph
+drops the scoped-subject proxies, but the inherited aggregate binding still listed them, so its emitted
+`[…] as [any RouteContributor]` fold referenced dropped locals (they resolve to the proxy *type* — "cannot
+convert `_WireRouteContributor_NotesController.Type` to `any RouteContributor`"). swift-wire's own
+`.liftsPeersToProxy` fixtures (`contributions: []`) have no aggregate, so the suite never caught this — the gap
+that let phase 2 conclude "no swift-wire change." Fix: `droppingRemovedAggregateContributors` (TestingGraph.swift)
+rewrites each surviving `.aggregate` in the variant order to shed contributors whose identity was dropped, so
+`routeContributors` keeps only the **non-scoped** controllers (e.g. `HelloController`). The scoped set is
+registered by wire-mvc from the variant proxies (path b / hand-assembly — confirmed compiling end-to-end
+against wire-mvc). Unit-tested in `TestingGraphTests` (swift-wire has no `.contributesProxy` integration
+fixture; wire-mvc is the integration proof).
+
+**Remaining (wire-mvc repo, after the swift-wire prerequisite merges + the pin bumps):**
 - The keyed `.wiremvc(_:)` factory's `let graph = try await Wire.bootstrap()` (from `bootstrapBuildLines`,
   keyed call site only) becomes `Wire.bootstrap<Variant>()`, and `graph` is now `_<Variant>WireGraph`; the
   variant proxy facades take it. Keyless `.wiremvc()` + `@main` keep `Wire.bootstrap()`.
-- Resolve O1: keyed route registration assembles from variant proxies as needed.
+- O1 route registration (path b): hand-assemble the scoped routes from the variant proxies. Emit a keyed
+  `RouteContributor` witness on the variant proxy type; register the variant proxies onto the builder; the
+  variant graph's `apply` covers only the surviving non-scoped controllers. Retire the production-witness
+  `@TaskLocal` variant-proxy branch (the variant graph selects structurally); the per-request doubles channel
+  (`TestBindStore` + header) stays.
+- bug 2a — `@TaskLocal`/witness box type spelled from the facade's generic return; bug 2b — `_<Key>Doubles(...)`
+  call in WireGen's sorted-by-field-name order. Add `variantGraphTypeName`/`variantBootstrapMethodName` to
+  wire-mvc's `TestingKeyDiscovery`.
 - **Gate:** wire-mvc-examples mocked suite — the eager overlay `@Singleton` (CouchDB-style) `init` does not
   run under `@Suite(.wiremvc(key))`; the real/keyless suite still constructs it. Existing keyed harness
   tests + the example app stay green.
