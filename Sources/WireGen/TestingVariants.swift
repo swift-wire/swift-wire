@@ -27,8 +27,8 @@ extension WireGen {
         /// and its topological order = production default order MINUS the bindings the variant reconstructs
         /// per scope entry (the `@BindType`'d/lifted mocked eager `@Singleton`s + `@Scopable` hops) and the
         /// contributor proxies (rebuilt by façades). Empty order → no variant app graph is emitted for this
-        /// key (a proxy-carrying or opaque-axis-dropping variant, deferred to a later phase); its seed façades
-        /// keep the production `_WireGraph`.
+        /// key (an opaque-axis-dropping variant, deferred to a later phase); its seed + proxy façades keep the
+        /// production `_WireGraph`.
         let appGraphName: String
         let appGraphOrder: [DiscoveredBinding]
     }
@@ -163,44 +163,45 @@ extension WireGen {
         guard !accumulation.doublesFields.isEmpty || !accumulation.failures.isEmpty || !diagnostics.isEmpty
         else { return nil }
 
-        let contributorFacades = buildVariantContributorFacades(
-            seedScopes: accumulation.seedScopes,
-            productionProxies: inputs.productionProxies,
-            variantName: variantName,
-            doublesType: doublesType,
-            parentGraphTypeReference: inputs.parentGraphTypeReference
-        )
-
-        // Phase 1 emits a variant app graph = the production default order MINUS the lifted identities
-        // (mocked eager singletons + `@Scopable` hops the variant reconstructs per scope entry, so their
-        // `init` never runs under `Wire.bootstrap<Variant>()`) and every contributor proxy (their scope-entry
-        // thunks are built from the production seed scopes, which the variant graph doesn't host; proxies are
-        // rebuilt by the variant façades). It is emitted only when this is safe in Phase 1:
-        //   • the variant proxies no routes (`contributorFacades.isEmpty`) — a route-carrying variant needs
-        //     its route collation reworked onto the variant graph (Phase 2/wire-mvc); and
-        //   • no dropped binding is opaque (`some P`) — dropping an opaque axis strands it in the seed
-        //     scope's lift (the generic-subject re-indexing is a later phase). Existential/concrete mocked
-        //     bindings drop no axis, so the variant graph shares the production axes.
-        // Otherwise the order is empty and the key's seed façades keep the production `_WireGraph`.
+        // The variant app graph = the production default order MINUS the lifted identities (mocked eager
+        // singletons + `@Scopable` hops the variant reconstructs per scope entry, so their `init` never runs
+        // under `Wire.bootstrap<Variant>()`) and every contributor proxy (rebuilt by the variant façades
+        // against the variant graph — the production proxies' scope-entry thunks borrow dropped bindings). It
+        // is emitted unless a dropped binding is opaque (`some P`): dropping an opaque axis re-indexes the
+        // variant graph's generics (the generic-subject case is a later phase), so such a variant keeps the
+        // production `_WireGraph` for its seed + proxy façades. Existential/concrete mocked bindings drop no
+        // axis, so the variant graph shares the production axes.
         let bridgeProxyIdentities = Set(inputs.productionProxies.map { DiscoveredBinding.scopeBound($0).identity })
         let dropsOpaqueAxis = inputs.defaultOrder.contains {
             accumulation.liftedIdentities.contains($0.identity) && $0.boundType.hasPrefix("some ")
         }
         var seedScopes = accumulation.seedScopes
         var appGraphOrder: [DiscoveredBinding] = []
-        if contributorFacades.isEmpty && !dropsOpaqueAxis {
+        // The graph type the seed + proxy façades borrow: the variant app graph when one is emitted, else the
+        // production `_WireGraph` (the opaque-axis fallback).
+        var facadeParentReference = inputs.parentGraphTypeReference
+        if !dropsOpaqueAxis {
             appGraphOrder = inputs.defaultOrder.filter {
                 !accumulation.liftedIdentities.contains($0.identity) && !bridgeProxyIdentities.contains($0.identity)
             }
-            // Re-point this variant's seed façades' `wireGraph:` parameter *type* to the variant app graph
-            // (the borrow name stays `_wireGraph`). The variant graph shares the production axes (no opaque
-            // drop), so the opaque-erased reference is consistent across the struct, façade, and borrows.
+            // Re-point this variant's seed + proxy façades' `wireGraph:` parameter *type* to the variant app
+            // graph (the borrow name stays `_wireGraph`). The variant graph shares the production axes (no
+            // opaque drop), so the opaque-erased reference is consistent across the struct, façades, and borrows.
             let appGraphReference = openGraphTypeReference(
                 structName: "_\(variantName)WireGraph",
                 topologicalOrder: appGraphOrder
             )
+            facadeParentReference = appGraphReference
             for index in seedScopes.indices { seedScopes[index].variantAppGraphReference = appGraphReference }
         }
+
+        let contributorFacades = buildVariantContributorFacades(
+            seedScopes: seedScopes,
+            productionProxies: inputs.productionProxies,
+            variantName: variantName,
+            doublesType: doublesType,
+            parentGraphTypeReference: facadeParentReference
+        )
 
         return TestingVariant(
             doublesStruct: renderDoublesStruct(

@@ -7,7 +7,7 @@ import Testing
 @Suite("FactoryProxyContributor")
 struct FactoryProxyContributorTests {
     @Test func factoryCarryingProxyEntersScopeWithDoubles() async throws {
-        let graph = try await Wire.bootstrap()
+        let graph = try await Wire.bootstrapFactoryProxyFixture_bindMock()
 
         let mock = MockFactoryProxyRepository()
         let doubles = _FactoryProxyFixture_bindMockDoubles(factoryProxyRepository: mock)

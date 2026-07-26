@@ -14,6 +14,21 @@ import WireTestLibrary
 /// properties the shipped seed-scope *facade* loses: (a) the mock is read at the lifted singleton's `init`,
 /// (b) the returned teardown runs, and (c) a sibling seed-scoped subject sharing the seed is not constructed.
 
+/// Counts `RealProxyRepository` constructions — the phase-2 eager-singleton leak probe. Under
+/// `Wire.bootstrap()` the eager `ProxyAccountController` forces one construction at app bootstrap; under
+/// `Wire.bootstrap<Variant>()` the `@Scopable`-lifted controller is dropped from the variant app graph, so
+/// the real repository is never constructed. Task-local-scoped for the parallel suite (see
+/// `EagerSingletonBindTypeExample`).
+final class ProxyInitCounter: Sendable {
+    private let value = Atomic<Int>(0)
+    func increment() { value.add(1, ordering: .relaxed) }
+    var count: Int { value.load(ordering: .relaxed) }
+}
+
+enum ProxyInitProbe {
+    @TaskLocal static var current: ProxyInitCounter?
+}
+
 /// Seed value for the request scope — carries an id.
 struct ProxyRequestSeed: Sendable {
     let id: String
@@ -24,8 +39,11 @@ protocol ProxyRepository: Sendable {
     func tag(_ id: String) -> String
 }
 
-/// The production binding — replaced by `MockProxyRepository` under the key.
+/// The production binding — replaced by `MockProxyRepository` under the key. Its `init` records into the
+/// leak probe: constructed once under `Wire.bootstrap()` (forced by the eager controller), never under the
+/// variant graph.
 final class RealProxyRepository: ProxyRepository {
+    init() { ProxyInitProbe.current?.increment() }
     func tag(_ id: String) -> String { "real:\(id)" }
 }
 
