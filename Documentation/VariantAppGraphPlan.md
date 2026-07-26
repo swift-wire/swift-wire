@@ -185,16 +185,27 @@ gate — the first generic keyed subject in the suite.
 > `.contributesProxy(to: WireMVCKeys.routeContributors)` proxies + keyed `RouteContributor` witness are in play
 > — it lands with **phase 4** (the wire-mvc keyed registration), not here.
 
-### Phase 3 — the generic subject (bug 2)
-- swift-wire: confirm the generic partial-concretization variant proxy + `_<Key>Doubles` render correctly
-  against the variant graph (dropped axis). Likely no swift-wire code change beyond phase 1–2 (the facade
-  already erases correctly); **add a swift-wire fixture** with a generic `@Scoped(seed:)` subject
-  `<Repository, Manager>`, `@BindType(Repository, Mock)`, to lock the emitted names/axes.
-- wire-mvc: fix (a) — the `@TaskLocal` box type spelled from the facade's generic return; (b) — emit the
-  `_<Key>Doubles(...)` call in the canonical (WireGen) field order.
-- **Gate:** a wire-mvc keyed suite over a generic controller `MeController<Repository, Manager>` with
-  `@BindType(Repository, Mock)` and a **second** non-mocked backend whose fields sort *before* the mocked
-  one (to prove field order) — compiles, the `@TaskLocal` holds the proxy, the mock reaches the subject.
+### Phase 3 — the generic subject / opaque-axis drop — **swift-wire DONE**
+The `dropsOpaqueAxis` guard is lifted: every variant now emits its app graph, dropping an opaque
+(`some P`) mocked binding and **re-indexing** its remaining opaque axes (`appendStruct` +
+`openGraphTypeReference` derive axes from the filtered order, so this is automatic).
+- **A real swift-wire fix was needed** (the plan's "likely no code change" was wrong): a lifted opaque
+  mocked binding is `doubles.<field>`-sourced (a concrete `Mock`) and has **no parent axis to thread as a
+  `T0`**, so the seed scope can't spell it `some P` (an illegal stored-property type). Fix in
+  `SeedScopeStructEmission.liftedFieldParameters`: map the lifted opaque slot → its concrete mock type in the
+  `wireGraphFieldType` spelling map, so both the lifted binding's field and any generic consumer's parameter
+  spell concretely (`GenSeedConsumer<MockGenBackend>`, `let someGenBackend: MockGenBackend`). The map is
+  threaded via a new `SeedScopeEmission.doublesFields`. The binding keeps its opaque *identity* (resolution
+  matches the generic param against `some P` — concretizing the identity breaks it with "no binding produces
+  R"); only the *spelling* concretizes. Adds no generic-clause parameter.
+- Migrated `GenericProxyContributor` onto `Wire.bootstrap<Variant>()` (shape 1 full concretization
+  `Controller<Mock>` + shape 2 partial `Controller<Mock, T0>`); added `GenericSeedFacadeBindType` (a generic
+  `@Scoped(seed:)` subject over an opaque `@BindType`'d backend, seed-façade path) to lock the non-proxy
+  entry. swift-wire `swift test` green (711); SwiftLint 0.
+- **wire-mvc (separate repo, lands with phase 4):** fix (a) — the `@TaskLocal` box type spelled from the
+  facade's generic return; (b) — emit the `_<Key>Doubles(...)` call in the canonical (WireGen, sorted-by-name)
+  field order. The gate — a wire-mvc keyed suite over a generic controller with a second non-mocked backend
+  sorting *before* the mocked one — is a wire-mvc gate.
 
 ### Phase 4 — the wire-mvc contract (keyed factory → `Wire.bootstrap<Variant>()`)
 - The keyed `.wiremvc(_:)` factory's `let graph = try await Wire.bootstrap()` (from `bootstrapBuildLines`,

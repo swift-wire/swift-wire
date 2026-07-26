@@ -235,6 +235,12 @@ package struct SeedScopeEmission: Sendable {
     /// substituted binding resolves to. `nil` is a production scope (seed only), whose emission is
     /// unchanged.
     package let doublesType: String?
+    /// The variant's doubles fields (slot-identity name + concrete `Mock` type) this scope substitutes. Used
+    /// to spell a **lifted opaque** (`some P`) mocked binding concretely: unlike a borrowed opaque axis
+    /// (threaded as a scope generic parameter `T0`), a lifted one has no parent axis to thread, and its
+    /// double is the concrete `Mock` — so its stored field and any generic consumer's parameter spell the
+    /// concrete mock type. Empty for a production scope or a variant with no opaque mocked binding.
+    package let doublesFields: [DoublesField]
     /// The opaque-erased **variant app graph** type (`_<Variant>WireGraph<…>`) this variant seed scope's
     /// `bootstrap(seed:wireGraph:doubles:)` façade takes as its `wireGraph:` parameter — set when the key
     /// emits a variant app graph (production minus the `@BindType`'d/lifted bindings, so their eager inits
@@ -252,6 +258,7 @@ package struct SeedScopeEmission: Sendable {
         edges: [BindingIdentity: [BindingIdentity]] = [:],
         existentialPromotions: [ExistentialPromotion] = [],
         doublesType: String? = nil,
+        doublesFields: [DoublesField] = [],
         variantAppGraphReference: String? = nil
     ) {
         self.seedTypeExpression = seedTypeExpression
@@ -262,6 +269,7 @@ package struct SeedScopeEmission: Sendable {
         self.edges = edges
         self.existentialPromotions = existentialPromotions
         self.doublesType = doublesType
+        self.doublesFields = doublesFields
         self.variantAppGraphReference = variantAppGraphReference
     }
 }

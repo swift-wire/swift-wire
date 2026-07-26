@@ -172,28 +172,20 @@ extension WireGen {
         // production `_WireGraph` for its seed + proxy façades. Existential/concrete mocked bindings drop no
         // axis, so the variant graph shares the production axes.
         let bridgeProxyIdentities = Set(inputs.productionProxies.map { DiscoveredBinding.scopeBound($0).identity })
-        let dropsOpaqueAxis = inputs.defaultOrder.contains {
-            accumulation.liftedIdentities.contains($0.identity) && $0.boundType.hasPrefix("some ")
-        }
         var seedScopes = accumulation.seedScopes
-        var appGraphOrder: [DiscoveredBinding] = []
-        // The graph type the seed + proxy façades borrow: the variant app graph when one is emitted, else the
-        // production `_WireGraph` (the opaque-axis fallback).
-        var facadeParentReference = inputs.parentGraphTypeReference
-        if !dropsOpaqueAxis {
-            appGraphOrder = inputs.defaultOrder.filter {
-                !accumulation.liftedIdentities.contains($0.identity) && !bridgeProxyIdentities.contains($0.identity)
-            }
-            // Re-point this variant's seed + proxy façades' `wireGraph:` parameter *type* to the variant app
-            // graph (the borrow name stays `_wireGraph`). The variant graph shares the production axes (no
-            // opaque drop), so the opaque-erased reference is consistent across the struct, façades, and borrows.
-            let appGraphReference = openGraphTypeReference(
-                structName: "_\(variantName)WireGraph",
-                topologicalOrder: appGraphOrder
-            )
-            facadeParentReference = appGraphReference
-            for index in seedScopes.indices { seedScopes[index].variantAppGraphReference = appGraphReference }
+        let appGraphOrder = inputs.defaultOrder.filter {
+            !accumulation.liftedIdentities.contains($0.identity) && !bridgeProxyIdentities.contains($0.identity)
         }
+        // Re-point this variant's seed + proxy façades' `wireGraph:` parameter *type* to the variant app
+        // graph (the borrow name stays `_wireGraph`). A dropped opaque (`some P`) binding drops its axis, so
+        // the reference is re-indexed off the filtered order — consistent across the struct, façades, seed
+        // lift, and borrows because each derives its axes from this same reference.
+        let appGraphReference = openGraphTypeReference(
+            structName: "_\(variantName)WireGraph",
+            topologicalOrder: appGraphOrder
+        )
+        let facadeParentReference = appGraphReference
+        for index in seedScopes.indices { seedScopes[index].variantAppGraphReference = appGraphReference }
 
         let contributorFacades = buildVariantContributorFacades(
             seedScopes: seedScopes,
@@ -267,6 +259,7 @@ extension WireGen {
                 seedKey: seedKey,
                 scopeBindings: seedSubstituted.bindings + liftedSubstituted.bindings,
                 scopeBorrows: scopeBorrows,
+                doublesFields: scopeDoublesFields,
                 context: context
             ) {
             case .failed(let name, let errors):
@@ -322,6 +315,7 @@ extension WireGen {
         seedKey: ScopeKey,
         scopeBindings: [DiscoveredBinding],
         scopeBorrows: [DiscoveredBinding],
+        doublesFields: [DoublesField],
         context: VariantScopeContext
     ) -> VariantScopeOutcome {
         let orchestration = orchestrateSeedScope(
@@ -355,7 +349,8 @@ extension WireGen {
                 borrowedBindingPropertyNames: orchestration.borrowedBindingPropertyNames,
                 edges: orchestration.result.edges,
                 existentialPromotions: orchestration.result.existentialPromotions,
-                doublesType: context.doublesType
+                doublesType: context.doublesType,
+                doublesFields: doublesFields
             ),
             orchestration.result.existentialPromotions
         )
