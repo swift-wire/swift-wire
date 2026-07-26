@@ -8,8 +8,9 @@ import Testing
 @Suite("BindTypeDoubles")
 struct BindTypeDoublesTests {
     @Test func suppliedMockInstanceFlowsThroughScopeEntry() async throws {
-        // The variant borrows the production app graph; only the seed scope is substituted.
-        let graph = try await Wire.bootstrap()
+        // The variant builds its own app graph (production minus the `@BindType`'d binding); the seed scope
+        // is substituted and borrows the surviving singletons from it.
+        let graph = try await Wire.bootstrapWireDoublesFixture_bindMockRepo()
 
         // The test constructs and holds the mock, then supplies it through the generated doubles struct.
         let mock = MockTodoRepository()

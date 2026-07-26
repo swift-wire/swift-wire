@@ -23,6 +23,14 @@ extension WireGen {
         let existentialPromotions: [ExistentialPromotion]
         let validationFailures: [(name: String, errors: GraphResult.ValidationErrors)]
         let diagnostics: [Diagnostic]
+        /// The variant's own app-graph name (`<Variant>` → `_<Variant>WireGraph` / `Wire.bootstrap<Variant>()`)
+        /// and its topological order = production default order MINUS the bindings the variant reconstructs
+        /// per scope entry (the `@BindType`'d/lifted mocked eager `@Singleton`s + `@Scopable` hops) and the
+        /// contributor proxies (rebuilt by façades). Empty order → no variant app graph is emitted for this
+        /// key (a proxy-carrying or opaque-axis-dropping variant, deferred to a later phase); its seed façades
+        /// keep the production `_WireGraph`.
+        let appGraphName: String
+        let appGraphOrder: [DiscoveredBinding]
     }
 
     /// The production-graph inputs the per-partition accumulation reuses across a testing key's seed
@@ -45,6 +53,9 @@ extension WireGen {
         var promotions: [ExistentialPromotion] = []
         var failures: [(name: String, errors: GraphResult.ValidationErrors)] = []
         var diagnostics: [Diagnostic] = []
+        /// The app-singleton identities the cascade lifts into scopes across this key's seeds — dropped from
+        /// the variant app graph (reconstructed per scope entry), so their `init` never runs there.
+        var liftedIdentities: Set<BindingIdentity> = []
     }
 
     /// Build a variant per discovered `TestingKey` (deduped by reference). The variant reuses the production
@@ -104,7 +115,8 @@ extension WireGen {
             aggregate: aggregate,
             allProductionBindings: allProductionBindings,
             productionProxies: productionProxies,
-            parentGraphTypeReference: parentGraphTypeReference
+            parentGraphTypeReference: parentGraphTypeReference,
+            defaultOrder: defaultOrder
         )
 
         var variants: [TestingVariant] = []
@@ -125,6 +137,8 @@ extension WireGen {
         let allProductionBindings: [DiscoveredBinding]
         let productionProxies: [DiscoveredScopeBoundType]
         let parentGraphTypeReference: String
+        /// The production default-graph topological order — the base the variant app graph drops from.
+        let defaultOrder: [DiscoveredBinding]
     }
 
     /// Build one testing key's variant — its doubles struct, doubles-threaded seed scopes, contributor-proxy
@@ -148,22 +162,58 @@ extension WireGen {
 
         guard !accumulation.doublesFields.isEmpty || !accumulation.failures.isEmpty || !diagnostics.isEmpty
         else { return nil }
+
+        let contributorFacades = buildVariantContributorFacades(
+            seedScopes: accumulation.seedScopes,
+            productionProxies: inputs.productionProxies,
+            variantName: variantName,
+            doublesType: doublesType,
+            parentGraphTypeReference: inputs.parentGraphTypeReference
+        )
+
+        // Phase 1 emits a variant app graph = the production default order MINUS the lifted identities
+        // (mocked eager singletons + `@Scopable` hops the variant reconstructs per scope entry, so their
+        // `init` never runs under `Wire.bootstrap<Variant>()`) and every contributor proxy (their scope-entry
+        // thunks are built from the production seed scopes, which the variant graph doesn't host; proxies are
+        // rebuilt by the variant façades). It is emitted only when this is safe in Phase 1:
+        //   • the variant proxies no routes (`contributorFacades.isEmpty`) — a route-carrying variant needs
+        //     its route collation reworked onto the variant graph (Phase 2/wire-mvc); and
+        //   • no dropped binding is opaque (`some P`) — dropping an opaque axis strands it in the seed
+        //     scope's lift (the generic-subject re-indexing is a later phase). Existential/concrete mocked
+        //     bindings drop no axis, so the variant graph shares the production axes.
+        // Otherwise the order is empty and the key's seed façades keep the production `_WireGraph`.
+        let bridgeProxyIdentities = Set(inputs.productionProxies.map { DiscoveredBinding.scopeBound($0).identity })
+        let dropsOpaqueAxis = inputs.defaultOrder.contains {
+            accumulation.liftedIdentities.contains($0.identity) && $0.boundType.hasPrefix("some ")
+        }
+        var seedScopes = accumulation.seedScopes
+        var appGraphOrder: [DiscoveredBinding] = []
+        if contributorFacades.isEmpty && !dropsOpaqueAxis {
+            appGraphOrder = inputs.defaultOrder.filter {
+                !accumulation.liftedIdentities.contains($0.identity) && !bridgeProxyIdentities.contains($0.identity)
+            }
+            // Re-point this variant's seed façades' `wireGraph:` parameter *type* to the variant app graph
+            // (the borrow name stays `_wireGraph`). The variant graph shares the production axes (no opaque
+            // drop), so the opaque-erased reference is consistent across the struct, façade, and borrows.
+            let appGraphReference = openGraphTypeReference(
+                structName: "_\(variantName)WireGraph",
+                topologicalOrder: appGraphOrder
+            )
+            for index in seedScopes.indices { seedScopes[index].variantAppGraphReference = appGraphReference }
+        }
+
         return TestingVariant(
             doublesStruct: renderDoublesStruct(
                 typeName: doublesType,
                 fields: accumulation.doublesFields.values.sorted { $0.name < $1.name }
             ),
-            seedScopes: accumulation.seedScopes,
-            contributorFacades: buildVariantContributorFacades(
-                seedScopes: accumulation.seedScopes,
-                productionProxies: inputs.productionProxies,
-                variantName: variantName,
-                doublesType: doublesType,
-                parentGraphTypeReference: inputs.parentGraphTypeReference
-            ),
+            seedScopes: seedScopes,
+            contributorFacades: contributorFacades,
             existentialPromotions: accumulation.promotions,
             validationFailures: accumulation.failures,
-            diagnostics: diagnostics
+            diagnostics: diagnostics,
+            appGraphName: variantName,
+            appGraphOrder: appGraphOrder
         )
     }
 
@@ -205,6 +255,8 @@ extension WireGen {
             let scopeDoublesFields = seedSubstituted.doublesFields + liftedSubstituted.doublesFields
             guard !scopeDoublesFields.isEmpty else { continue }
             for field in scopeDoublesFields { accumulation.doublesFields[field.name] = field }
+            // Record the lifted identities — dropped from the variant app graph.
+            accumulation.liftedIdentities.formUnion(cascade.liftedIdentities)
 
             // The lifted app singletons construct *in the scope* — so they leave the borrow set (else a
             // borrow and a scope-bound binding would collide on one identity).

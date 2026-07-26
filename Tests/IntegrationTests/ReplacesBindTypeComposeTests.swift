@@ -9,21 +9,22 @@ import WireTestLibrary
 @Suite("ReplacesBindTypeCompose")
 struct ReplacesBindTypeComposeTests {
     @Test func replacesAndBindTypeComposeWithCorrectPrecedence() async throws {
+        // Keyless scope-entry over the production graph → the @Replaces Fake supersedes the library's real.
         let graph = try await Wire.bootstrap()
-
-        // Keyless scope-entry → the @Replaces Fake supersedes the library's real binding.
         let defaultScope = try await Wire.bootstrapComposeRequestSeedScope(
             seed: ComposeRequestSeed(id: "req-default"),
             wireGraph: graph
         )
         #expect(defaultScope.composeConsumer.label() == "fake")
 
-        // Keyed variant scope-entry → @BindType Mock supersedes on top, in this variant only.
+        // Keyed variant scope-entry over the variant app graph → @BindType Mock supersedes on top, in this
+        // variant only. The variant threads its own graph (the `@BindType`'d ComposeWidget dropped from it).
+        let variantGraph = try await Wire.bootstrapComposeFixture_bindMock()
         let mock = MockComposeWidget()
         let doubles = _ComposeFixture_bindMockDoubles(composeWidget: mock)
         let variantScope = try await Wire.bootstrapComposeFixture_bindMock_ComposeRequestSeedScope(
             seed: ComposeRequestSeed(id: "req-variant"),
-            wireGraph: graph,
+            wireGraph: variantGraph,
             doubles: doubles
         )
         #expect(variantScope.composeConsumer.label() == "mock")

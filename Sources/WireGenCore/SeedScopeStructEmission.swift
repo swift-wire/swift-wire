@@ -34,13 +34,20 @@ func appendSeedScopeStruct(
     // `testContainerWireGraph` can coexist without colliding on the
     // local-variable token inside the bootstrap body.
     let seedLocal = identifierName(forType: scope.seedTypeExpression, key: nil)
+    // The `wireGraph:` parameter's *name* stays `parentGraphType`'s (`_wireGraph`), matching the baked
+    // borrow access paths and the contributor-proxy façade. Its *type* is `parentGraphTypeReference`'s graph
+    // — which for a variant seed scope is the variant app graph (`_<Variant>WireGraph`) rather than
+    // `parentGraphType`'s production `_WireGraph`; for every other scope the reference names `parentGraphType`
+    // itself, so this is unchanged. `parentGraphLifted` (the private function's parameter type) must name the
+    // same graph as the façade's `parentGraphTypeReference`, so the lift keys off the reference's struct name.
     let wireGraphExternal = wireGraphParameterLabel(forType: scope.parentGraphType)
     let wireGraphInternal = wireGraphParameterInternalName(forType: scope.parentGraphType)
+    let parentGraphStructName = String(parentGraphTypeReference.prefix { $0 != "<" })
 
     let lift = seedScopeLift(
         structName: structName,
         storedBindings: storedBindings,
-        parentGraphType: scope.parentGraphType,
+        parentGraphType: parentGraphStructName,
         parentGraphTypeReference: parentGraphTypeReference
     )
 

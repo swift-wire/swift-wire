@@ -8,9 +8,21 @@ import Testing
 @Suite("ScopableCascade")
 struct ScopableCascadeTests {
     @Test func liftedSingletonReadsDoubleAtInit() async throws {
-        // The variant reuses the production app graph; only the seed scope diverges (the controller +
-        // repository are lifted in).
-        let graph = try await Wire.bootstrap()
+        // The variant builds its own app graph — the lifted controller + repository are dropped from it, so
+        // their eager inits don't run at app bootstrap; the seed scope reconstructs them per entry.
+        let graph = try await Wire.bootstrapWireScopableFixture_bindMockRepo()
+
+        // "Registry-style" B proof: the eager `@Singleton AccountController` (whose `init` reads the repo —
+        // the overlay-leak analog of a registry/pool connecting at construction) and its `@BindType`'d
+        // `any AccountRepository` are absent from the variant app graph, so neither is constructed under
+        // `Wire.bootstrapWireScopableFixture_bindMockRepo()`.
+        let variantBindings = graph.introspect().bindings.map(\.type)
+        #expect(!variantBindings.contains("AccountController"))
+        #expect(!variantBindings.contains("any AccountRepository"))
+        // The keyless production graph keeps both (the real suite constructs the eager singleton).
+        let productionBindings = try await Wire.bootstrap().introspect().bindings.map(\.type)
+        #expect(productionBindings.contains("AccountController"))
+        #expect(productionBindings.contains("any AccountRepository"))
 
         // The test constructs and holds the mock, then supplies it through the generated doubles struct.
         let mock = MockAccountRepository()
