@@ -190,7 +190,7 @@ extension WireGen {
     ) -> [Diagnostic] {
         accumulation.diagnostics
             + unmatchedSubstitutions(key.substitutions, against: inputs.allProductionBindings)
-                .map(unmatchedBindTypeDiagnostic)
+            .map(unmatchedBindTypeDiagnostic)
             + unmarkedSeedlessRootDiagnostics(
                 key: key,
                 holdProxies: inputs.holdProxies,
