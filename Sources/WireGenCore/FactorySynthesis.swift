@@ -449,7 +449,8 @@ package func renderVariantFactoryDeclaration(
     let whereClause = renderAssistedConstraints(factory)
     // Each construction argument sources a mocked dep from `doubles.<field>` and a held dep from its field.
     let constructionArguments = factory.dependencies.map { dependency -> String in
-        let value = dependency.name.flatMap { mockedDoublesFields[$0] }.map { "doubles.\($0)" }
+        let value =
+            dependency.name.flatMap { mockedDoublesFields[$0] }.map { "doubles.\($0)" }
             ?? (dependency.name ?? dependency.type)
         return dependency.name.map { "\($0): \(value)" } ?? value
     }.joined(separator: ", ")

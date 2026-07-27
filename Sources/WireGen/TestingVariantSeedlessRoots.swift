@@ -142,15 +142,17 @@ extension WireGen {
         factories: [SynthesizedFactory],
         aggregate: DiscoveryAggregate
     ) -> SeedlessReconstruction? {
-        guard let built = buildReconstructionScope(
-            root: root,
-            key: key,
-            variantName: variantName,
-            doublesType: doublesType,
-            appSingletons: appSingletons,
-            appEdges: appEdges,
-            aggregate: aggregate
-        ) else { return nil }
+        guard
+            let built = buildReconstructionScope(
+                root: root,
+                key: key,
+                variantName: variantName,
+                doublesType: doublesType,
+                appSingletons: appSingletons,
+                appEdges: appEdges,
+                aggregate: aggregate
+            )
+        else { return nil }
 
         // Mock-consuming lifted `@Factory`s on the proxy: each becomes a variant factory the proxy holds in
         // place of the (dropped) production factory, its mocked deps sourced from `create(doubles:)`.
