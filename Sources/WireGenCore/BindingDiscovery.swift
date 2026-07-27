@@ -119,6 +119,8 @@ final class BindingDiscovery: SyntaxVisitor {
     /// `TestingKey` declarations found in this file, each carrying its
     /// `@BindType` substitutions. A test target's variant graph reads these.
     var testingKeys: [DiscoveredTestingKey] = []
+    /// Type names carrying `@TestScopable` — module-global; read by the cascade + seedless reconstruction.
+    var testScopableTypes: Set<String> = []
     /// `@resultBuilder` types found in this file, with their fold result
     /// type — the producer-side result type a `BuilderKey` aggregate has.
     var resultBuilders: [DiscoveredResultBuilder] = []
@@ -149,12 +151,9 @@ final class BindingDiscovery: SyntaxVisitor {
         return .skipChildren
     }
 
-    /// An `#if … #endif` block whose clauses contain only imports — the platform-selection
-    /// idiom (`#if canImport(Glibc) … #elseif canImport(Darwin) …`,
-    /// `#if canImport(FoundationEssentials) … #else import Foundation #endif`) — is captured
-    /// verbatim, guard and all, so the generated file stays valid on every platform. Collecting
-    /// the inner imports unconditionally (the plain `ImportDeclSyntax` path) would emit, e.g.,
-    /// `import Glibc` and `import Darwin` side by side and break the build on both platforms.
+    /// An `#if … #endif` block whose clauses contain only imports (the platform-selection idiom) is captured
+    /// verbatim, guard and all, so the generated file stays valid on every platform — collecting the inner
+    /// imports unconditionally would emit, e.g., `import Glibc` and `import Darwin` side by side.
     /// A block that also holds non-import code falls through to normal traversal, so `#if`-guarded
     /// bindings are still discovered.
     override func visit(_ node: IfConfigDeclSyntax) -> SyntaxVisitorContinueKind {
@@ -179,6 +178,7 @@ final class BindingDiscovery: SyntaxVisitor {
             members: node.memberBlock.members
         )
         recordAdapterUseSites(name: node.name, attributes: node.attributes)
+        recordTestScopable(name: node.name, attributes: node.attributes)
         warnings.append(
             contentsOf: containerWithScopeDiagnostics(
                 nameToken: node.name,
@@ -220,6 +220,7 @@ final class BindingDiscovery: SyntaxVisitor {
             members: node.memberBlock.members
         )
         recordAdapterUseSites(name: node.name, attributes: node.attributes)
+        recordTestScopable(name: node.name, attributes: node.attributes)
         warnings.append(
             contentsOf: containerWithScopeDiagnostics(
                 nameToken: node.name,
@@ -261,6 +262,7 @@ final class BindingDiscovery: SyntaxVisitor {
             members: node.memberBlock.members
         )
         recordAdapterUseSites(name: node.name, attributes: node.attributes)
+        recordTestScopable(name: node.name, attributes: node.attributes)
         warnings.append(
             contentsOf: containerWithScopeDiagnostics(
                 nameToken: node.name,
@@ -307,6 +309,7 @@ final class BindingDiscovery: SyntaxVisitor {
             members: node.memberBlock.members
         )
         recordAdapterUseSites(name: node.name, attributes: node.attributes)
+        recordTestScopable(name: node.name, attributes: node.attributes)
         warnings.append(
             contentsOf: containerWithScopeDiagnostics(
                 nameToken: node.name,

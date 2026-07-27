@@ -47,8 +47,9 @@ enum AccountRepositoryModule {
 }
 
 /// The app-scoped consumer that reads its `@BindType`d dependency **in `init`** — the property Phase 2
-/// exists to mock. As a singleton it is built once at bootstrap in production; `@Scopable` lifts it into the
-/// scope under test so this read sees the per-entry double.
+/// exists to mock. As a singleton it is built once at bootstrap in production; `@TestScopable` lifts it into
+/// the scope under test so this read sees the per-entry double.
+@TestScopable
 @Singleton
 final class AccountController {
     let tag: String
@@ -72,6 +73,5 @@ struct AccountRequestController {
 /// cascade to lift the app-scoped `AccountController` into the scope entered with this key's doubles.
 enum WireScopableFixture {
     @BindType(AccountRepository.self, MockAccountRepository.self)
-    @Scopable(AccountController.self)
     static let bindMockRepo = TestingKey()
 }

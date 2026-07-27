@@ -17,7 +17,8 @@ struct ScopableRouteContributorTests {
         // Seedless entry — the doubles are the only argument (no seed); the controller is rebuilt on demand.
         let (subject, teardown) = try await proxy._wireEnterScope(doubles)
 
-        #expect(subject.tag() == "mock:routed")
+        // The mock reaches the rebuilt subject; the non-mock `AppScopedLog` is borrowed from the variant graph.
+        #expect(subject.tag() == "mock:routed:log")
         #expect(mock.recordedTags == ["routed"])
 
         let errors = await teardown()

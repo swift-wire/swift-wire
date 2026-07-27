@@ -378,27 +378,30 @@ public macro BindType<Slot, Mock>(_ key: BindingKey<Slot>, _ mock: Mock.Type) =
 /// consumer of a `@BindType`d slot — including a dependency the consumer reads in
 /// its own `init`.
 ///
-/// A `@BindType`d slot's double rides the seed, so it only exists per scope
-/// entry. A `@Singleton` consumer captures its dependencies once at bootstrap,
-/// with no scope active, so it would never see the double unless it is rebuilt
-/// per entry too. `@Scopable(Consumer.self)` is the explicit acknowledgment that
-/// the consumer may be lifted into the scope under test — necessary because
-/// making a singleton per-entry can break one that relies on being a singleton
-/// (a cache, a pool, cross-scope state).
+/// A `@BindType`d slot's double rides a per-request scope, so a `@Singleton`
+/// consumer — which captures its dependencies once at bootstrap — would never
+/// see the double unless it is rebuilt per request too. `@TestScopable` is the
+/// explicit acknowledgment that the type may be rebuilt per request under test —
+/// necessary because making a singleton per-request can break one that relies on
+/// being a singleton (a cache, a pool, cross-scope state). It is a property of
+/// the *definition* (is it safe to rebuild, or does it hold global state?), so it
+/// attaches to the type, not to a key.
 ///
-/// Attach it to a `TestingKey` static alongside `@BindType`; WireGen walks the
-/// path from each `@BindType`d binding up to the seeded-scope root(s) and, for
-/// each unmarked app-scoped hop, errors with exactly which `@Scopable` to add:
+/// Attach it to the app-scoped (`@Singleton`) type declaration; WireGen rebuilds
+/// it per request when a `TestingKey`'s `@BindType` mocks a slot it consumes —
+/// lifted into a seed scope if it's an on-path consumer, or reconstructed
+/// seedlessly if it's its own route-contributor root. A generic type marks
+/// cleanly here (`@TestScopable struct C<R>`) where a key-side metatype can't
+/// spell `C.self`. Unmarked consumers get a guided error naming the fix:
 ///
-///     enum MyTests {
-///         @BindType(BackendRepository.self, MockBackendRepository.self)
-///         @Scopable(TodoController.self)
-///         static let testSetup = TestingKey()
-///     }
+///     @TestScopable
+///     @Singleton
+///     @Controller("/todos")
+///     struct TodosController<Repository: TodoRepository> { … }
 ///
-/// Scope-agnostic — *which* seed is the caller's business (an adapter's). Like
-/// `@BindType`, it contributes no code; it's a marker the build plugin
-/// recognises during source scanning, and it lives only in the test graph.
+/// It has effect only under a `TestingKey`'s `@BindType` (a test-only construct),
+/// so a production build never activates it. Like `@BindType`, it contributes no
+/// code; it's a marker the build plugin recognises during source scanning.
 @attached(peer)
-public macro Scopable<T>(_ type: T.Type) =
-    #externalMacro(module: "WireMacrosImpl", type: "ScopableMacro")
+public macro TestScopable() =
+    #externalMacro(module: "WireMacrosImpl", type: "TestScopableMacro")

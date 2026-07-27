@@ -88,8 +88,10 @@ private func seedlessScopeEntryThunkLines(
     doublesType: String
 ) -> [String] {
     // The thunk local is named by the thunk *type*'s identity form (as the bridge path does), so the proxy
-    // construction — which passes `_wireEnterScope: <that local>` — resolves to it.
-    let thunkType = proxy.dependencies.first(where: { $0.name == contributorProxyScopeEntryFieldName })?.type ?? ""
+    // construction — which passes `_wireEnterScope: <that local>` — resolves to it. A generic proxy is a lift
+    // node, so the type is lift-specialised (`Backend` → `some GenAppBackend`) to match the construction's.
+    let rawThunkType = proxy.dependencies.first(where: { $0.name == contributorProxyScopeEntryFieldName })?.type ?? ""
+    let thunkType = liftSpecialised(rawThunkType, in: .scopeBound(proxy))
     let thunkLocal = identifierName(forType: thunkType, key: nil)
     // The subject is the reconstruction scope's terminal binding — the routed controller the proxy wraps.
     let subjectLocal = scope.topologicalOrder.last.map { propertyName(for: $0) } ?? ""
