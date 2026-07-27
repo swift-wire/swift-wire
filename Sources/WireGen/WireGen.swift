@@ -535,7 +535,8 @@ extension WireGen {
         let testingVariants = buildTestingVariants(
             in: inputs.aggregate,
             appEdges: inputs.defaultGraph.edges,
-            defaultOrder: inputs.defaultOrder
+            defaultOrder: inputs.defaultOrder,
+            proxyIdentities: inputs.proxyIdentities
         )
         failIfAnyTestingVariantInvalid(testingVariants)
 

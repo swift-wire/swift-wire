@@ -518,7 +518,7 @@ func propertyName(for binding: DiscoveredBinding) -> String {
 /// than a stripped form (`databasePrimary`) but unambiguous, and the
 /// keyed accessor is rarely the user's primary access path anyway
 /// (keyed bindings usually live behind a consumer).
-func identifierName(forType type: String, key: String?) -> String {
+package func identifierName(forType type: String, key: String?) -> String {
     let typeName = lowerCamelCased(sanitizeIdentifier(type))
     guard let key else { return typeName }
     let keySuffix = upperCamelCased(sanitizeKeyComponents(key))

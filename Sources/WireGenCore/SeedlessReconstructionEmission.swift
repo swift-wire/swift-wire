@@ -72,11 +72,11 @@ private func seedlessProxyTypeReference(_ proxy: DiscoveredScopeBoundType) -> St
     return "\(proxy.typeName)<\(erased.joined(separator: ", "))>"
 }
 
-/// The reconstruction scope keyed for the borrow-reachability helper. The helper keys scopes by seed-type
-/// expression; a seedless scope carries its subject's type there (`SeedScopeEmission.seedTypeExpression`) so
-/// the lookup resolves.
+/// The reconstruction scope keyed for the borrow-reachability helper. That helper parses the proxy's
+/// `_wireEnterScope` type for a scope key; a seedless `(Doubles)` thunk parses to the doubles type as its
+/// (sole) parameter, so the scope is keyed by `doublesType` for the lookup to resolve.
 private func seedlessScopeKey(_ scope: SeedScopeEmission) -> [String: SeedScopeEmission] {
-    [scope.seedTypeExpression: scope]
+    scope.doublesType.map { [$0: scope] } ?? [:]
 }
 
 /// The seedless `_wireEnterScope` thunk body — `{ @Sendable (doubles: Doubles) async throws in … }`
@@ -87,7 +87,10 @@ private func seedlessScopeEntryThunkLines(
     scope: SeedScopeEmission,
     doublesType: String
 ) -> [String] {
-    let thunkLocal = contributorProxyScopeEntryFieldName
+    // The thunk local is named by the thunk *type*'s identity form (as the bridge path does), so the proxy
+    // construction — which passes `_wireEnterScope: <that local>` — resolves to it.
+    let thunkType = proxy.dependencies.first(where: { $0.name == contributorProxyScopeEntryFieldName })?.type ?? ""
+    let thunkLocal = identifierName(forType: thunkType, key: nil)
     // The subject is the reconstruction scope's terminal binding — the routed controller the proxy wraps.
     let subjectLocal = scope.topologicalOrder.last.map { propertyName(for: $0) } ?? ""
 

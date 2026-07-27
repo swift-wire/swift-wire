@@ -233,7 +233,7 @@ package func cascadeLift(
 
 /// The transitive closure reachable from `roots` over `edges` (roots included). A plain BFS the cascade
 /// runs in both directions — downward over the app adjacency, upward over its reverse.
-private func reachable(
+package func reachable(
     from roots: [BindingIdentity],
     over edges: [BindingIdentity: [BindingIdentity]]
 ) -> Set<BindingIdentity> {
@@ -296,7 +296,7 @@ package func unmatchedBindTypeDiagnostic(_ substitution: BindTypeSubstitution) -
 /// type form matches an unkeyed binding whose bound type (opaque prefix
 /// stripped) equals the slot; the keyed form matches a binding carrying the
 /// slot's key. Mirrors how `@Provides` / `@Replaces` identify their slot.
-private func substitutionMatches(_ substitution: BindTypeSubstitution, _ binding: DiscoveredBinding) -> Bool {
+package func substitutionMatches(_ substitution: BindTypeSubstitution, _ binding: DiscoveredBinding) -> Bool {
     if let slotType = substitution.slotType {
         return binding.keyIdentifier == nil && strippedSlotType(binding.boundType) == slotType
     }

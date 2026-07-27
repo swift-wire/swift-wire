@@ -75,13 +75,15 @@ extension WireGen {
     static func buildTestingVariants(
         in aggregate: DiscoveryAggregate,
         appEdges: [BindingIdentity: [BindingIdentity]],
-        defaultOrder: [DiscoveredBinding]
+        defaultOrder: [DiscoveredBinding],
+        proxyIdentities: Set<String>
     ) -> [TestingVariant] {
         // The opaque-erased reused graph type a variant proxy facade borrows from (`_WireGraph`, or
         // `_WireGraph<some P>` when the app graph lifts opaque axes) — the same reference the seed-scope
         // facade names for its `wireGraph:` parameter.
         let parentGraphTypeReference = openGraphTypeReference(structName: "_WireGraph", topologicalOrder: defaultOrder)
         let productionProxies = productionBridgeProxies(in: aggregate)
+        let holdProxies = productionHoldProxies(in: aggregate, proxyIdentities: proxyIdentities)
         // Resolve `@Replaces` per partition *before* deriving the variant, so the variant is built from the
         // same `@Replaces`-resolved set the production graphs use — the replaced (real) binding is gone from
         // every graph, and the `@Replaces` fake is the sole binding a later `@BindType` supersedes. Deriving
@@ -114,7 +116,9 @@ extension WireGen {
             partitionInputs: partitionInputs,
             aggregate: aggregate,
             allProductionBindings: allProductionBindings,
+            appSingletons: defaultSingletons,
             productionProxies: productionProxies,
+            holdProxies: holdProxies,
             parentGraphTypeReference: parentGraphTypeReference,
             defaultOrder: defaultOrder
         )
@@ -135,7 +139,13 @@ extension WireGen {
         let partitionInputs: VariantPartitionInputs
         let aggregate: DiscoveryAggregate
         let allProductionBindings: [DiscoveredBinding]
+        /// The production default-graph app singletons — the set the seedless reconstruction resolves its
+        /// subject, mock(s), hops, and borrows against.
+        let appSingletons: [DiscoveredBinding]
         let productionProxies: [DiscoveredScopeBoundType]
+        /// The production *hold* proxies (`_wireSubject`, over app-`@Singleton` subjects) — the seedless
+        /// reconstruction candidates.
+        let holdProxies: [DiscoveredScopeBoundType]
         let parentGraphTypeReference: String
         /// The production default-graph topological order — the base the variant app graph drops from.
         let defaultOrder: [DiscoveredBinding]
@@ -144,6 +154,32 @@ extension WireGen {
     /// Build one testing key's variant — its doubles struct, doubles-threaded seed scopes, contributor-proxy
     /// artifacts, promotions, validation failures, and diagnostics — or `nil` when the key touches nothing
     /// (no substituted/lifted slot, no failure, no diagnostic), so it emits no code.
+    /// The seedless reconstructions for `key` — one per `@Scopable`'d app-`@Singleton` route contributor whose
+    /// subject consumes a mock.
+    fileprivate static func seedlessReconstructions(
+        key: DiscoveredTestingKey,
+        variantName: String,
+        doublesType: String,
+        inputs: VariantBuildInputs
+    ) -> [SeedlessReconstruction] {
+        seedlessReconstructionRoots(
+            key: key,
+            holdProxies: inputs.holdProxies,
+            appSingletons: inputs.appSingletons,
+            appEdges: inputs.partitionInputs.appEdges
+        ).compactMap {
+            buildSeedlessReconstruction(
+                root: $0,
+                key: key,
+                variantName: variantName,
+                doublesType: doublesType,
+                appSingletons: inputs.appSingletons,
+                appEdges: inputs.partitionInputs.appEdges,
+                aggregate: inputs.aggregate
+            )
+        }
+    }
+
     fileprivate static func buildVariant(for key: DiscoveredTestingKey, inputs: VariantBuildInputs) -> TestingVariant? {
         let variantName = key.keyReference.split(separator: ".").map(String.init).joined(separator: "_")
         let doublesType = doublesStructTypeName(forKeyReference: key.keyReference)
@@ -155,12 +191,24 @@ extension WireGen {
         )
         let accumulation = accumulateVariantScopes(key: key, partitions: inputs.partitionInputs, context: scopeContext)
 
+        // Seedless reconstructions — app-`@Singleton` route contributors the key `@Scopable`s that consume a
+        // mock, rebuilt per-request from the doubles alone (no seed). Each drops its subject + hold proxy +
+        // mock-consuming hops from the variant graph and contributes its doubles fields.
+        let seedlessReconstructions = seedlessReconstructions(
+            key: key,
+            variantName: variantName,
+            doublesType: doublesType,
+            inputs: inputs
+        )
+
         // A `@BindType` whose slot no production binding produces is stale — surfaced, not discarded.
         var diagnostics = accumulation.diagnostics
         diagnostics += unmatchedSubstitutions(key.substitutions, against: inputs.allProductionBindings)
             .map(unmatchedBindTypeDiagnostic)
 
-        guard !accumulation.doublesFields.isEmpty || !accumulation.failures.isEmpty || !diagnostics.isEmpty
+        guard
+            !accumulation.doublesFields.isEmpty || !seedlessReconstructions.isEmpty
+                || !accumulation.failures.isEmpty || !diagnostics.isEmpty
         else { return nil }
 
         // The variant app graph = the production default order MINUS the lifted identities (mocked eager
@@ -177,7 +225,10 @@ extension WireGen {
         // shed its dropped contributors — a `routeContributors` fan-in keeps its non-scoped contributors and
         // sheds the dropped scoped-subject proxies (the harness registers those from the variant proxies), so
         // its `[…]` fold references only surviving locals rather than a dropped proxy's bare type.
-        let dropped = accumulation.liftedIdentities.union(bridgeProxyIdentities)
+        let seedlessDropped = seedlessReconstructions.reduce(into: Set<BindingIdentity>()) {
+            $0.formUnion($1.droppedIdentities)
+        }
+        let dropped = accumulation.liftedIdentities.union(bridgeProxyIdentities).union(seedlessDropped)
         let appGraphOrder = droppingRemovedAggregateContributors(
             from: inputs.defaultOrder.filter { !dropped.contains($0.identity) },
             dropped: dropped
@@ -193,18 +244,33 @@ extension WireGen {
         let facadeParentReference = appGraphReference
         for index in seedScopes.indices { seedScopes[index].variantAppGraphReference = appGraphReference }
 
-        let contributorFacades = buildVariantContributorFacades(
+        var contributorFacades = buildVariantContributorFacades(
             seedScopes: seedScopes,
             productionProxies: inputs.productionProxies,
             variantName: variantName,
             doublesType: doublesType,
             parentGraphTypeReference: facadeParentReference
         )
+        // Seedless reconstructions — each a variant proxy declaration + a `(doubles)`-only façade that rebuilds
+        // the subject on demand against the variant graph.
+        var mergedDoublesFields = accumulation.doublesFields
+        for reconstruction in seedlessReconstructions {
+            for field in reconstruction.doublesFields { mergedDoublesFields[field.name] = field }
+            contributorFacades.append(renderContributorProxyDeclaration(reconstruction.proxy))
+            contributorFacades.append(
+                renderSeedlessContributorFacade(
+                    proxy: reconstruction.proxy,
+                    scope: reconstruction.scope,
+                    parentGraphTypeReference: facadeParentReference,
+                    facadeMethodName: reconstruction.facadeMethod
+                )
+            )
+        }
 
         return TestingVariant(
             doublesStruct: renderDoublesStruct(
                 typeName: doublesType,
-                fields: accumulation.doublesFields.values.sorted { $0.name < $1.name }
+                fields: mergedDoublesFields.values.sorted { $0.name < $1.name }
             ),
             seedScopes: seedScopes,
             contributorFacades: contributorFacades,
