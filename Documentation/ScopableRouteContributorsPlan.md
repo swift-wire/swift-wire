@@ -83,28 +83,61 @@ inside that reconstruction (part of its group); one consumed by nothing served i
   include the seedless-reconstructed app-scoped subjects + their production proxies + their mock-only deps.
   The merged aggregate filter then sheds their route proxies from `routeContributors`.
 
+### The mark — `@TestScopable`, on the type
+Scopability moved from a key-side `@Scopable(X.self)` argument to a `@TestScopable` marker on the **type
+declaration** (module-global; read by the cascade + seedless reconstruction). Reasons: a key-side metatype
+can't spell an unbound generic (`GenericController.self` fails to compile, `X<some P>.self` is illegal), and
+scopability is a property of the definition (safe to rebuild, or holds global state?) not of any one key. It
+has effect only under a `TestingKey`'s `@BindType` (test-only), so a production build never activates it.
+
 ### wire-mvc
-- Key app-scoped `@Scopable`'d subjects alongside seed-scoped ones (they now carry a variant proxy). The
+- Key app-scoped `@TestScopable` subjects alongside seed-scoped ones (they now carry a variant proxy). The
   variant witness for a seedless subject calls `self._wireEnterScope(doubles)` (no `request`); wire-mvc knows a
   subject is seedless from its scoping (app-`@Singleton` vs `@Scoped(seed:)`).
 
 ### wire-mvc-examples
-- `MockedRoutingBinds` gains `@Scopable(TodosController.self)` + `@Scopable(ExportController.self)`. All three
-  routes (`/me`, `/todos`, `/export`) become mock-testable; the mocked suite grows `verify`-based tests for
-  `/todos`/`/export`.
+- `TodosController`/`ExportController`/`MeController` get `@TestScopable`. All three routes (`/me`, `/todos`,
+  `/export`) become mock-testable; the mocked suite grows `verify`-based tests for `/todos`/`/export`.
+
+## The mock-consuming middleware factory — `create(doubles)`
+
+A lifted middleware `@Factory` that `@Inject`s the mocked slot (the example's `audit`: `@Inject var repository`)
+can't hold the mock as a **field** — the factory is built once when the facade runs (server startup), but the
+mock arrives **per-request** (header → `TestBindStore`, after the server is up), and interleaved requests carry
+different mocks. So the mock must ride the **`create` call**, exactly as the subject's mock rides
+`_wireEnterScope(doubles)`. One rule: everything that touches the mock enters through a per-request call taking
+the doubles.
+
+- **swift-wire (Phase B) — DONE.** `renderVariantFactoryDeclaration` emits a **variant factory**
+  (`_<Variant><FactoryType>`): its mocked `@Inject`s become `create(doubles:)`-sourced parameters, its non-mock
+  `@Inject`s stay held fields, and the box-role `create` generics/return/`where` are unchanged (mocking is a
+  value axis, not a role axis — a leading `doubles:` parameter is prepended). `variantFactoryTransforms` finds
+  the seedless root proxy's mock-consuming lifted `@Factory`s (a dep matching a `@BindType` slot), retypes the
+  proxy field to the variant factory, drops the production factory from the variant graph (else it orphans on
+  the dropped mock), and the seedless facade **constructs** the variant factory from the non-mock graph deps
+  rather than borrowing it. The factory and subject share the one doubles field for a shared mock.
+- **wire-mvc (Phase B):** fold the middleware chain **inside the per-request handler** for a variant witness,
+  threading the per-request doubles to each variant factory's `create(doubles: …)`. Non-mock factories in the
+  same chain still `create()` without doubles (a mixed fold). This is a per-request *fold*, not a per-request
+  factory rebuild — cheap.
 
 ## Phases (each ends green)
-1. **swift-wire seedless proxy + cascade** — fixture: an app-scoped `@Singleton @RouteController` consuming a
-   `@BindType`'d slot, `@Scopable`'d. Gate: `bootstrap<Variant>_<Subject>Contributor` builds a seedless
-   variant proxy; `_wireEnterScope(doubles)` threads the mock; unmarked → the guided error. swift-wire green.
-2. **wire-mvc keyed seedless witness** — key app-scoped subjects; witness calls `_wireEnterScope(doubles)`.
-   Gate: a wire-mvc keyed suite over an app-scoped `@Scopable`'d controller serves it with the mock over HTTP.
-3. **example** — un-gate; add the `@Scopable`s; `/todos`/`/export` mock tests with `verify`. Gate: the whole
-   mocked suite green, Docker-free (no real backend `init`).
+1. **swift-wire seedless proxy + cascade — DONE (merged).** App-`@Singleton @RouteController` consuming a
+   `@BindType`'d slot, `@TestScopable`'d → seedless variant proxy; `_wireEnterScope(doubles)` threads the mock;
+   borrow + generic (opaque-axis, concretized) cases locked; unmarked → guided error. `@TestScopable` shipped.
+2. **A — wire-mvc keyed seedless witness.** Key app-scoped `@TestScopable` subjects; witness calls
+   `_wireEnterScope(doubles)` (seedless, no `request`). Gate: a wire-mvc keyed suite over a simple app-scoped
+   `@TestScopable` controller (no mock-consuming middleware) serves it with the mock over HTTP.
+3. **B — the mock-consuming factory.** swift-wire variant factory (`create(doubles)`) **DONE** — the
+   `ScopableRouteContributorExample` fixture's `AppScopedController` carries a mock-consuming `@RouteMiddleware`
+   `@Factory`; the test invokes `proxy._wireFactory_<key>.create(doubles:)` and the *same* mock instance records
+   both the subject's and the factory's call. **NEXT:** wire-mvc per-request fold. Gate: a wire-mvc fixture with
+   a mock-consuming middleware factory serves + `verify`s over HTTP.
+4. **C — example un-gate.** `@TestScopable` on the controllers; turn the mocked target on; `/todos`/`/export`/
+   `/me` mock tests with `verify`; Docker-free (no real backend `init`).
 
 ## Risks / open items
-- **Reconstruction group** — a seedless subject whose route contributor lifts a mock-consuming `@Factory` (the
-  example's `audit`) must rebuild that factory in the thunk too. Reuses the bridge thunk's per-binding
-  reconstruction; the seedless scope's binding set is {subject} ∪ {its mock-consuming lifted deps}.
+- **Fold timing (Phase B).** Whether wire-mvc's middleware chain is already rebuildable per-request or the fold
+  must be lifted into the handler — resolved against the real example, not guessed.
 - **Non-contributor app singletons** consuming the mock but not on a seed path and not a route contributor:
   dropped if unused under the variant, else part of a contributor's reconstruction group. Confirm none strand.

@@ -310,7 +310,7 @@ package func applyFactorySynthesis(
 /// constraint, so the binding is a *lift node* — the transitive-lift machinery threads the graph-resolved
 /// backend through it exactly as it does the controller. A factory with no injected axis stays a plain
 /// non-generic binding (the 3.1/3.2 case).
-func factoryBinding(_ factory: SynthesizedFactory, module: String) -> DiscoveredScopeBoundType {
+package func factoryBinding(_ factory: SynthesizedFactory, module: String) -> DiscoveredScopeBoundType {
     DiscoveredScopeBoundType(
         typeName: factory.factoryTypeName,
         typeKind: "struct",
@@ -385,6 +385,85 @@ package func renderFactoryDeclaration(_ factory: SynthesizedFactory) -> String {
     }
     lines.append("    init(\(initParameters)) {")
     for dependency in factory.dependencies {
+        let name = dependency.name ?? dependency.type
+        lines.append("        self.\(name) = \(name)")
+    }
+    lines.append("    }")
+    lines.append(
+        "    func create\(genericClause)(\(createParameters)) -> \(returnType)\(whereClause) {"
+    )
+    lines.append("        \(factory.producedTypeName)(\(constructionArguments))")
+    lines.append("    }")
+    lines.append("}")
+    return lines.joined(separator: "\n")
+}
+
+/// Render the **variant** factory for a mock-consuming lifted `@Factory` under a `@BindType` key — the
+/// production factory with its mocked `@Inject`s lifted off the held fields and onto `create`, sourced from
+/// `doubles.<field>` per request. A mocked dependency (named in `mockedDoublesFields`) is dropped from the
+/// struct's fields/init and read from the doubles inside `create`; the non-mock dependencies stay held. The
+/// box-role `create` generics, return type, and `where` clause are unchanged (mocking is a value axis, not a
+/// role axis) — only a leading `doubles: <Doubles>` parameter is prepended.
+///
+/// Emitted alongside the seedless facade; the seedless variant proxy holds this type in place of the
+/// production factory (which the variant graph drops, since its held mock is gone). Non-generic-mock case
+/// (existential mocked slot): the mocked dependency isn't an injected generic, so the struct generics are
+/// unchanged; a mocked *generic axis* would need concretization, which the caller gates out.
+///
+///     struct _Variant_WireFactory_MyMiddleware_audit: Sendable {
+///         let log: AppScopedLog
+///         func create(doubles: _VariantDoubles) -> AuditMiddleware {
+///             AuditMiddleware(repository: doubles.appScopedRepository, log: log)
+///         }
+///     }
+package func renderVariantFactoryDeclaration(
+    _ factory: SynthesizedFactory,
+    typeName: String,
+    doublesType: String,
+    mockedDoublesFields: [String: String]
+) -> String {
+    func isMocked(_ dependency: DependencyParameter) -> Bool {
+        dependency.name.map { mockedDoublesFields[$0] != nil } ?? false
+    }
+    let heldDependencies = factory.dependencies.filter { !isMocked($0) }
+
+    let injected = factory.injectedParameterNames
+    let structGenerics = injected.map { name in
+        factory.injectedParameterConstraints[name].map { "\(name): \($0)" } ?? name
+    }
+    let structGenericClause = structGenerics.isEmpty ? "" : "<\(structGenerics.joined(separator: ", "))>"
+
+    let createGenerics = factory.roleMapping?.canonicalRoles ?? factory.assistedParameterNames
+    let genericClause = createGenerics.isEmpty ? "" : "<\(createGenerics.joined(separator: ", "))>"
+    // The doubles ride `create` ahead of the box-role metatypes — a real value the mocked deps read from,
+    // not a phantom type witness like the roles.
+    let createParameters = (["doubles: \(doublesType)"] + createGenerics.map { "_: \($0).Type" })
+        .joined(separator: ", ")
+    let returnArguments = factory.parameterNames.map { name in
+        injected.contains(name) ? name : (factory.roleMapping?.parameterRoles[name] ?? name)
+    }
+    let returnType =
+        returnArguments.isEmpty
+        ? factory.producedTypeName
+        : "\(factory.producedTypeName)<\(returnArguments.joined(separator: ", "))>"
+    let whereClause = renderAssistedConstraints(factory)
+    // Each construction argument sources a mocked dep from `doubles.<field>` and a held dep from its field.
+    let constructionArguments = factory.dependencies.map { dependency -> String in
+        let value = dependency.name.flatMap { mockedDoublesFields[$0] }.map { "doubles.\($0)" }
+            ?? (dependency.name ?? dependency.type)
+        return dependency.name.map { "\($0): \(value)" } ?? value
+    }.joined(separator: ", ")
+
+    let initParameters = heldDependencies.map { "\($0.name ?? $0.type): \($0.type)" }
+        .joined(separator: ", ")
+
+    var lines: [String] = []
+    lines.append("struct \(typeName)\(structGenericClause): Sendable {")
+    for dependency in heldDependencies {
+        lines.append("    let \(dependency.name ?? dependency.type): \(dependency.type)")
+    }
+    lines.append("    init(\(initParameters)) {")
+    for dependency in heldDependencies {
         let name = dependency.name ?? dependency.type
         lines.append("        self.\(name) = \(name)")
     }

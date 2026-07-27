@@ -119,6 +119,13 @@ extension WireGen {
         let doublesFields: [DoublesField]
         let droppedIdentities: Set<BindingIdentity>
         let facadeMethod: String
+        /// The variant factory `struct` declarations for the proxy's mock-consuming lifted `@Factory`s — each
+        /// a `create(doubles:)` form the seedless proxy holds in place of the (dropped) production factory.
+        let variantFactoryDeclarations: [String]
+        /// Facade construction expressions keyed by the lifted-factory local the seedless facade binds — a
+        /// mock-consuming factory local is *constructed* (variant factory from the non-mock graph deps) rather
+        /// than borrowed from the variant graph.
+        let factoryConstructions: [String: String]
     }
 
     /// Build the seedless reconstruction for `root`: the subject + the mock(s) it reaches + any hops (its cone
@@ -132,8 +139,70 @@ extension WireGen {
         doublesType: String,
         appSingletons: [DiscoveredBinding],
         appEdges: [BindingIdentity: [BindingIdentity]],
+        factories: [SynthesizedFactory],
         aggregate: DiscoveryAggregate
     ) -> SeedlessReconstruction? {
+        guard let built = buildReconstructionScope(
+            root: root,
+            key: key,
+            variantName: variantName,
+            doublesType: doublesType,
+            appSingletons: appSingletons,
+            appEdges: appEdges,
+            aggregate: aggregate
+        ) else { return nil }
+
+        // Mock-consuming lifted `@Factory`s on the proxy: each becomes a variant factory the proxy holds in
+        // place of the (dropped) production factory, its mocked deps sourced from `create(doubles:)`.
+        let factoryTransforms = variantFactoryTransforms(
+            proxy: root.proxy,
+            factories: factories,
+            key: key,
+            variantName: variantName,
+            doublesType: doublesType,
+            module: aggregate.module
+        )
+        let factoryRetypes = Dictionary(
+            factoryTransforms.map { ($0.productionDepName, $0.variantType) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        let subjectDepType = root.proxy.dependencies.first(where: { $0.name == nil })?.type ?? root.subject.typeName
+        return SeedlessReconstruction(
+            proxy: seedlessVariantProxy(
+                from: root.proxy,
+                subjectDepType: subjectDepType,
+                variantName: variantName,
+                doublesType: doublesType,
+                factoryRetypes: factoryRetypes
+            ),
+            scope: built.scope,
+            doublesFields: built.doublesFields + factoryTransforms.flatMap { $0.doublesFields },
+            droppedIdentities: built.reconstructionSet
+                .union([DiscoveredBinding.scopeBound(root.proxy).identity])
+                .union(factoryTransforms.map { $0.droppedIdentity }),
+            facadeMethod: "bootstrap\(variantName)_\(root.subject.typeName)Contributor",
+            variantFactoryDeclarations: factoryTransforms.map { $0.declaration },
+            factoryConstructions: Dictionary(
+                factoryTransforms.map { ($0.constructionLocal, $0.constructionExpression) },
+                uniquingKeysWith: { first, _ in first }
+            )
+        )
+    }
+
+    /// The subject reconstruction for `root`: its cone intersected with what reaches the mock (subject +
+    /// mock(s) + hops) substituted (mock → `doubles.<field>`) and topologically ordered into a scope, its
+    /// non-mock deps borrowed from the variant graph. `nil` when the subject reaches no mock or the scope
+    /// doesn't order. The `reconstructionSet` is the identities the variant graph drops.
+    private static func buildReconstructionScope(
+        root: SeedlessRoot,
+        key: DiscoveredTestingKey,
+        variantName: String,
+        doublesType: String,
+        appSingletons: [DiscoveredBinding],
+        appEdges: [BindingIdentity: [BindingIdentity]],
+        aggregate: DiscoveryAggregate
+    ) -> (scope: SeedScopeEmission, reconstructionSet: Set<BindingIdentity>, doublesFields: [DoublesField])? {
         var reverseEdges: [BindingIdentity: [BindingIdentity]] = [:]
         for (consumer, deps) in appEdges { for dep in deps { reverseEdges[dep, default: []].append(consumer) } }
         let mockIdentities = Set(
@@ -186,40 +255,40 @@ extension WireGen {
             doublesType: doublesType,
             doublesFields: substituted.doublesFields
         )
-
-        let subjectDepType = root.proxy.dependencies.first(where: { $0.name == nil })?.type ?? root.subject.typeName
-        return SeedlessReconstruction(
-            proxy: seedlessVariantProxy(
-                from: root.proxy,
-                subjectDepType: subjectDepType,
-                variantName: variantName,
-                doublesType: doublesType
-            ),
-            scope: scope,
-            doublesFields: substituted.doublesFields,
-            droppedIdentities: reconstructionSet.union([DiscoveredBinding.scopeBound(root.proxy).identity]),
-            facadeMethod: "bootstrap\(variantName)_\(root.subject.typeName)Contributor"
-        )
+        return (scope, reconstructionSet, substituted.doublesFields)
     }
 
     /// Derive the seedless variant proxy from the production hold proxy — the same binding renamed
     /// `_<Variant><HoldProxy>` with its unlabelled `_wireSubject` dependency replaced by a seedless
-    /// `_wireEnterScope(doubles)` scope-entry thunk. Lifted-factory dependencies carry through unchanged.
+    /// `_wireEnterScope(doubles)` scope-entry thunk. A mock-consuming lifted-factory dependency is re-typed to
+    /// its variant factory (`factoryRetypes[name]`); other lifted-factory dependencies carry through unchanged.
     /// Contributes to nothing (reached only through the generated facade).
     private static func seedlessVariantProxy(
         from proxy: DiscoveredScopeBoundType,
         subjectDepType: String,
         variantName: String,
-        doublesType: String
+        doublesType: String,
+        factoryRetypes: [String: String]
     ) -> DiscoveredScopeBoundType {
         let thunkType = seedlessScopeEntryThunkType(subject: subjectDepType, doubles: doublesType)
         let dependencies = proxy.dependencies.map { dependency -> DependencyParameter in
-            guard dependency.name == nil else { return dependency }
+            if dependency.name == nil {
+                // The unlabelled `_wireSubject` → the seedless `_wireEnterScope(doubles)` scope-entry thunk.
+                return DependencyParameter(
+                    name: contributorProxyScopeEntryFieldName,
+                    type: thunkType,
+                    kind: .scopeEntryThunk,
+                    location: dependency.location
+                )
+            }
+            // A mock-consuming lifted factory → its variant factory type; other lifted deps carry unchanged.
+            guard let name = dependency.name, let variantType = factoryRetypes[name] else { return dependency }
             return DependencyParameter(
-                name: contributorProxyScopeEntryFieldName,
-                type: thunkType,
-                kind: .scopeEntryThunk,
-                location: dependency.location
+                name: name,
+                type: variantType,
+                kind: dependency.kind,
+                location: dependency.location,
+                keyIdentifier: dependency.keyIdentifier
             )
         }
         return DiscoveredScopeBoundType(
@@ -251,4 +320,101 @@ extension WireGen {
 private func seedlessBareTypeName(_ typeExpression: String) -> String {
     guard let angle = typeExpression.firstIndex(of: "<") else { return typeExpression }
     return String(typeExpression[typeExpression.startIndex..<angle])
+}
+
+extension WireGen {
+    /// A mock-consuming lifted `@Factory` on a seedless root's proxy, resolved to its variant form. Carries
+    /// what the reconstruction needs: the retyped proxy field (`productionDepName` → `variantType`), the
+    /// variant factory declaration, its doubles fields, the dropped production factory identity, and the
+    /// facade construction (the local the proxy references ← the variant factory built from non-mock graph
+    /// deps).
+    struct VariantFactoryTransform {
+        let productionDepName: String
+        let variantType: String
+        let declaration: String
+        let doublesFields: [DoublesField]
+        let droppedIdentity: BindingIdentity
+        let constructionLocal: String
+        let constructionExpression: String
+    }
+
+    /// The variant factory transforms for `proxy`'s lifted `@Factory` dependencies — one per factory that
+    /// consumes a `@BindType`'d slot (a mocked `@Inject`). A factory reaching no mock is left alone (it carries
+    /// through the proxy unchanged); a mock-consuming one is re-emitted as `_<Variant><FactoryType>` whose
+    /// `create(doubles:)` sources the mocked deps from the doubles and holds only the non-mock deps.
+    static func variantFactoryTransforms(
+        proxy: DiscoveredScopeBoundType,
+        factories: [SynthesizedFactory],
+        key: DiscoveredTestingKey,
+        variantName: String,
+        doublesType: String,
+        module: String
+    ) -> [VariantFactoryTransform] {
+        let factoriesByType = Dictionary(
+            factories.map { ($0.factoryTypeName, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return proxy.dependencies.compactMap { dependency in
+            guard dependency.kind == .injectInitParameter, let depName = dependency.name,
+                let factory = factoriesByType[dependency.type]
+            else { return nil }
+
+            var mockedFields: [String: String] = [:]
+            var doublesFields: [DoublesField] = []
+            for factoryDep in factory.dependencies {
+                guard let field = mockedDoublesField(for: factoryDep, substitutions: key.substitutions),
+                    let name = factoryDep.name
+                else { continue }
+                mockedFields[name] = field.name
+                doublesFields.append(field)
+            }
+            guard !mockedFields.isEmpty else { return nil }  // reaches no mock — the production factory stands
+
+            let variantType = "_\(variantName)\(factory.factoryTypeName)"
+            let heldArguments = factory.dependencies
+                .filter { ($0.name.map { mockedFields[$0] == nil }) ?? true }
+                .map { dep in
+                    "\(dep.name ?? dep.type): _wireGraph.\(identifierName(forType: dep.type, key: dep.keyIdentifier))"
+                }
+                .joined(separator: ", ")
+            return VariantFactoryTransform(
+                productionDepName: depName,
+                variantType: variantType,
+                declaration: renderVariantFactoryDeclaration(
+                    factory,
+                    typeName: variantType,
+                    doublesType: doublesType,
+                    mockedDoublesFields: mockedFields
+                ),
+                doublesFields: doublesFields,
+                droppedIdentity: DiscoveredBinding.scopeBound(factoryBinding(factory, module: module)).identity,
+                constructionLocal: identifierName(forType: variantType, key: nil),
+                constructionExpression: "\(variantType)(\(heldArguments))"
+            )
+        }
+    }
+}
+
+/// The doubles field a mock-consuming factory dependency reads from, or `nil` when the dependency isn't a
+/// `@BindType`'d slot. Matches the type form on the stripped bound type (`any Repo` / `some Repo` → `Repo`)
+/// and the keyed form on the `@Inject(key)` identifier — the same match `substitutionMatches` makes for a
+/// binding — and names the field exactly as `applyBindTypeSubstitutions` does, so the factory and the subject
+/// share the one doubles field for a shared mock.
+private func mockedDoublesField(
+    for dependency: DependencyParameter,
+    substitutions: [BindTypeSubstitution]
+) -> DoublesField? {
+    let strippedType = strippedSlotType(dependency.type)
+    for substitution in substitutions {
+        if let slotType = substitution.slotType, dependency.keyIdentifier == nil, slotType == strippedType {
+            return DoublesField(name: identifierName(forType: strippedType, key: nil), mockType: substitution.mockType)
+        }
+        if let slotKey = substitution.slotKey, dependency.keyIdentifier == slotKey {
+            return DoublesField(
+                name: identifierName(forType: strippedType, key: slotKey),
+                mockType: substitution.mockType
+            )
+        }
+    }
+    return nil
 }

@@ -27,12 +27,15 @@ package func seedlessScopeEntryThunkType(subject: String, doubles: String) -> St
 /// `proxy` is the seedless variant proxy binding (its `_wireEnterScope` re-typed to `(Doubles) -> …`);
 /// `scope` is the reconstruction scope (its `topologicalOrder` the bindings the thunk rebuilds, `doublesType`
 /// naming the `_<Key>Doubles`); `parentGraphTypeReference` is the variant graph; `facadeMethodName` the `Wire`
-/// static a consumer calls.
+/// static a consumer calls. `factoryConstructions` maps a lifted-factory local to the expression that *builds*
+/// it (a mock-consuming factory's variant form, constructed from the non-mock graph deps) — those locals are
+/// constructed rather than borrowed from the variant graph (which dropped the production factory).
 package func renderSeedlessContributorFacade(
     proxy: DiscoveredScopeBoundType,
     scope: SeedScopeEmission,
     parentGraphTypeReference: String,
-    facadeMethodName: String
+    facadeMethodName: String,
+    factoryConstructions: [String: String] = [:]
 ) -> String {
     guard let doublesType = scope.doublesType else { return "" }
     let wireGraphInternal = "_wireGraph"
@@ -51,7 +54,8 @@ package func renderSeedlessContributorFacade(
         lines.append("        let \(borrow.property) = \(borrow.accessPath)")
     }
     for local in factoryLocals {
-        lines.append("        let \(local) = \(wireGraphInternal).\(local)")
+        let value = factoryConstructions[local] ?? "\(wireGraphInternal).\(local)"
+        lines.append("        let \(local) = \(value)")
     }
     for line in thunkLines {
         lines.append("    " + line)

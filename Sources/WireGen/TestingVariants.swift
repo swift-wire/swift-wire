@@ -31,6 +31,11 @@ extension WireGen {
         /// production `_WireGraph`.
         let appGraphName: String
         let appGraphOrder: [DiscoveredBinding]
+        /// The variant factory `struct` declarations this variant emits — one per mock-consuming lifted
+        /// `@Factory` on a seedless root's proxy, holding a `create(doubles:)` the seedless facade constructs
+        /// in place of the dropped production factory. Empty when no seedless root lifts a mock-consuming
+        /// factory.
+        let variantFactoryDeclarations: [String]
     }
 
     /// The production-graph inputs the per-partition accumulation reuses across a testing key's seed
@@ -76,7 +81,8 @@ extension WireGen {
         in aggregate: DiscoveryAggregate,
         appEdges: [BindingIdentity: [BindingIdentity]],
         defaultOrder: [DiscoveredBinding],
-        proxyIdentities: Set<String>
+        proxyIdentities: Set<String>,
+        factories: [SynthesizedFactory]
     ) -> [TestingVariant] {
         // The opaque-erased reused graph type a variant proxy facade borrows from (`_WireGraph`, or
         // `_WireGraph<some P>` when the app graph lifts opaque axes) — the same reference the seed-scope
@@ -120,7 +126,8 @@ extension WireGen {
             productionProxies: productionProxies,
             holdProxies: holdProxies,
             parentGraphTypeReference: parentGraphTypeReference,
-            defaultOrder: defaultOrder
+            defaultOrder: defaultOrder,
+            factories: factories
         )
 
         var variants: [TestingVariant] = []
@@ -149,6 +156,9 @@ extension WireGen {
         let parentGraphTypeReference: String
         /// The production default-graph topological order — the base the variant app graph drops from.
         let defaultOrder: [DiscoveredBinding]
+        /// The synthesised factories — a seedless reconstruction re-emits any the root proxy lifts that
+        /// consume a mock as a `create(doubles:)` variant factory.
+        let factories: [SynthesizedFactory]
     }
 
     /// Build one testing key's variant — its doubles struct, doubles-threaded seed scopes, contributor-proxy
@@ -176,6 +186,7 @@ extension WireGen {
                 doublesType: doublesType,
                 appSingletons: inputs.appSingletons,
                 appEdges: inputs.partitionInputs.appEdges,
+                factories: inputs.factories,
                 aggregate: inputs.aggregate
             )
         }
@@ -270,17 +281,21 @@ extension WireGen {
             parentGraphTypeReference: facadeParentReference
         )
         // Seedless reconstructions — each a variant proxy declaration + a `(doubles)`-only façade that rebuilds
-        // the subject on demand against the variant graph.
+        // the subject on demand against the variant graph, plus any variant factory declarations the proxy's
+        // mock-consuming lifted `@Factory`s emit (the façade constructs them from the non-mock graph deps).
         var mergedDoublesFields = accumulation.doublesFields
+        var variantFactoryDeclarations: [String] = []
         for reconstruction in seedlessReconstructions {
             for field in reconstruction.doublesFields { mergedDoublesFields[field.name] = field }
+            variantFactoryDeclarations.append(contentsOf: reconstruction.variantFactoryDeclarations)
             contributorFacades.append(renderContributorProxyDeclaration(reconstruction.proxy))
             contributorFacades.append(
                 renderSeedlessContributorFacade(
                     proxy: reconstruction.proxy,
                     scope: reconstruction.scope,
                     parentGraphTypeReference: facadeParentReference,
-                    facadeMethodName: reconstruction.facadeMethod
+                    facadeMethodName: reconstruction.facadeMethod,
+                    factoryConstructions: reconstruction.factoryConstructions
                 )
             )
         }
@@ -296,7 +311,8 @@ extension WireGen {
             validationFailures: accumulation.failures,
             diagnostics: diagnostics,
             appGraphName: variantName,
-            appGraphOrder: appGraphOrder
+            appGraphOrder: appGraphOrder,
+            variantFactoryDeclarations: variantFactoryDeclarations
         )
     }
 
