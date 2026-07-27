@@ -537,7 +537,8 @@ extension WireGen {
             in: inputs.aggregate,
             appEdges: inputs.defaultGraph.edges,
             defaultOrder: inputs.defaultOrder,
-            proxyIdentities: inputs.proxyIdentities
+            proxyIdentities: inputs.proxyIdentities,
+            factories: inputs.factories
         )
         failIfAnyTestingVariantInvalid(testingVariants)
 
@@ -561,7 +562,8 @@ extension WireGen {
                 factories: inputs.factories,
                 proxyIdentities: inputs.proxyIdentities,
                 in: inputs.aggregate.allBindings
-            ) + testingVariants.map { $0.doublesStruct } + testingVariants.flatMap { $0.contributorFacades },
+            ) + testingVariants.map { $0.doublesStruct } + testingVariants.flatMap { $0.contributorFacades }
+                + testingVariants.flatMap { $0.variantFactoryDeclarations },
             // Rule 3 — the default graph's promotions plus every container's and every test variant's, so
             // each `appendStruct` finds the ones whose consumers it constructs.
             existentialPromotions: inputs.defaultGraph.existentialPromotions

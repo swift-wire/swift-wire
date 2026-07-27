@@ -361,7 +361,7 @@ private func doublesSourcedBinding(replacing binding: DiscoveredBinding, field: 
 
 /// Strip a leading `some `/`any ` from a bound type so a slot named
 /// `BackendRepository` matches a binding keyed `some BackendRepository`.
-private func strippedSlotType(_ boundType: String) -> String {
+package func strippedSlotType(_ boundType: String) -> String {
     for prefix in ["some ", "any "] where boundType.hasPrefix(prefix) {
         return String(boundType.dropFirst(prefix.count))
     }

@@ -41,13 +41,30 @@ final class AppScopedLog: Sendable {
     func label() -> String { "log" }
 }
 
+enum AppScopedKeys {
+    static let audit = FactoryKey()
+}
+
+/// A lifted middleware `@Factory` that **also consumes the mocked slot** (the example's `audit` shape). Under
+/// the key it's re-emitted as a variant factory: its mocked `@Inject` (`repository`) rides the per-request
+/// `create(doubles:)` sourced from the doubles, and its non-mock `@Inject` (`log`) stays a held field.
+@Factory(AppScopedKeys.audit)
+struct AppScopedAudit {
+    @Inject var repository: any AppScopedRepository
+    @Inject var log: AppScopedLog
+
+    func run() -> String { "\(repository.tag("audit")):\(log.label())" }
+}
+
 /// The app-scoped route contributor — `@Singleton` (not `@Scoped(seed:)`), reached through its plain
 /// (non-bridge) contributor proxy in production, and rebuilt seedlessly per request under the variant. Injects
-/// both the `@BindType`'d slot (rebuilt with the mock) and a non-mock singleton (borrowed). `@TestScopable`
-/// marks it eligible for the per-request rebuild — a property of the definition, on the type.
+/// both the `@BindType`'d slot (rebuilt with the mock) and a non-mock singleton (borrowed), and carries a
+/// mock-consuming lifted `@Factory` via `@RouteMiddleware`. `@TestScopable` marks it eligible for the
+/// per-request rebuild — a property of the definition, on the type.
 @TestScopable
 @Singleton
 @RouteController
+@RouteMiddleware(AppScopedKeys.audit)
 struct AppScopedController {
     @Inject var repository: any AppScopedRepository
     @Inject var log: AppScopedLog

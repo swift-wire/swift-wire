@@ -21,6 +21,13 @@ struct ScopableRouteContributorTests {
         #expect(subject.tag() == "mock:routed:log")
         #expect(mock.recordedTags == ["routed"])
 
+        // The mock-consuming lifted `@Factory` the proxy carries is the variant factory: it holds only the
+        // non-mock `log`, and its mocked `repository` rides `create(doubles:)` — sourced from the same doubles,
+        // per request. Invoking it proves the mock threads the factory's product (the `audit` middleware) too.
+        let audit = proxy._wireFactory_AppScopedKeys_audit.create(doubles: doubles)
+        #expect(audit.run() == "mock:audit:log")
+        #expect(mock.recordedTags == ["routed", "audit"])
+
         let errors = await teardown()
         #expect(errors.isEmpty)
     }
