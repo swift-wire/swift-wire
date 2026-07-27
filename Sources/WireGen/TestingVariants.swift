@@ -180,6 +180,25 @@ extension WireGen {
         }
     }
 
+    /// The variant's source-pattern diagnostics: the accumulation's cascade diagnostics, stale `@BindType`
+    /// substitutions (no binding produces the slot), and unmarked seedless roots (an app-scoped route
+    /// contributor consuming the mock but not `@Scopable`'d, which would otherwise orphan).
+    fileprivate static func variantDiagnostics(
+        key: DiscoveredTestingKey,
+        accumulation: VariantScopeAccumulation,
+        inputs: VariantBuildInputs
+    ) -> [Diagnostic] {
+        accumulation.diagnostics
+            + unmatchedSubstitutions(key.substitutions, against: inputs.allProductionBindings)
+            .map(unmatchedBindTypeDiagnostic)
+            + unmarkedSeedlessRootDiagnostics(
+                key: key,
+                holdProxies: inputs.holdProxies,
+                appSingletons: inputs.appSingletons,
+                appEdges: inputs.partitionInputs.appEdges
+            )
+    }
+
     fileprivate static func buildVariant(for key: DiscoveredTestingKey, inputs: VariantBuildInputs) -> TestingVariant? {
         let variantName = key.keyReference.split(separator: ".").map(String.init).joined(separator: "_")
         let doublesType = doublesStructTypeName(forKeyReference: key.keyReference)
@@ -201,10 +220,7 @@ extension WireGen {
             inputs: inputs
         )
 
-        // A `@BindType` whose slot no production binding produces is stale — surfaced, not discarded.
-        var diagnostics = accumulation.diagnostics
-        diagnostics += unmatchedSubstitutions(key.substitutions, against: inputs.allProductionBindings)
-            .map(unmatchedBindTypeDiagnostic)
+        let diagnostics = variantDiagnostics(key: key, accumulation: accumulation, inputs: inputs)
 
         guard
             !accumulation.doublesFields.isEmpty || !seedlessReconstructions.isEmpty

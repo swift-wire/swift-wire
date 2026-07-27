@@ -279,6 +279,24 @@ package func unmarkedCascadeHopDiagnostic(_ hop: UnmarkedCascadeHop) -> Diagnost
     )
 }
 
+/// The guided diagnostic for an app-scoped route contributor that consumes a `@BindType`'d mock but isn't
+/// `@Scopable`'d. The variant graph drops the mocked slot, so the contributor can't be constructed under the
+/// mock unless it's rebuilt per request — names the mocked slot, the contributor, and the exact `@Scopable`.
+package func unmarkedSeedlessRootDiagnostic(
+    slotDisplay: String,
+    subjectName: String,
+    location: SourceLocation
+) -> Diagnostic {
+    Diagnostic(
+        location: location,
+        message:
+            "\(subjectName) is an app-scoped route contributor that consumes '\(slotDisplay)', which is bound "
+            + "per-request under test — so it can't be constructed under the mock. Add "
+            + "@Scopable(\(subjectName).self) to rebuild it per request so it sees the double.",
+        severity: .error
+    )
+}
+
 /// The diagnostic for a `@BindType` substitution whose slot no binding produces — a stale or mistyped
 /// substitution, surfaced rather than silently discarded.
 package func unmatchedBindTypeDiagnostic(_ substitution: BindTypeSubstitution) -> Diagnostic {

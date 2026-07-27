@@ -65,6 +65,48 @@ extension WireGen {
         }
         return roots
     }
+
+    /// The guided diagnostics for the *unmarked* seedless candidates — a hold proxy whose subject consumes a
+    /// mock but the key hasn't `@Scopable`'d. Without the mark the variant graph would drop the mock and orphan
+    /// the contributor, so each is a build error naming the fix (the marked-vs-unmarked mirror of
+    /// `seedlessReconstructionRoots`).
+    static func unmarkedSeedlessRootDiagnostics(
+        key: DiscoveredTestingKey,
+        holdProxies: [DiscoveredScopeBoundType],
+        appSingletons: [DiscoveredBinding],
+        appEdges: [BindingIdentity: [BindingIdentity]]
+    ) -> [Diagnostic] {
+        var mockSlot: [BindingIdentity: (slot: String, location: SourceLocation)] = [:]
+        for binding in appSingletons {
+            guard let match = key.substitutions.first(where: { substitutionMatches($0, binding) }) else { continue }
+            mockSlot[binding.identity] = (match.slotType ?? match.slotKey ?? binding.boundType, match.location)
+        }
+        guard !mockSlot.isEmpty else { return [] }
+        let scopableTypeNames = Set(key.scopables.map(\.typeName))
+
+        var subjectByBareName: [String: DiscoveredScopeBoundType] = [:]
+        for case .scopeBound(let type) in appSingletons { subjectByBareName[type.typeName] = type }
+
+        var diagnostics: [Diagnostic] = []
+        for proxy in holdProxies.sorted(by: { $0.typeName < $1.typeName }) {
+            guard let subjectDep = proxy.dependencies.first(where: { $0.name == nil }),
+                let subject = subjectByBareName[seedlessBareTypeName(subjectDep.type)],
+                !scopableTypeNames.contains(subject.typeName)
+            else { continue }
+            let subjectReaches = reachable(from: [DiscoveredBinding.scopeBound(subject).identity], over: appEdges)
+            guard let reachedMock = subjectReaches.first(where: { mockSlot[$0] != nil }),
+                let slot = mockSlot[reachedMock]
+            else { continue }
+            diagnostics.append(
+                unmarkedSeedlessRootDiagnostic(
+                    slotDisplay: slot.slot,
+                    subjectName: subject.typeName,
+                    location: slot.location
+                )
+            )
+        }
+        return diagnostics
+    }
 }
 
 extension WireGen {
