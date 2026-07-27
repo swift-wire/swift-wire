@@ -14,6 +14,6 @@ struct WireMacrosPlugin: CompilerPlugin {
         TeardownMacro.self,
         ReplacesMacro.self,
         BindTypeMacro.self,
-        ScopableMacro.self,
+        TestScopableMacro.self,
     ]
 }

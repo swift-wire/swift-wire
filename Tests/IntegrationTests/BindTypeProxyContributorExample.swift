@@ -67,7 +67,8 @@ enum ProxyRepositoryModule {
 }
 
 /// The app-scoped consumer that reads its `@BindType`d dependency **in `init`** — the property Phase 2 mocks.
-/// `@Scopable` lifts it into the scope under test so this read sees the per-entry double.
+/// `@TestScopable` lifts it into the scope under test so this read sees the per-entry double.
+@TestScopable
 @Singleton
 final class ProxyAccountController: Sendable {
     let tag: String
@@ -119,6 +120,5 @@ struct ProxySiblingController {
 /// to lift the app-scoped `ProxyAccountController` into the scope under test.
 enum WireProxyFixture {
     @BindType(ProxyRepository.self, MockProxyRepository.self)
-    @Scopable(ProxyAccountController.self)
     static let bindMock = TestingKey()
 }

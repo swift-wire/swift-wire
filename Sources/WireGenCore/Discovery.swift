@@ -734,6 +734,9 @@ package struct SourceFileDiscovery: Sendable {
     /// `@BindType` substitutions stacked on it. A test target's variant graph
     /// reads these to bind the named slots to their doubles.
     package let testingKeys: [DiscoveredTestingKey]
+    /// Type names carrying `@TestScopable` in this file — app-`@Singleton` types eligible for per-request
+    /// rebuild under a test variant. Unioned across the module.
+    package let testScopableTypes: Set<String>
 
     package init(
         allBindings: [Partition: [DiscoveredBinding]] = [:],
@@ -750,7 +753,8 @@ package struct SourceFileDiscovery: Sendable {
         factoryTemplates: [DiscoveredFactoryTemplate] = [],
         resultBuilders: [DiscoveredResultBuilder] = [],
         graphConformances: [DiscoveredGraphConformance] = [],
-        testingKeys: [DiscoveredTestingKey] = []
+        testingKeys: [DiscoveredTestingKey] = [],
+        testScopableTypes: Set<String> = []
     ) {
         self.allBindings = allBindings
         self.imports = imports
@@ -767,6 +771,7 @@ package struct SourceFileDiscovery: Sendable {
         self.resultBuilders = resultBuilders
         self.graphConformances = graphConformances
         self.testingKeys = testingKeys
+        self.testScopableTypes = testScopableTypes
     }
 }
 
@@ -827,7 +832,8 @@ package func discover(
         factoryTemplates: visitor.factoryTemplates,
         resultBuilders: visitor.resultBuilders,
         graphConformances: visitor.graphConformances,
-        testingKeys: visitor.testingKeys
+        testingKeys: visitor.testingKeys,
+        testScopableTypes: visitor.testScopableTypes
     )
 }
 

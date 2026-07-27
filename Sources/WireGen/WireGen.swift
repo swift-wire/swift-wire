@@ -177,6 +177,7 @@ struct WireGen {
             aggregate.resultBuilders.append(contentsOf: result.resultBuilders)
             aggregate.graphConformances.append(contentsOf: result.graphConformances)
             aggregate.testingKeys.append(contentsOf: result.testingKeys)
+            aggregate.testScopableTypes.formUnion(result.testScopableTypes)
         }
         return aggregate
     }
@@ -732,6 +733,9 @@ struct DiscoveryAggregate {
     /// `TestingKey` declarations discovered across the module, each with its `@BindType` substitutions.
     /// Each drives a test-graph variant emitted alongside the production graphs.
     var testingKeys: [DiscoveredTestingKey] = []
+    /// Type names carrying `@TestScopable` across the module — the app-`@Singleton` types eligible for
+    /// per-request rebuild under a test variant. The cascade + seedless reconstruction read this set.
+    var testScopableTypes: Set<String> = []
 }
 
 /// The module-scope type declarations the graph consumer emits into its generated file: the consumed

@@ -83,29 +83,31 @@ struct ScopableCascadeCoreTests {
 
     // MARK: - Discovery
 
-    @Test func scopableMarkersDiscoveredOnTestingKey() throws {
+    @Test func testScopableMarkersDiscoveredOnTypeDeclarations() throws {
         let source = """
-            enum MyTests {
-                @BindType(BackendRepository.self, MockBackendRepository.self)
-                @Scopable(TodoController.self)
-                @Scopable(SessionCache.self)
-                static let testSetup = TestingKey()
-            }
+            @TestScopable
+            @Singleton
+            struct TodoController {}
+
+            @TestScopable
+            @Singleton
+            final class SessionCache {}
+
+            @Singleton
+            struct Plain {}
             """
-        let key = try #require(discover(in: source, sourcePath: "T.swift", module: testModule).testingKeys.first)
-        #expect(key.substitutions.count == 1)
-        #expect(key.scopables.map(\.typeName) == ["TodoController", "SessionCache"])
+        let discovery = discover(in: source, sourcePath: "T.swift", module: testModule)
+        #expect(discovery.testScopableTypes == ["TodoController", "SessionCache"])
+        #expect(!discovery.testScopableTypes.contains("Plain"))
     }
 
-    @Test func testingKeyWithoutScopableHasNoMarkers() throws {
+    @Test func typeWithoutTestScopableIsNotMarked() throws {
         let source = """
-            enum MyTests {
-                @BindType(Repo.self, MockRepo.self)
-                static let testSetup = TestingKey()
-            }
+            @Singleton
+            struct Plain {}
             """
-        let key = try #require(discover(in: source, sourcePath: "T.swift", module: testModule).testingKeys.first)
-        #expect(key.scopables.isEmpty)
+        let discovery = discover(in: source, sourcePath: "T.swift", module: testModule)
+        #expect(discovery.testScopableTypes.isEmpty)
     }
 
     // MARK: - Cascade path
@@ -192,7 +194,7 @@ struct ScopableCascadeCoreTests {
         #expect(diagnostic.severity == .error)
         #expect(diagnostic.message.contains("AccountRepository is bound per-scope-entry under test"))
         #expect(diagnostic.message.contains("through singleton 'AccountController'"))
-        #expect(diagnostic.message.contains("Add @Scopable(AccountController.self)"))
+        #expect(diagnostic.message.contains("Mark AccountController with @TestScopable"))
     }
 
     @Test func markingHopClearsTheDiagnostic() {
@@ -238,7 +240,7 @@ struct ScopableCascadeCoreTests {
         #expect(diagnostic.severity == .error)
         #expect(diagnostic.message.contains("TodosController is an app-scoped route contributor"))
         #expect(diagnostic.message.contains("consumes 'TodoRepository'"))
-        #expect(diagnostic.message.contains("Add @Scopable(TodosController.self)"))
+        #expect(diagnostic.message.contains("Mark TodosController with @TestScopable"))
     }
 
     // MARK: - Stale @BindType

@@ -38,7 +38,7 @@ func scopeEntryThunkLines(
 
 /// Substitute a lift node's determined generic parameters with their `some Constraint` form in `type`,
 /// preserving the type's spelling (mirrors `bridgedDependencyIdentity`'s Rule 2b, format-preserving).
-private func liftSpecialised(_ type: String, in binding: DiscoveredBinding) -> String {
+func liftSpecialised(_ type: String, in binding: DiscoveredBinding) -> String {
     guard binding.isLiftNode else { return type }
     let canonical = canonicalTypeName(type)
     var substitutions: [String: String] = [:]

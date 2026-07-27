@@ -40,7 +40,8 @@ extension WireGen {
         key: DiscoveredTestingKey,
         holdProxies: [DiscoveredScopeBoundType],
         appSingletons: [DiscoveredBinding],
-        appEdges: [BindingIdentity: [BindingIdentity]]
+        appEdges: [BindingIdentity: [BindingIdentity]],
+        scopableTypeNames: Set<String>
     ) -> [SeedlessRoot] {
         let mockIdentities = Set(
             appSingletons
@@ -48,7 +49,6 @@ extension WireGen {
                 .map(\.identity)
         )
         guard !mockIdentities.isEmpty else { return [] }
-        let scopableTypeNames = Set(key.scopables.map(\.typeName))
 
         var subjectByBareName: [String: DiscoveredScopeBoundType] = [:]
         for case .scopeBound(let type) in appSingletons { subjectByBareName[type.typeName] = type }
@@ -74,7 +74,8 @@ extension WireGen {
         key: DiscoveredTestingKey,
         holdProxies: [DiscoveredScopeBoundType],
         appSingletons: [DiscoveredBinding],
-        appEdges: [BindingIdentity: [BindingIdentity]]
+        appEdges: [BindingIdentity: [BindingIdentity]],
+        scopableTypeNames: Set<String>
     ) -> [Diagnostic] {
         var mockSlot: [BindingIdentity: (slot: String, location: SourceLocation)] = [:]
         for binding in appSingletons {
@@ -82,7 +83,6 @@ extension WireGen {
             mockSlot[binding.identity] = (match.slotType ?? match.slotKey ?? binding.boundType, match.location)
         }
         guard !mockSlot.isEmpty else { return [] }
-        let scopableTypeNames = Set(key.scopables.map(\.typeName))
 
         var subjectByBareName: [String: DiscoveredScopeBoundType] = [:]
         for case .scopeBound(let type) in appSingletons { subjectByBareName[type.typeName] = type }

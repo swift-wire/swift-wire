@@ -166,7 +166,8 @@ extension WireGen {
             key: key,
             holdProxies: inputs.holdProxies,
             appSingletons: inputs.appSingletons,
-            appEdges: inputs.partitionInputs.appEdges
+            appEdges: inputs.partitionInputs.appEdges,
+            scopableTypeNames: inputs.aggregate.testScopableTypes
         ).compactMap {
             buildSeedlessReconstruction(
                 root: $0,
@@ -195,7 +196,8 @@ extension WireGen {
                 key: key,
                 holdProxies: inputs.holdProxies,
                 appSingletons: inputs.appSingletons,
-                appEdges: inputs.partitionInputs.appEdges
+                appEdges: inputs.partitionInputs.appEdges,
+                scopableTypeNames: inputs.aggregate.testScopableTypes
             )
     }
 
@@ -308,7 +310,7 @@ extension WireGen {
         partitions: VariantPartitionInputs,
         context: VariantScopeContext
     ) -> VariantScopeAccumulation {
-        let scopableTypeNames = Set(key.scopables.map(\.typeName))
+        let scopableTypeNames = context.aggregate.testScopableTypes
         var accumulation = VariantScopeAccumulation()
 
         for (partition, bindings) in partitions.seedPartitions {

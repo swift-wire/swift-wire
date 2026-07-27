@@ -126,10 +126,10 @@ package func droppingRemovedAggregateContributors(
 // MARK: - Phase 2 — the `@Scopable` cascade
 
 /// One app-scoped hop on the path from a `@BindType`d binding up to a seeded-scope
-/// root that the variant hasn't marked `@Scopable` — the guided-diagnostic subject.
+/// root that isn't marked `@TestScopable` — the guided-diagnostic subject.
 /// The mocked binding is per-scope-entry under test, so a singleton consumer on the
 /// path must be lifted into the scope (rebuilt per entry) to see the double; the fix
-/// is `@Scopable(<hopTypeName>.self)`.
+/// is marking `<hopTypeName>` with `@TestScopable`.
 package struct UnmarkedCascadeHop: Sendable, Equatable {
     /// The mocked slot as written (`BackendRepository`) — the leaf that reaches the root through this hop.
     package let slotDisplay: String
@@ -247,7 +247,7 @@ package func reachable(
 }
 
 /// The name a cascade hop is matched and messaged by — a `@Singleton`/`@Scoped` type's own name (what
-/// `@Scopable(X.self)` references), or a provider's stripped bound type as a fallback.
+/// `@TestScopable` marks), or a provider's stripped bound type as a fallback.
 private func cascadeHopName(_ binding: DiscoveredBinding) -> String {
     if case .scopeBound(let scopeBound) = binding { return scopeBound.typeName }
     return strippedSlotType(binding.boundType)
@@ -273,7 +273,7 @@ package func unmarkedCascadeHopDiagnostic(_ hop: UnmarkedCascadeHop) -> Diagnost
         location: hop.location,
         message:
             "\(hop.slotDisplay) is bound per-scope-entry under test, but reaches the scope root through "
-            + "singleton '\(hop.hopTypeName)'. Add @Scopable(\(hop.hopTypeName).self) to allow it to be "
+            + "singleton '\(hop.hopTypeName)'. Mark \(hop.hopTypeName) with @TestScopable to allow it to be "
             + "lifted into the scope under test.",
         severity: .error
     )
@@ -291,8 +291,8 @@ package func unmarkedSeedlessRootDiagnostic(
         location: location,
         message:
             "\(subjectName) is an app-scoped route contributor that consumes '\(slotDisplay)', which is bound "
-            + "per-request under test — so it can't be constructed under the mock. Add "
-            + "@Scopable(\(subjectName).self) to rebuild it per request so it sees the double.",
+            + "per-request under test — so it can't be constructed under the mock. Mark "
+            + "\(subjectName) with @TestScopable to rebuild it per request so it sees the double.",
         severity: .error
     )
 }

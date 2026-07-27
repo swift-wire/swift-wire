@@ -34,20 +34,30 @@ enum AppScopedRepositoryModule {
     @Provides static func repository() -> any AppScopedRepository { RealAppScopedRepository() }
 }
 
+/// A non-mock app `@Singleton` the controller also injects — the variant borrows it from the graph unchanged
+/// (it doesn't reach the mock), so the reconstruction thunk captures `_wireGraph.appScopedLog`.
+@Singleton
+final class AppScopedLog: Sendable {
+    func label() -> String { "log" }
+}
+
 /// The app-scoped route contributor — `@Singleton` (not `@Scoped(seed:)`), reached through its plain
-/// (non-bridge) contributor proxy in production, and rebuilt seedlessly per request under the variant.
+/// (non-bridge) contributor proxy in production, and rebuilt seedlessly per request under the variant. Injects
+/// both the `@BindType`'d slot (rebuilt with the mock) and a non-mock singleton (borrowed). `@TestScopable`
+/// marks it eligible for the per-request rebuild — a property of the definition, on the type.
+@TestScopable
 @Singleton
 @RouteController
 struct AppScopedController {
     @Inject var repository: any AppScopedRepository
+    @Inject var log: AppScopedLog
 
-    func tag() -> String { repository.tag("routed") }
+    func tag() -> String { "\(repository.tag("routed")):\(log.label())" }
 }
 
 /// The test-graph variant: bind the slot to the mock, and `@Scopable` the app-scoped route contributor so the
 /// variant rebuilds it per request (seedlessly) instead of orphaning it.
 enum AppScopedFixture {
     @BindType(AppScopedRepository.self, MockAppScopedRepository.self)
-    @Scopable(AppScopedController.self)
     static let bindMock = TestingKey()
 }
