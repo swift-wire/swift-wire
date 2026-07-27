@@ -61,3 +61,39 @@ enum AppScopedFixture {
     @BindType(AppScopedRepository.self, MockAppScopedRepository.self)
     static let bindMock = TestingKey()
 }
+
+// --- Generic app-scoped route contributor over an OPAQUE mocked slot (the example's `TodosController<Repository>`
+// shape). The subject is generic over the `@BindType`'d backend, bound opaquely (`some GenAppBackend`), so the
+// seedless reconstruction concretizes it to `GenAppController<MockGenAppBackend>`. `@TestScopable` marks the
+// generic type — a key-side `@Scopable(GenAppController.self)` couldn't spell an unbound generic's metatype.
+
+protocol GenAppBackend: Sendable {
+    func note(_ id: String) -> String
+}
+
+final class RealGenAppBackend: GenAppBackend {
+    func note(_ id: String) -> String { "real:\(id)" }
+}
+
+final class MockGenAppBackend: GenAppBackend {
+    func note(_ id: String) -> String { "mock:\(id)" }
+}
+
+/// Bound opaquely (`some GenAppBackend`) so the generic consumer lifts over it — the axis the variant drops.
+enum GenAppBackendModule {
+    @Provides static func backend() -> some GenAppBackend { RealGenAppBackend() }
+}
+
+@TestScopable
+@Singleton
+@RouteController
+struct GenAppController<Backend: GenAppBackend>: Sendable {
+    @Inject var backend: Backend
+
+    func note() -> String { backend.note("routed") }
+}
+
+enum GenAppScopedFixture {
+    @BindType(GenAppBackend.self, MockGenAppBackend.self)
+    static let bindMock = TestingKey()
+}
