@@ -24,4 +24,20 @@ struct ScopableRouteContributorTests {
         let errors = await teardown()
         #expect(errors.isEmpty)
     }
+
+    /// A **generic** app-scoped route contributor over the opaque mocked slot — the seedless reconstruction
+    /// concretizes it to `GenAppController<MockGenAppBackend>` and threads the mock. `@TestScopable` on the
+    /// generic type is what makes it referenceable (a key-side metatype can't spell an unbound generic).
+    @Test func genericAppScopedRouteContributorConcretizesToTheMock() async throws {
+        let graph = try await Wire.bootstrapGenAppScopedFixture_bindMock()
+
+        let mock = MockGenAppBackend()
+        let doubles = _GenAppScopedFixture_bindMockDoubles(genAppBackend: mock)
+
+        let proxy = Wire.bootstrapGenAppScopedFixture_bindMock_GenAppControllerContributor(wireGraph: graph)
+        let (subject, teardown) = try await proxy._wireEnterScope(doubles)
+
+        #expect(subject.note() == "mock:routed")
+        _ = await teardown()
+    }
 }
