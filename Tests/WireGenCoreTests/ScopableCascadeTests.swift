@@ -227,6 +227,20 @@ struct ScopableCascadeCoreTests {
         #expect(marked.unmarkedHops.isEmpty)
     }
 
+    /// The seedless-root variant of the guided diagnostic — an app-scoped route contributor consuming a mock
+    /// but not `@Scopable`'d names the mocked slot, the contributor, and the exact `@Scopable` to add.
+    @Test func unmarkedSeedlessRootFiresGuidedDiagnostic() {
+        let diagnostic = unmarkedSeedlessRootDiagnostic(
+            slotDisplay: "TodoRepository",
+            subjectName: "TodosController",
+            location: mockLocation("Todos.swift")
+        )
+        #expect(diagnostic.severity == .error)
+        #expect(diagnostic.message.contains("TodosController is an app-scoped route contributor"))
+        #expect(diagnostic.message.contains("consumes 'TodoRepository'"))
+        #expect(diagnostic.message.contains("Add @Scopable(TodosController.self)"))
+    }
+
     // MARK: - Stale @BindType
 
     @Test func unmatchedSubstitutionIsDiagnosed() {
