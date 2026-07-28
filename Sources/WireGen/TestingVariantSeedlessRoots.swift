@@ -357,18 +357,29 @@ extension WireGen {
             uniquingKeysWith: { first, _ in first }
         )
         return proxy.dependencies.compactMap { dependency in
+            // A generic factory's proxy field is typed `_WireFactory_<key><Backend>`; the factory is keyed by
+            // its bare name, so strip the generic argument list before the lookup.
             guard dependency.kind == .injectInitParameter, let depName = dependency.name,
-                let factory = factoriesByType[dependency.type]
+                let factory = factoriesByType[seedlessBareTypeName(dependency.type)]
             else { return nil }
 
             var mockedFields: [String: String] = [:]
             var doublesFields: [DoublesField] = []
+            var concretizedGenerics: [String: String] = [:]
             for factoryDep in factory.dependencies {
-                guard let field = mockedDoublesField(for: factoryDep, substitutions: key.substitutions),
+                guard
+                    let match = mockedFactoryDependency(
+                        factoryDep,
+                        injectedConstraints: factory.injectedParameterConstraints,
+                        substitutions: key.substitutions
+                    ),
                     let name = factoryDep.name
                 else { continue }
-                mockedFields[name] = field.name
-                doublesFields.append(field)
+                mockedFields[name] = match.field.name
+                doublesFields.append(match.field)
+                if let concretized = match.concretizedGeneric {
+                    concretizedGenerics[concretized.name] = concretized.mockType
+                }
             }
             guard !mockedFields.isEmpty else { return nil }  // reaches no mock — the production factory stands
 
@@ -386,7 +397,8 @@ extension WireGen {
                     factory,
                     typeName: variantType,
                     doublesType: doublesType,
-                    mockedDoublesFields: mockedFields
+                    mockedDoublesFields: mockedFields,
+                    concretizedGenerics: concretizedGenerics
                 ),
                 doublesFields: doublesFields,
                 droppedIdentity: DiscoveredBinding.scopeBound(factoryBinding(factory, module: module)).identity,
@@ -397,26 +409,34 @@ extension WireGen {
     }
 }
 
-/// The doubles field a mock-consuming factory dependency reads from, or `nil` when the dependency isn't a
-/// `@BindType`'d slot. Matches the type form on the stripped bound type (`any Repo` / `some Repo` → `Repo`)
-/// and the keyed form on the `@Inject(key)` identifier — the same match `substitutionMatches` makes for a
-/// binding — and names the field exactly as `applyBindTypeSubstitutions` does, so the factory and the subject
-/// share the one doubles field for a shared mock.
-private func mockedDoublesField(
-    for dependency: DependencyParameter,
+/// Whether a factory dependency reads a `@BindType`'d slot, and how: the doubles field it reads from, plus —
+/// when the dep's type is an *injected generic parameter* bound to the slot — the (param name, concrete mock
+/// type) the variant factory concretizes that axis to. `nil` when the dependency isn't a mocked slot.
+///
+/// A dep spelled as an injected generic (`@Inject var backend: Backend`) is bound to the slot named by its
+/// **constraint** (`Backend: GenAppBackend` → the `GenAppBackend` slot); an existential/concrete dep names the
+/// slot directly (`any Repo` / `some Repo` → `Repo`). The field is named exactly as `applyBindTypeSubstitutions`
+/// does either way, so the factory and the subject share the one doubles field for a shared mock.
+private func mockedFactoryDependency(
+    _ dependency: DependencyParameter,
+    injectedConstraints: [String: String],
     substitutions: [BindTypeSubstitution]
-) -> DoublesField? {
-    let strippedType = strippedSlotType(dependency.type)
+) -> (field: DoublesField, concretizedGeneric: (name: String, mockType: String)?)? {
+    let isInjectedGeneric = injectedConstraints[dependency.type] != nil
+    let strippedType = strippedSlotType(injectedConstraints[dependency.type] ?? dependency.type)
     for substitution in substitutions {
+        let field: DoublesField
         if let slotType = substitution.slotType, dependency.keyIdentifier == nil, slotType == strippedType {
-            return DoublesField(name: identifierName(forType: strippedType, key: nil), mockType: substitution.mockType)
-        }
-        if let slotKey = substitution.slotKey, dependency.keyIdentifier == slotKey {
-            return DoublesField(
+            field = DoublesField(name: identifierName(forType: strippedType, key: nil), mockType: substitution.mockType)
+        } else if let slotKey = substitution.slotKey, dependency.keyIdentifier == slotKey {
+            field = DoublesField(
                 name: identifierName(forType: strippedType, key: slotKey),
                 mockType: substitution.mockType
             )
+        } else {
+            continue
         }
+        return (field, isInjectedGeneric ? (dependency.type, substitution.mockType) : nil)
     }
     return nil
 }

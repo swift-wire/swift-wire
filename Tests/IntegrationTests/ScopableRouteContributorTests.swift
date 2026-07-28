@@ -34,7 +34,11 @@ struct ScopableRouteContributorTests {
 
     /// A **generic** app-scoped route contributor over the opaque mocked slot — the seedless reconstruction
     /// concretizes it to `GenAppController<MockGenAppBackend>` and threads the mock. `@TestScopable` on the
-    /// generic type is what makes it referenceable (a key-side metatype can't spell an unbound generic).
+    /// generic type is what makes it referenceable (a key-side metatype can't spell an unbound generic). It also
+    /// carries a mock-consuming lifted `@Factory` **generic over the same injected axis** (`GenAppAudit<Backend>`,
+    /// `@Inject var backend: Backend`): the variant factory concretizes that axis to
+    /// `GenAppAudit<MockGenAppBackend>` and its `create(doubles:)` sources `backend` from the doubles — the
+    /// generic-factory-concretization case (issue 01).
     @Test func genericAppScopedRouteContributorConcretizesToTheMock() async throws {
         let graph = try await Wire.bootstrapGenAppScopedFixture_bindMock()
 
@@ -43,8 +47,16 @@ struct ScopableRouteContributorTests {
 
         let proxy = Wire.bootstrapGenAppScopedFixture_bindMock_GenAppControllerContributor(wireGraph: graph)
         let (subject, teardown) = try await proxy._wireEnterScope(doubles)
-
         #expect(subject.note() == "mock:routed")
+
+        // The generic mock-consuming factory concretized to `GenAppAudit<MockGenAppBackend>`: its
+        // `create(doubles:)` sources `backend` from the same doubles, proving the injected generic axis was
+        // concretized to the mock (not left generic over the dropped opaque backend). The one instance threads
+        // both the subject reconstruction and the factory.
+        let audit = proxy._wireFactory_GenAppKeys_audit.create(doubles: doubles)
+        #expect(audit.run() == "mock:audit")
+        #expect(mock.recordedNotes == ["routed", "audit"])
+
         _ = await teardown()
     }
 }

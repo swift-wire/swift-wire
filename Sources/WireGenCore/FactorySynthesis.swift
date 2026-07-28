@@ -406,28 +406,33 @@ package func renderFactoryDeclaration(_ factory: SynthesizedFactory) -> String {
 /// role axis) — only a leading `doubles: <Doubles>` parameter is prepended.
 ///
 /// Emitted alongside the seedless facade; the seedless variant proxy holds this type in place of the
-/// production factory (which the variant graph drops, since its held mock is gone). Non-generic-mock case
-/// (existential mocked slot): the mocked dependency isn't an injected generic, so the struct generics are
-/// unchanged; a mocked *generic axis* would need concretization, which the caller gates out.
+/// production factory (which the variant graph drops, since its held mock is gone). Two mock shapes:
+/// - **existential** (`@Inject var repository: any Repo`): the mocked dependency isn't an injected generic, so
+///   the struct generics are unchanged.
+/// - **generic axis** (`@Inject var backend: Backend`, where `Backend` is the injected axis bound to the
+///   slot): the param is named in `concretizedGenerics` → dropped from the struct's generics and spelled as
+///   the concrete mock type in the produced (return) type, mirroring the generic *subject* reconstruction.
 ///
-///     struct _Variant_WireFactory_MyMiddleware_audit: Sendable {
-///         let log: AppScopedLog
-///         func create(doubles: _VariantDoubles) -> AuditMiddleware {
-///             AuditMiddleware(repository: doubles.appScopedRepository, log: log)
+///     struct _Variant_WireFactory_MyMiddleware_audit: Sendable {          // generic Backend concretized away
+///         func create(doubles: _VariantDoubles) -> AuditMiddleware<MockBackend> {
+///             AuditMiddleware(backend: doubles.backend)
 ///         }
 ///     }
 package func renderVariantFactoryDeclaration(
     _ factory: SynthesizedFactory,
     typeName: String,
     doublesType: String,
-    mockedDoublesFields: [String: String]
+    mockedDoublesFields: [String: String],
+    concretizedGenerics: [String: String] = [:]
 ) -> String {
     func isMocked(_ dependency: DependencyParameter) -> Bool {
         dependency.name.map { mockedDoublesFields[$0] != nil } ?? false
     }
     let heldDependencies = factory.dependencies.filter { !isMocked($0) }
 
-    let injected = factory.injectedParameterNames
+    // A mocked generic axis (`concretizedGenerics`) is concretized to the mock type — dropped from the struct's
+    // own generics and spelled as the mock in the produced type; the rest of the injected axis stays generic.
+    let injected = factory.injectedParameterNames.filter { concretizedGenerics[$0] == nil }
     let structGenerics = injected.map { name in
         factory.injectedParameterConstraints[name].map { "\(name): \($0)" } ?? name
     }
@@ -439,8 +444,9 @@ package func renderVariantFactoryDeclaration(
     // not a phantom type witness like the roles.
     let createParameters = (["doubles: \(doublesType)"] + createGenerics.map { "_: \($0).Type" })
         .joined(separator: ", ")
-    let returnArguments = factory.parameterNames.map { name in
-        injected.contains(name) ? name : (factory.roleMapping?.parameterRoles[name] ?? name)
+    let returnArguments = factory.parameterNames.map { name -> String in
+        if let mockType = concretizedGenerics[name] { return mockType }
+        return injected.contains(name) ? name : (factory.roleMapping?.parameterRoles[name] ?? name)
     }
     let returnType =
         returnArguments.isEmpty
