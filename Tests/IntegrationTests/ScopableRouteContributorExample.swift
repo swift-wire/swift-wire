@@ -93,7 +93,14 @@ final class RealGenAppBackend: GenAppBackend {
 }
 
 final class MockGenAppBackend: GenAppBackend {
-    func note(_ id: String) -> String { "mock:\(id)" }
+    private let calls = Mutex<[String]>([])
+
+    func note(_ id: String) -> String {
+        calls.withLock { $0.append(id) }
+        return "mock:\(id)"
+    }
+
+    var recordedNotes: [String] { calls.withLock { $0 } }
 }
 
 /// Bound opaquely (`some GenAppBackend`) so the generic consumer lifts over it — the axis the variant drops.
@@ -101,9 +108,24 @@ enum GenAppBackendModule {
     @Provides static func backend() -> some GenAppBackend { RealGenAppBackend() }
 }
 
+enum GenAppKeys {
+    static let audit = FactoryKey()
+}
+
+/// A mock-consuming lifted `@Factory` **generic over the injected mocked axis** (`@Inject var backend: Backend`,
+/// where `Backend` is the `@BindType`'d slot) — the example's `AuditGate` shape. Under the key its `Backend`
+/// generic concretizes to the mock and `create(doubles:)` sources `backend` from the doubles.
+@Factory(GenAppKeys.audit)
+struct GenAppAudit<Backend: GenAppBackend> {
+    @Inject var backend: Backend
+
+    func run() -> String { backend.note("audit") }
+}
+
 @TestScopable
 @Singleton
 @RouteController
+@RouteMiddleware(GenAppKeys.audit)
 struct GenAppController<Backend: GenAppBackend>: Sendable {
     @Inject var backend: Backend
 
