@@ -1,7 +1,26 @@
 # 08 — Generic seed-scoped subject under the keyed harness
 
 **Repo(s):** wire-mvc (keyed-harness codegen) + swift-wire (variant proxy for a generic seed-scoped subject)
-**State:** 🟡 Unverified (documented as broken pre-M6a; the keyed harness has since been rewritten)
+**State:** ✅ **Fixed (pending merge)** — was 🟡 Unverified (documented as broken pre-M6a)
+
+## Resolution
+
+The old `@TaskLocal`-naming symptom was already gone (the M6a keyed-harness rewrite hand-registers variant
+proxies rather than parking them in a task-local). The remaining live symptom was the **doubles field
+ordering**: WireGen sorts the `_<Key>Doubles` struct fields alphabetically (`sessionManager` before
+`todoRepository`), but wire-mvc's `withBindValues` constructed them in `@BindType` source order
+(`todoRepository` first) → *"argument 'sessionManager' must precede argument 'todoRepository'"*. Fixed in
+wire-mvc (`KeyedHarnessGeneration`): the construction arguments are now sorted by field name to match the
+struct's declaration order; the user-facing `withBindValues` parameters stay in source order. Validated by
+`doublesConstructionMatchesAlphabeticalStructOrder`.
+
+**Caveat:** full `MeController` compilation is confirmed only at the codegen level (generated code inspected) —
+the local example build is blocked by an unrelated `@Smock` version-skew under `swift package edit`. Final
+end-to-end confirmation is the post-merge example build (see the Phase C follow-up).
+
+---
+
+## Original report
 **Blocks:** mock-testing a generic `@Scoped(seed:)` controller over the mocked slots — the wire-mvc-examples
 `MeController<Repository, Manager>` (`/me`).
 **Surfaced by:** the wire-mvc-examples mocked suite's old "LIMITATION 2" note. **Phase C forces this.**
