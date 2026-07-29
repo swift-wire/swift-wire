@@ -1,11 +1,15 @@
 # M6a — Wire testing primitives: implementation plan
 
+> ✅ **COMPLETE** — shipped as part of milestone **M6a (testing)**. Retained as implementation history; the
+> in-progress notes below (status lines, open items) are historical. See [../ROADMAP.md](../../ROADMAP.md) for the
+> milestone summary and [../PendingIssues](../../PendingIssues/README.md) for latent edge cases.
+
 > **Status:** the **swift-wire** side of the M6a testing milestone — `@BindType`, `@Scopable`,
-> `TestingKey`, and the seed-threaded doubles. Design record: [Notes/TestingModel.md](Notes/TestingModel.md).
+> `TestingKey`, and the seed-threaded doubles. Design record: [Notes/TestingModel.md](../Notes/TestingModel.md).
 > The wire-mvc HTTP harness (the `Doubles` supply channel, `withBindValues`, the suite trait,
-> `TestClient` — [Notes/WireMVCTesting.md](Notes/WireMVCTesting.md)) is a **separate follow-on plan**
+> `TestClient` — [Notes/WireMVCTesting.md](../Notes/WireMVCTesting.md)) is a **separate follow-on plan**
 > that consumes these primitives. Iterative, same discipline as the archived
-> [M5.4 plan](Archive/M5_4_PLAN.md): each phase runs end-to-end and has a validation gate.
+> [M5.4 plan](M5_4_PLAN.md): each phase runs end-to-end and has a validation gate.
 
 ## Grounding — the scope-entry thunk today
 

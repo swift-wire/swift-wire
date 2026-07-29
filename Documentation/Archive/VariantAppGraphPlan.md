@@ -1,14 +1,19 @@
 # Variant app graph — `@BindType` as a true complete-replacement (plan)
 
+> ✅ **COMPLETE** — shipped as part of milestone **M6a (testing)**: the variant app graph drops the mocked
+> eager `@Singleton(as:)` bindings (Docker-free mocked suites) and handles the generic seed-scoped subject.
+> Retained as implementation history; the "for review before building" framing and open items below are
+> historical. See [../ROADMAP.md](../../ROADMAP.md) and [../PendingIssues](../../PendingIssues/README.md).
+
 > **Status:** design record + phased plan for making a `TestingKey` variant a **divergent app graph**,
 > so `@BindType` alone stops an eager `@Singleton` from constructing under the mock (the wire-mvc-examples
 > CouchDB overlay leak), and so a **generic seed-scoped subject** is handled end-to-end. For review before
 > building. Builds on #223 (`@Replaces` + `@BindType` composition) and the H2.2a variant-proxy facades.
 > Same discipline as [M6a_TestingPlan.md](M6a_TestingPlan.md): each phase runs end-to-end with a gate.
 >
-> Design records this refines: [Notes/TestingModel.md](Notes/TestingModel.md) (line 79 — *"the test
+> Design records this refines: [Notes/TestingModel.md](../Notes/TestingModel.md) (line 79 — *"the test
 > target regenerates its own graph … the production graph is untouched"*) and
-> [Notes/WireMVCTesting.md](Notes/WireMVCTesting.md).
+> [Notes/WireMVCTesting.md](../Notes/WireMVCTesting.md).
 
 ## Grounding — how the variant reuses `_WireGraph` today (post-#223), and what it can't fix
 

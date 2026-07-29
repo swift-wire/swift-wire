@@ -1,9 +1,15 @@
 # M6a — WireMVC testing harness: implementation plan
 
+> ✅ **COMPLETE** — shipped as part of milestone **M6a (testing)**. Retained as implementation history; the
+> in-progress notes below (status lines, "NEXT", the "one remaining follow-up" for factory-carrying proxies —
+> since shipped with the mock-consuming-factory work — and the open decisions, all since settled) are
+> historical. See [../ROADMAP.md](../../ROADMAP.md) for the milestone summary, [../PendingIssues](../../PendingIssues/README.md)
+> for latent edge cases, and `wire-mvc/Documentation/TestingArchitecture.md` for the planned follow-up redesign.
+
 > **Status:** the **wire-mvc** side of the M6a testing milestone — the HTTP harness that drives the
-> swift-wire testing primitives ([Notes/TestingModel.md](Notes/TestingModel.md): `@BindType` /
+> swift-wire testing primitives ([Notes/TestingModel.md](../Notes/TestingModel.md): `@BindType` /
 > `@Scopable` / `TestingKey`, **shipped** as Phase 1 + 2) over a real server. Design record:
-> [Notes/WireMVCTesting.md](Notes/WireMVCTesting.md). **Unbuilt.** Iterative, same phase/gate discipline
+> [Notes/WireMVCTesting.md](../Notes/WireMVCTesting.md). **Unbuilt.** Iterative, same phase/gate discipline
 > as the swift-wire plan. This plan's code lives in **wire-mvc**; it (and `WireMVCTesting.md`) will move
 > to that repo when built — kept here for now so the cross-links to the primitives resolve.
 

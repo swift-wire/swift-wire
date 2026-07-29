@@ -5,7 +5,17 @@
 
 ## Resolution
 
-Fixed in swift-wire. Three changes:
+**Two halves — the wire-mvc half was initially missed** (the same incomplete-cross-repo pattern this
+directory exists to catch). The swift-wire half was merged as #235; Phase C then surfaced that wire-mvc's fold
+detection was never updated, so it emitted `create(…)` without doubles while swift-wire's variant factory
+demanded them — *"missing argument for parameter 'doubles'"*. Fixed in wire-mvc: `FactoryInjectFinder` now
+resolves a `@Inject var x: Param` spelled as an injected generic to its constraint (`Repository: TodoRepository`
+→ the `TodoRepository` slot), matching swift-wire's rule. Validated by
+`genericMockConsumingFactoryFoldThreadsDoubles`.
+
+### swift-wire half (merged, #235)
+
+Three changes:
 - **Lookup** (`variantFactoryTransforms`): a generic factory's proxy field is typed `_WireFactory_<key><Backend>`,
   but the factory is keyed by its bare name — strip the generic-argument list (`seedlessBareTypeName`) before
   the lookup, else the transform never fires and the production factory (over the dropped opaque axis) orphans.
