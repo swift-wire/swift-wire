@@ -250,6 +250,20 @@ extension WireGen {
         // axis, so the variant graph shares the production axes.
         let bridgeProxyIdentities = Set(inputs.productionProxies.map { DiscoveredBinding.scopeBound($0).identity })
         var seedScopes = accumulation.seedScopes
+        // A seed-scoped proxy's mock-consuming `@Factory` gets the same transform a seedless root's does: the
+        // production factory holds its deps from facade time, but a double only arrives per request, so it is
+        // re-emitted sourcing them from `create(doubles:)` and the production binding is dropped below. Computed
+        // here, ahead of the graph, because the drop feeds the graph the facades are then built against.
+        let seedScopedFactoryTransforms = seedScopedFactoryTransforms(
+            seedScopes: seedScopes,
+            productionProxies: inputs.productionProxies,
+            factories: inputs.factories,
+            key: key,
+            module: inputs.aggregate.module,
+            variantName: variantName,
+            doublesType: doublesType
+        )
+        let seedScopedFactoryDropped = Set(seedScopedFactoryTransforms.values.flatMap { $0 }.map(\.droppedIdentity))
         // Drop the mocked/lifted bindings and the contributor proxies, then rewrite any surviving aggregate to
         // shed its dropped contributors — a `routeContributors` fan-in keeps its non-scoped contributors and
         // sheds the dropped scoped-subject proxies (the harness registers those from the variant proxies), so
@@ -257,7 +271,10 @@ extension WireGen {
         let seedlessDropped = seedlessReconstructions.reduce(into: Set<BindingIdentity>()) {
             $0.formUnion($1.droppedIdentities)
         }
-        let dropped = accumulation.liftedIdentities.union(bridgeProxyIdentities).union(seedlessDropped)
+        let dropped = accumulation.liftedIdentities
+            .union(bridgeProxyIdentities)
+            .union(seedlessDropped)
+            .union(seedScopedFactoryDropped)
         let appGraphOrder = droppingRemovedAggregateContributors(
             from: inputs.defaultOrder.filter { !dropped.contains($0.identity) },
             dropped: dropped
@@ -276,6 +293,7 @@ extension WireGen {
         var contributorFacades = buildVariantContributorFacades(
             seedScopes: seedScopes,
             productionProxies: inputs.productionProxies,
+            factoryTransformsByProxy: seedScopedFactoryTransforms,
             variantName: variantName,
             doublesType: doublesType,
             parentGraphTypeReference: facadeParentReference
@@ -285,6 +303,15 @@ extension WireGen {
         // mock-consuming lifted `@Factory`s emit (the façade constructs them from the non-mock graph deps).
         var mergedDoublesFields = accumulation.doublesFields
         var variantFactoryDeclarations: [String] = []
+        // The seed-scoped variant factories, in proxy-name order so the emission is deterministic. Their doubles
+        // fields join the struct: a factory can consume a slot no controller injects directly, and the field has
+        // to exist for its `create(doubles:)` to read.
+        for proxyName in seedScopedFactoryTransforms.keys.sorted() {
+            for transform in seedScopedFactoryTransforms[proxyName] ?? [] {
+                for field in transform.doublesFields { mergedDoublesFields[field.name] = field }
+                variantFactoryDeclarations.append(transform.declaration)
+            }
+        }
         for reconstruction in seedlessReconstructions {
             for field in reconstruction.doublesFields { mergedDoublesFields[field.name] = field }
             variantFactoryDeclarations.append(contentsOf: reconstruction.variantFactoryDeclarations)
