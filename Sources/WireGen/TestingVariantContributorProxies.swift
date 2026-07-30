@@ -23,6 +23,41 @@ extension WireGen {
         }
     }
 
+    /// The mock-consuming factory transforms for each seed-scoped contributor proxy this variant covers, keyed
+    /// by production-proxy type name.
+    ///
+    /// Computed *before* the variant app graph, because each transform drops a production factory binding and
+    /// the graph is built from what survives — while the facades that consume these transforms need the graph
+    /// reference that dropping produces. Splitting the computation from the emission breaks that cycle;
+    /// `buildVariantContributorFacades` takes the result rather than recomputing it.
+    static func seedScopedFactoryTransforms(
+        seedScopes: [SeedScopeEmission],
+        productionProxies: [DiscoveredScopeBoundType],
+        factories: [SynthesizedFactory],
+        key: DiscoveredTestingKey,
+        module: String
+    ) -> [String: [VariantFactoryTransform]] {
+        let coveredSeeds = Set(seedScopes.map(\.seedTypeExpression))
+        var transformsByProxy: [String: [VariantFactoryTransform]] = [:]
+        for proxy in productionProxies {
+            guard
+                let scopeEntry = proxy.dependencies.first(where: { $0.name == contributorProxyScopeEntryFieldName }),
+                let parsed = parsedContributorScopeEntryThunkType(scopeEntry.type),
+                coveredSeeds.contains(parsed.seed)
+            else { continue }
+            let transforms = variantFactoryTransforms(
+                proxy: proxy,
+                factories: factories,
+                key: key,
+                variantName: variantName(for: key),
+                doublesType: doublesStructTypeName(forKeyReference: key.keyReference),
+                module: module
+            )
+            if !transforms.isEmpty { transformsByProxy[proxy.typeName] = transforms }
+        }
+        return transformsByProxy
+    }
+
     /// For each production bridging contributor proxy over a seed-scoped subject that this variant's seed
     /// scopes touch, emit a doubles-threaded variant proxy `struct` + its
     /// `Wire.bootstrap<VariantName>_<Subject>Contributor(wireGraph:)` facade. The variant proxy is the
@@ -31,11 +66,17 @@ extension WireGen {
     /// `_<Key>Doubles`; the facade builds it against the reused `_WireGraph`, threading the doubles through
     /// the `_wireEnterScope` call. A proxy whose seed no variant scope covers is skipped. Deterministic order
     /// by production-proxy type name.
+    ///
+    /// A lifted `@Factory` on the proxy that itself consumes a mocked slot gets the same treatment as on a
+    /// seedless root: the production factory can't hold a double that only arrives per request, so it is
+    /// re-emitted as a variant factory sourcing its mocked deps from `create(doubles:)`, the proxy's field is
+    /// re-typed to it, and the facade constructs it instead of reading the (dropped) production binding off
+    /// the graph.
     static func buildVariantContributorFacades(
         seedScopes: [SeedScopeEmission],
         productionProxies: [DiscoveredScopeBoundType],
-        variantName: String,
-        doublesType: String,
+        factoryTransformsByProxy: [String: [VariantFactoryTransform]],
+        key: DiscoveredTestingKey,
         parentGraphTypeReference: String
     ) -> [String] {
         var scopeBySeed: [String: SeedScopeEmission] = [:]
@@ -48,21 +89,29 @@ extension WireGen {
                 let parsed = parsedContributorScopeEntryThunkType(scopeEntry.type),
                 let scope = scopeBySeed[parsed.seed]
             else { continue }
+            let factoryTransforms = factoryTransformsByProxy[proxy.typeName] ?? []
             let variantProxy = variantContributorProxy(
                 from: proxy,
                 seed: parsed.seed,
                 subject: parsed.subject,
-                variantName: variantName,
-                doublesType: doublesType
+                key: key,
+                factoryRetypes: Dictionary(
+                    factoryTransforms.map { ($0.productionDepName, $0.variantType) },
+                    uniquingKeysWith: { first, _ in first }
+                )
             )
-            let facadeMethod = "bootstrap\(variantName)_\(bareTypeName(parsed.subject))Contributor"
+            let facadeMethod = "bootstrap\(variantName(for: key))_\(bareTypeName(parsed.subject))Contributor"
             declarations.append(renderContributorProxyDeclaration(variantProxy))
             declarations.append(
                 renderContributorProxyFacade(
                     proxy: variantProxy,
                     scope: scope,
                     parentGraphTypeReference: parentGraphTypeReference,
-                    facadeMethodName: facadeMethod
+                    facadeMethodName: facadeMethod,
+                    factoryConstructions: Dictionary(
+                        factoryTransforms.map { ($0.constructionLocal, $0.constructionExpression) },
+                        uniquingKeysWith: { first, _ in first }
+                    )
                 )
             )
         }
@@ -73,18 +122,33 @@ extension WireGen {
     /// `_<VariantName><ProductionProxy>` (so it doesn't collide with the production proxy in the shared
     /// module) and its `_wireEnterScope` scope-entry thunk re-typed to thread the variant's `_<Key>Doubles`
     /// alongside the seed. Contributes to nothing — it is reached only through the generated facade, never a
-    /// production multibinding. Non-`_wireEnterScope` dependencies (any lifted factories) carry through
-    /// unchanged.
+    /// production multibinding. A mock-consuming lifted factory is re-typed to its variant factory (named by
+    /// `factoryRetypes`); every other dependency carries through unchanged.
     fileprivate static func variantContributorProxy(
         from proxy: DiscoveredScopeBoundType,
         seed: String,
         subject: String,
-        variantName: String,
-        doublesType: String
+        key: DiscoveredTestingKey,
+        factoryRetypes: [String: String]
     ) -> DiscoveredScopeBoundType {
-        let doublesThunkType = contributorScopeEntryThunkType(seed: seed, subject: subject, doubles: doublesType)
+        let variantName = variantName(for: key)
+        let doublesThunkType = contributorScopeEntryThunkType(
+            seed: seed,
+            subject: subject,
+            doubles: doublesStructTypeName(forKeyReference: key.keyReference)
+        )
         let dependencies = proxy.dependencies.map { dependency -> DependencyParameter in
-            guard dependency.name == contributorProxyScopeEntryFieldName else { return dependency }
+            guard dependency.name == contributorProxyScopeEntryFieldName else {
+                guard let name = dependency.name, let variantType = factoryRetypes[name] else { return dependency }
+                return DependencyParameter(
+                    name: name,
+                    type: variantType,
+                    kind: dependency.kind,
+                    location: dependency.location,
+                    keyIdentifier: dependency.keyIdentifier,
+                    nonOwningInitForm: dependency.nonOwningInitForm
+                )
+            }
             return DependencyParameter(
                 name: dependency.name,
                 type: doublesThunkType,

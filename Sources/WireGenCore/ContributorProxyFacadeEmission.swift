@@ -31,12 +31,15 @@
 /// doubles); `scope` is the matching variant seed scope (carrying `doublesType` + `edges`);
 /// `parentGraphTypeReference` is the opaque-erased reused graph type (`_WireGraph`, or `_WireGraph<some P>`
 /// when the app graph lifts opaque axes); `facadeMethodName` is the `Wire` static-method name a consumer
-/// calls to obtain the proxy.
+/// calls to obtain the proxy. `factoryConstructions` overrides a lifted-factory local's value: a
+/// mock-consuming factory is dropped from the variant graph, so its local is built here from the variant
+/// factory type instead of read off `_wireGraph`.
 package func renderContributorProxyFacade(
     proxy: DiscoveredScopeBoundType,
     scope: SeedScopeEmission,
     parentGraphTypeReference: String,
-    facadeMethodName: String
+    facadeMethodName: String,
+    factoryConstructions: [String: String] = [:]
 ) -> String {
     let wireGraphExternal = wireGraphParameterLabel(forType: scope.parentGraphType)
     let wireGraphInternal = wireGraphParameterInternalName(forType: scope.parentGraphType)
@@ -50,7 +53,9 @@ package func renderContributorProxyFacade(
     // The proxy's lifted input edges (its `_wireFactory_<key>` / adapter dependencies) are graph bindings its
     // construction references by bare name. Bind each off the graph too (`let <local> = _wireGraph.<local>`),
     // so the construction resolves to the graph's instance rather than the bare type — the production
-    // bootstrap body binds the same locals before constructing the proxy.
+    // bootstrap body binds the same locals before constructing the proxy. A mock-consuming factory is the
+    // exception: it is dropped from the variant graph, so `factoryConstructions` supplies its variant
+    // factory's construction in place of the graph read.
     let factoryLocals = proxyGraphDependencyLocals(for: proxy)
     let thunkLines =
         scopeEntryThunkLines(forBridgeProxy: .scopeBound(proxy), scopes: [scope.seedTypeExpression: scope]) ?? []
@@ -64,7 +69,8 @@ package func renderContributorProxyFacade(
         lines.append("        let \(borrow.property) = \(borrow.accessPath)")
     }
     for local in factoryLocals {
-        lines.append("        let \(local) = \(wireGraphInternal).\(local)")
+        let value = factoryConstructions[local] ?? "\(wireGraphInternal).\(local)"
+        lines.append("        let \(local) = \(value)")
     }
     // The thunk lines are indented for a `_wireBootstrap()` body (4 spaces); one more level nests them
     // inside the facade's static method.
