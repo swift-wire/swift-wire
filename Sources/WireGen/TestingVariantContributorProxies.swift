@@ -35,9 +35,7 @@ extension WireGen {
         productionProxies: [DiscoveredScopeBoundType],
         factories: [SynthesizedFactory],
         key: DiscoveredTestingKey,
-        module: String,
-        variantName: String,
-        doublesType: String
+        module: String
     ) -> [String: [VariantFactoryTransform]] {
         let coveredSeeds = Set(seedScopes.map(\.seedTypeExpression))
         var transformsByProxy: [String: [VariantFactoryTransform]] = [:]
@@ -51,8 +49,8 @@ extension WireGen {
                 proxy: proxy,
                 factories: factories,
                 key: key,
-                variantName: variantName,
-                doublesType: doublesType,
+                variantName: variantName(for: key),
+                doublesType: doublesStructTypeName(forKeyReference: key.keyReference),
                 module: module
             )
             if !transforms.isEmpty { transformsByProxy[proxy.typeName] = transforms }
@@ -78,8 +76,7 @@ extension WireGen {
         seedScopes: [SeedScopeEmission],
         productionProxies: [DiscoveredScopeBoundType],
         factoryTransformsByProxy: [String: [VariantFactoryTransform]],
-        variantName: String,
-        doublesType: String,
+        key: DiscoveredTestingKey,
         parentGraphTypeReference: String
     ) -> [String] {
         var scopeBySeed: [String: SeedScopeEmission] = [:]
@@ -97,14 +94,13 @@ extension WireGen {
                 from: proxy,
                 seed: parsed.seed,
                 subject: parsed.subject,
-                variantName: variantName,
-                doublesType: doublesType,
+                key: key,
                 factoryRetypes: Dictionary(
                     factoryTransforms.map { ($0.productionDepName, $0.variantType) },
                     uniquingKeysWith: { first, _ in first }
                 )
             )
-            let facadeMethod = "bootstrap\(variantName)_\(bareTypeName(parsed.subject))Contributor"
+            let facadeMethod = "bootstrap\(variantName(for: key))_\(bareTypeName(parsed.subject))Contributor"
             declarations.append(renderContributorProxyDeclaration(variantProxy))
             declarations.append(
                 renderContributorProxyFacade(
@@ -132,11 +128,15 @@ extension WireGen {
         from proxy: DiscoveredScopeBoundType,
         seed: String,
         subject: String,
-        variantName: String,
-        doublesType: String,
+        key: DiscoveredTestingKey,
         factoryRetypes: [String: String]
     ) -> DiscoveredScopeBoundType {
-        let doublesThunkType = contributorScopeEntryThunkType(seed: seed, subject: subject, doubles: doublesType)
+        let variantName = variantName(for: key)
+        let doublesThunkType = contributorScopeEntryThunkType(
+            seed: seed,
+            subject: subject,
+            doubles: doublesStructTypeName(forKeyReference: key.keyReference)
+        )
         let dependencies = proxy.dependencies.map { dependency -> DependencyParameter in
             guard dependency.name == contributorProxyScopeEntryFieldName else {
                 guard let name = dependency.name, let variantType = factoryRetypes[name] else { return dependency }

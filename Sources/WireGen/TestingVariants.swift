@@ -42,7 +42,7 @@ extension WireGen {
     /// partitions: the default-graph seed partitions to vary, the app singletons the cascade may lift, the
     /// production app graph's resolved adjacency the cascade walks, and the singleton borrow set the
     /// variant scopes reuse.
-    fileprivate struct VariantPartitionInputs {
+    struct VariantPartitionInputs {
         let seedPartitions: [(key: Partition, value: [DiscoveredBinding])]
         let defaultSingletons: [DiscoveredBinding]
         let appEdges: [BindingIdentity: [BindingIdentity]]
@@ -52,7 +52,7 @@ extension WireGen {
     /// One testing key's variant seed scopes accumulated across the default-graph seed partitions: the
     /// doubles fields collected per scope, the built variant seed scopes, their existential promotions,
     /// the scopes that failed validation, and the cascade diagnostics raised.
-    fileprivate struct VariantScopeAccumulation {
+    struct VariantScopeAccumulation {
         var doublesFields: [String: DoublesField] = [:]
         var seedScopes: [SeedScopeEmission] = []
         var promotions: [ExistentialPromotion] = []
@@ -142,7 +142,7 @@ extension WireGen {
     /// accumulation inputs, the aggregate, the whole production binding set (for stale-`@BindType`
     /// diagnostics), the production bridging proxies to re-emit doubles-threaded, and the reused graph type
     /// reference the proxy facades borrow from.
-    fileprivate struct VariantBuildInputs {
+    struct VariantBuildInputs {
         let partitionInputs: VariantPartitionInputs
         let aggregate: DiscoveryAggregate
         let allProductionBindings: [DiscoveredBinding]
@@ -212,8 +212,14 @@ extension WireGen {
             )
     }
 
+    /// The variant's generated-type prefix, derived from its key reference (`MyTests.setup` → `MyTests_setup`).
+    /// Every step that names a variant type derives it from the key this way rather than passing it along.
+    static func variantName(for key: DiscoveredTestingKey) -> String {
+        key.keyReference.split(separator: ".").map(String.init).joined(separator: "_")
+    }
+
     fileprivate static func buildVariant(for key: DiscoveredTestingKey, inputs: VariantBuildInputs) -> TestingVariant? {
-        let variantName = key.keyReference.split(separator: ".").map(String.init).joined(separator: "_")
+        let variantName = variantName(for: key)
         let doublesType = doublesStructTypeName(forKeyReference: key.keyReference)
         let scopeContext = VariantScopeContext(
             keyReference: key.keyReference,
@@ -240,106 +246,43 @@ extension WireGen {
                 || !accumulation.failures.isEmpty || !diagnostics.isEmpty
         else { return nil }
 
-        // The variant app graph = the production default order MINUS the lifted identities (mocked eager
-        // singletons + `@Scopable` hops the variant reconstructs per scope entry, so their `init` never runs
-        // under `Wire.bootstrap<Variant>()`) and every contributor proxy (rebuilt by the variant façades
-        // against the variant graph — the production proxies' scope-entry thunks borrow dropped bindings). It
-        // is emitted unless a dropped binding is opaque (`some P`): dropping an opaque axis re-indexes the
-        // variant graph's generics (the generic-subject case is a later phase), so such a variant keeps the
-        // production `_WireGraph` for its seed + proxy façades. Existential/concrete mocked bindings drop no
-        // axis, so the variant graph shares the production axes.
-        let bridgeProxyIdentities = Set(inputs.productionProxies.map { DiscoveredBinding.scopeBound($0).identity })
-        var seedScopes = accumulation.seedScopes
-        // A seed-scoped proxy's mock-consuming `@Factory` gets the same transform a seedless root's does: the
-        // production factory holds its deps from facade time, but a double only arrives per request, so it is
-        // re-emitted sourcing them from `create(doubles:)` and the production binding is dropped below. Computed
-        // here, ahead of the graph, because the drop feeds the graph the facades are then built against.
-        let seedScopedFactoryTransforms = seedScopedFactoryTransforms(
-            seedScopes: seedScopes,
-            productionProxies: inputs.productionProxies,
-            factories: inputs.factories,
+        let appGraph = buildVariantAppGraph(
             key: key,
-            module: inputs.aggregate.module,
-            variantName: variantName,
-            doublesType: doublesType
+            inputs: inputs,
+            accumulation: accumulation,
+            seedlessReconstructions: seedlessReconstructions
         )
-        let seedScopedFactoryDropped = Set(seedScopedFactoryTransforms.values.flatMap { $0 }.map(\.droppedIdentity))
-        // Drop the mocked/lifted bindings and the contributor proxies, then rewrite any surviving aggregate to
-        // shed its dropped contributors — a `routeContributors` fan-in keeps its non-scoped contributors and
-        // sheds the dropped scoped-subject proxies (the harness registers those from the variant proxies), so
-        // its `[…]` fold references only surviving locals rather than a dropped proxy's bare type.
-        let seedlessDropped = seedlessReconstructions.reduce(into: Set<BindingIdentity>()) {
-            $0.formUnion($1.droppedIdentities)
-        }
-        let dropped = accumulation.liftedIdentities
-            .union(bridgeProxyIdentities)
-            .union(seedlessDropped)
-            .union(seedScopedFactoryDropped)
-        let appGraphOrder = droppingRemovedAggregateContributors(
-            from: inputs.defaultOrder.filter { !dropped.contains($0.identity) },
-            dropped: dropped
-        )
-        // Re-point this variant's seed + proxy façades' `wireGraph:` parameter *type* to the variant app
-        // graph (the borrow name stays `_wireGraph`). A dropped opaque (`some P`) binding drops its axis, so
-        // the reference is re-indexed off the filtered order — consistent across the struct, façades, seed
-        // lift, and borrows because each derives its axes from this same reference.
-        let appGraphReference = openGraphTypeReference(
-            structName: "_\(variantName)WireGraph",
-            topologicalOrder: appGraphOrder
-        )
-        let facadeParentReference = appGraphReference
-        for index in seedScopes.indices { seedScopes[index].variantAppGraphReference = appGraphReference }
+        // Re-point this variant's seed + proxy façades' `wireGraph:` parameter *type* to the variant app graph.
+        var seedScopes = accumulation.seedScopes
+        for index in seedScopes.indices { seedScopes[index].variantAppGraphReference = appGraph.reference }
 
-        var contributorFacades = buildVariantContributorFacades(
-            seedScopes: seedScopes,
-            productionProxies: inputs.productionProxies,
-            factoryTransformsByProxy: seedScopedFactoryTransforms,
-            variantName: variantName,
-            doublesType: doublesType,
-            parentGraphTypeReference: facadeParentReference
+        let folded = foldVariantEmissions(
+            doublesFields: accumulation.doublesFields,
+            contributorFacades: buildVariantContributorFacades(
+                seedScopes: seedScopes,
+                productionProxies: inputs.productionProxies,
+                factoryTransformsByProxy: appGraph.factoryTransforms,
+                key: key,
+                parentGraphTypeReference: appGraph.reference
+            ),
+            seedScopedFactoryTransforms: appGraph.factoryTransforms,
+            seedlessReconstructions: seedlessReconstructions,
+            facadeParentReference: appGraph.reference
         )
-        // Seedless reconstructions — each a variant proxy declaration + a `(doubles)`-only façade that rebuilds
-        // the subject on demand against the variant graph, plus any variant factory declarations the proxy's
-        // mock-consuming lifted `@Factory`s emit (the façade constructs them from the non-mock graph deps).
-        var mergedDoublesFields = accumulation.doublesFields
-        var variantFactoryDeclarations: [String] = []
-        // The seed-scoped variant factories, in proxy-name order so the emission is deterministic. Their doubles
-        // fields join the struct: a factory can consume a slot no controller injects directly, and the field has
-        // to exist for its `create(doubles:)` to read.
-        for proxyName in seedScopedFactoryTransforms.keys.sorted() {
-            for transform in seedScopedFactoryTransforms[proxyName] ?? [] {
-                for field in transform.doublesFields { mergedDoublesFields[field.name] = field }
-                variantFactoryDeclarations.append(transform.declaration)
-            }
-        }
-        for reconstruction in seedlessReconstructions {
-            for field in reconstruction.doublesFields { mergedDoublesFields[field.name] = field }
-            variantFactoryDeclarations.append(contentsOf: reconstruction.variantFactoryDeclarations)
-            contributorFacades.append(renderContributorProxyDeclaration(reconstruction.proxy))
-            contributorFacades.append(
-                renderSeedlessContributorFacade(
-                    proxy: reconstruction.proxy,
-                    scope: reconstruction.scope,
-                    parentGraphTypeReference: facadeParentReference,
-                    facadeMethodName: reconstruction.facadeMethod,
-                    factoryConstructions: reconstruction.factoryConstructions
-                )
-            )
-        }
 
         return TestingVariant(
             doublesStruct: renderDoublesStruct(
                 typeName: doublesType,
-                fields: mergedDoublesFields.values.sorted { $0.name < $1.name }
+                fields: folded.doublesFields.values.sorted { $0.name < $1.name }
             ),
             seedScopes: seedScopes,
-            contributorFacades: contributorFacades,
+            contributorFacades: folded.contributorFacades,
             existentialPromotions: accumulation.promotions,
             validationFailures: accumulation.failures,
             diagnostics: diagnostics,
             appGraphName: variantName,
-            appGraphOrder: appGraphOrder,
-            variantFactoryDeclarations: variantFactoryDeclarations
+            appGraphOrder: appGraph.order,
+            variantFactoryDeclarations: folded.factoryDeclarations
         )
     }
 
