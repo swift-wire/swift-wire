@@ -32,10 +32,15 @@
 /// Its **source location** bridges that: `init` captures its own call site
 /// through `#fileID`/`#line` default arguments, so `TestingKey()` — written
 /// exactly as before — yields a value that is unique per declaration and
-/// reproducible by a code generator reading the same source. An adapter's
-/// generated dispatch compares against `TestingKey(fileID:line:)` values it
+/// reproducible by a code generator reading the same source. A generated
+/// dispatch can then compare against `TestingKey(fileID:line:)` values it
 /// reconstructs for each variant it emitted; both come from one source in one
 /// build, so they cannot drift.
+///
+/// No adapter dispatches on this yet — wire-mvc serves one key per target and
+/// rejects a second (`PendingIssues/11`), because serving several needs the
+/// per-key doubles model reworked, not this identity. The capture is here
+/// because it is the piece that would otherwise be missing, and it is free.
 ///
 /// The captured location is deliberately not readable: it exists for that
 /// dispatch, and equality is the whole contract. Two keys declared at the same
