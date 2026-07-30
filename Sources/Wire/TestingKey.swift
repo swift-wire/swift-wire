@@ -20,6 +20,37 @@
 /// live only in the test graph, so the production graph is untouched. The
 /// substituted slot is sourced from a per-scope-entry *doubles* value the test
 /// holds and inspects, threaded into the scope exactly as the scope's seed is.
-public struct TestingKey: Sendable {
-    public init() {}
+///
+/// ## Runtime identity
+///
+/// The *declaration* is what codegen sees, but a key is also passed around as a
+/// **value** — an adapter's suite trait takes one to select which variant graph
+/// to serve (`@Suite(.wiremvc(MyTests.testSetup))`). A plain value carries none
+/// of its declaring reference, and the reference is a compile-time name, so the
+/// value alone cannot say *which* generated variant it means.
+///
+/// Its **source location** bridges that: `init` captures its own call site
+/// through `#fileID`/`#line` default arguments, so `TestingKey()` — written
+/// exactly as before — yields a value that is unique per declaration and
+/// reproducible by a code generator reading the same source. An adapter's
+/// generated dispatch compares against `TestingKey(fileID:line:)` values it
+/// reconstructs for each variant it emitted; both come from one source in one
+/// build, so they cannot drift.
+///
+/// The captured location is deliberately not readable: it exists for that
+/// dispatch, and equality is the whole contract. Two keys declared at the same
+/// location are the same key; anywhere else, different.
+public struct TestingKey: Sendable, Hashable {
+    /// `#fileID` of the `TestingKey()` call — `ModuleName/FileName.swift`.
+    private let fileID: String
+    /// `#line` of the `TestingKey()` call.
+    private let line: Int
+
+    /// A key identified by where it is declared. Both parameters default to the
+    /// call site, so a declaration is written `TestingKey()`; a code generator
+    /// reconstructing a key for its dispatch passes them explicitly.
+    public init(fileID: String = #fileID, line: Int = #line) {
+        self.fileID = fileID
+        self.line = line
+    }
 }
