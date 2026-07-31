@@ -77,4 +77,42 @@ struct BindTypeDiscoveryTests {
             """
         #expect(keys(in: source).isEmpty)
     }
+
+    // MARK: - The `--testing-variants` gate
+
+    /// A key declared in the target being built names that target and tells the author to move it. This is
+    /// the diagnostic standing between a `TestingKey` in production sources and a variant graph compiled
+    /// into the shipping binary, so it is pinned rather than left to the caller's phrasing.
+    @Test func keyInNonTestConsumerNamesTheTargetAndTheFix() throws {
+        let source = """
+            enum ProdFixture {
+                @BindType(Repo.self, MockRepo.self)
+                static let bindMock = TestingKey()
+            }
+            """
+        let key = try #require(keys(in: source).first)
+        let diagnostic = testingVariantsNotEnabledDiagnostic(key, consumerModule: testModule)
+        #expect(diagnostic.severity == .error)
+        #expect(diagnostic.message.contains("'ProdFixture.bindMock'"))
+        #expect(diagnostic.message.contains("'\(testModule)' is not a test target"))
+        #expect(diagnostic.message.contains("Move the TestingKey into a test target."))
+    }
+
+    /// A key composed in from a Wire-aware dependency points at that dependency instead — the fix is on the
+    /// library's side, and the message says why (its key reaches every consumer that re-parses it).
+    @Test func keyComposedFromDependencyNamesTheOriginModule() throws {
+        let source = """
+            enum LibFixture {
+                @BindType(Repo.self, MockRepo.self)
+                static let bindMock = TestingKey()
+            }
+            """
+        let key = try #require(
+            discover(in: source, sourcePath: "Lib.swift", module: "SharedLib").testingKeys.first
+        )
+        let diagnostic = testingVariantsNotEnabledDiagnostic(key, consumerModule: "App")
+        #expect(diagnostic.severity == .error)
+        #expect(diagnostic.message.contains("composed into 'App' from module 'SharedLib'"))
+        #expect(diagnostic.message.contains("Move the TestingKey out of 'SharedLib'"))
+    }
 }

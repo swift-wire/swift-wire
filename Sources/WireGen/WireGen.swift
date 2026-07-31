@@ -31,6 +31,11 @@ import WireGenCore
 /// `MultiModuleComposition.md`).
 ///
 ///     WireGen <graph> <keychecks> --module App a.swift b.swift --module LibA c.swift
+///
+/// `--testing-variants` (anywhere in the argument list) opts the run into emitting a test-graph variant per
+/// discovered `TestingKey`. The build plugin passes it for a **test target only**; without it a discovered
+/// key is a build error, so `@BindType` doubles and the variant graph they wire cannot reach a production
+/// binary.
 @main
 struct WireGen {
     static func main() throws {
@@ -38,7 +43,13 @@ struct WireGen {
         guard arguments.count >= 3 else { printUsageAndExit() }
         let graphOutputPath = arguments[1]
         let keyChecksOutputPath = arguments[2]
-        let groups = parseModuleGroups(Array(arguments.dropFirst(3)))
+        // `--testing-variants` opts this run into emitting test-graph variants for the `TestingKey`s it
+        // finds. The build plugin passes it only for a test target; without it a discovered key is an error
+        // rather than a variant, so variant machinery cannot reach a production binary. Stripped before
+        // group parsing so its position among the `--module` groups doesn't matter.
+        let testingVariantsEnabled = arguments.contains(testingVariantsFlag)
+        let groupArguments = arguments.dropFirst(3).filter { $0 != testingVariantsFlag }
+        let groups = parseModuleGroups(Array(groupArguments))
         guard let consumerModule = groups.first?.module else { printUsageAndExit() }
 
         var aggregate = discoverAllSources(groups: groups, consumerModule: consumerModule)
@@ -112,7 +123,8 @@ struct WireGen {
                 proxyIdentities: preGraph.proxyIdentities,
                 defaultGraph: defaultGraph,
                 containerGraphs: containerGraphs,
-                seedScopeOrchestrations: seedScopeOrchestrations
+                seedScopeOrchestrations: seedScopeOrchestrations,
+                testingVariantsEnabled: testingVariantsEnabled
             ),
             outputPath: graphOutputPath
         )
@@ -525,6 +537,9 @@ extension WireGen {
         let defaultGraph: GraphResult
         let containerGraphs: [(name: String, result: GraphResult)]
         let seedScopeOrchestrations: [SeedScopeOrchestration]
+        /// Whether this run may emit test-graph variants — the `--testing-variants` gate, passed by the
+        /// build plugin for a test target only. `false` turns a discovered `TestingKey` into a build error.
+        let testingVariantsEnabled: Bool
     }
 
     /// Render and write the graph file. Test-graph variants (M6a Phase 1) — one per `TestingKey`, emitted
@@ -532,15 +547,25 @@ extension WireGen {
     /// borrowing the production `_WireGraph`) and the variant's `_<Key>Doubles` struct. Built on the
     /// validated production bindings; a module with no `TestingKey` yields none, leaving the emitted output
     /// byte-for-byte unchanged.
+    ///
+    /// Variants are emitted only when the run opted in (`--testing-variants`, passed by the build plugin for
+    /// a test target). Without it a discovered `TestingKey` fails the build — variant machinery is test-only,
+    /// and compiling it into a production target would link the variant graph and its mock types into the
+    /// shipping binary.
     fileprivate static func renderGraphFile(_ inputs: GraphFileInputs, outputPath: String) throws {
-        let testingVariants = buildTestingVariants(
-            in: inputs.aggregate,
-            appEdges: inputs.defaultGraph.edges,
-            defaultOrder: inputs.defaultOrder,
-            proxyIdentities: inputs.proxyIdentities,
-            factories: inputs.factories
-        )
-        failIfAnyTestingVariantInvalid(testingVariants)
+        var testingVariants: [TestingVariant] = []
+        if inputs.testingVariantsEnabled {
+            testingVariants = buildTestingVariants(
+                in: inputs.aggregate,
+                appEdges: inputs.defaultGraph.edges,
+                defaultOrder: inputs.defaultOrder,
+                proxyIdentities: inputs.proxyIdentities,
+                factories: inputs.factories
+            )
+            failIfAnyTestingVariantInvalid(testingVariants)
+        } else {
+            failIfAnyTestingKeyOutsideTestTarget(in: inputs.aggregate)
+        }
 
         let seedScopeOrders =
             collectSeedScopeOrders(inputs.seedScopeOrchestrations)
@@ -690,7 +715,7 @@ extension WireGen {
         )
         FileHandle.standardError.write(
             Data(
-                "usage: WireGen <graph-output-path> <key-checks-output-path> --module <name> <source-files...> [--module <name> <source-files...>]\n"
+                "usage: WireGen <graph-output-path> <key-checks-output-path> [--testing-variants] --module <name> <source-files...> [--module <name> <source-files...>]\n"
                     .utf8
             )
         )
