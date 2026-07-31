@@ -80,10 +80,11 @@ struct BindTypeDiscoveryTests {
 
     // MARK: - The `--testing-variants` gate
 
-    /// A key declared in the target being built names that target and tells the author to move it. This is
-    /// the diagnostic standing between a `TestingKey` in production sources and a variant graph compiled
-    /// into the shipping binary, so it is pinned rather than left to the caller's phrasing.
-    @Test func keyInNonTestConsumerNamesTheTargetAndTheFix() throws {
+    /// A key in the target being built, on a run that did not opt in. WireGen cannot tell a production target
+    /// from a test target whose plugin is not passing the flag, so the message must name **both** — naming
+    /// only the first sends someone to inspect a `.testTarget` declaration that is already correct, which is
+    /// what CI hit when wire-mvc's plugin predated the flag.
+    @Test func keyWithoutOptInNamesTheFlagAndBothExplanations() throws {
         let source = """
             enum ProdFixture {
                 @BindType(Repo.self, MockRepo.self)
@@ -94,13 +95,15 @@ struct BindTypeDiscoveryTests {
         let diagnostic = testingVariantsNotEnabledDiagnostic(key, consumerModule: testModule)
         #expect(diagnostic.severity == .error)
         #expect(diagnostic.message.contains("'ProdFixture.bindMock'"))
-        #expect(diagnostic.message.contains("'\(testModule)' is not a test target"))
-        #expect(diagnostic.message.contains("Move the TestingKey into a test target."))
+        #expect(diagnostic.message.contains(testingVariantsFlag))
+        // Both explanations, so neither reading is ruled out for the reader.
+        #expect(diagnostic.message.contains("If '\(testModule)' is a production target"))
+        #expect(diagnostic.message.contains("its build plugin is not passing"))
     }
 
     /// A key composed in from a Wire-aware dependency points at that dependency instead — the fix is on the
     /// library's side, and the message says why (its key reaches every consumer that re-parses it).
-    @Test func keyComposedFromDependencyNamesTheOriginModule() throws {
+    @Test func foreignKeyNamesTheOriginModule() throws {
         let source = """
             enum LibFixture {
                 @BindType(Repo.self, MockRepo.self)
@@ -110,9 +113,10 @@ struct BindTypeDiscoveryTests {
         let key = try #require(
             discover(in: source, sourcePath: "Lib.swift", module: "SharedLib").testingKeys.first
         )
-        let diagnostic = testingVariantsNotEnabledDiagnostic(key, consumerModule: "App")
+        let diagnostic = foreignTestingKeyDiagnostic(key, consumerModule: "App")
         #expect(diagnostic.severity == .error)
         #expect(diagnostic.message.contains("composed into 'App' from module 'SharedLib'"))
+        #expect(diagnostic.message.contains("Only the target that declares a TestingKey"))
         #expect(diagnostic.message.contains("Move the TestingKey out of 'SharedLib'"))
     }
 }

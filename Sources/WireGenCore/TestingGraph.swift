@@ -321,8 +321,8 @@ package func unmarkedSeedlessRootDiagnostic(
 /// one string — a build plugin can't link a library target, so `WireBuildPlugin` restates the literal.
 package let testingVariantsFlag = "--testing-variants"
 
-/// The diagnostic for a `TestingKey` reaching a build that has not opted into test-graph variants — the
-/// consumer target is not a test target, so `--testing-variants` was not passed.
+/// The diagnostic for a `TestingKey` declared in the target being built by a run that did not opt into
+/// test-graph variants — `--testing-variants` was not passed.
 ///
 /// A variant is test-only machinery: it rewrites the key's `@BindType` slots to read from a doubles value
 /// the test supplies. Emitting one for a production target would compile the variant graph, its
@@ -330,30 +330,47 @@ package let testingVariantsFlag = "--testing-variants"
 /// nonetheless linked, reachable through the module-internal `Wire.bootstrap<Variant>()`, and built from
 /// whatever the `@BindType` names. So a key that arrives here is refused rather than quietly varied.
 ///
-/// Two shapes, distinguished because the fix differs: a key declared in the target being built (move it to
-/// a test target), and one composed in from a Wire-aware dependency whose sources this target re-parses
-/// (the dependency is shipping test fixtures — the fix is on its side).
+/// The message names *both* explanations, because WireGen cannot tell them apart: it sees only that the flag
+/// is absent. Either the target really is a production one (move the key), or it is a test target whose build
+/// plugin does not pass the flag — an adapter predating it, say. Naming only the first blames a `.testTarget`
+/// declaration that is already correct, which is exactly the wrong place to send someone.
 package func testingVariantsNotEnabledDiagnostic(
     _ key: DiscoveredTestingKey,
     consumerModule: String
 ) -> Diagnostic {
-    let preamble =
-        key.originModule == consumerModule
-        ? "'\(key.keyReference)' declares a test-graph variant, but '\(consumerModule)' is not a test target."
-        : "'\(key.keyReference)' declares a test-graph variant and is composed into '\(consumerModule)' from "
-            + "module '\(key.originModule)', which is not a test target."
-    let fix =
-        key.originModule == consumerModule
-        ? "Move the TestingKey into a test target."
-        : "Move the TestingKey out of '\(key.originModule)' and into a test target — a Wire-aware library's "
-            + "TestingKey composes into every consumer that re-parses it, including production ones."
-    return Diagnostic(
+    Diagnostic(
         location: key.location,
         message:
-            preamble
-            + " Test-graph variants substitute @BindType doubles into the graph, so they are emitted only for "
-            + "a test target — otherwise the variant graph and the mock types it names compile into the "
-            + "shipping binary. \(fix)",
+            "'\(key.keyReference)' declares a test-graph variant, but this WireGen run did not opt into them "
+            + "(\(testingVariantsFlag) was not passed). Variants substitute @BindType doubles into the graph, "
+            + "so they are emitted only for a test target — otherwise the variant graph and the mock types it "
+            + "names compile into the shipping binary. If '\(consumerModule)' is a production target, move the "
+            + "TestingKey into a test target; if it is already a test target, its build plugin is not passing "
+            + "\(testingVariantsFlag).",
+        severity: .error
+    )
+}
+
+/// The diagnostic for a `TestingKey` composed in from a Wire-aware *dependency* — a key the target being
+/// built does not declare.
+///
+/// Only the target that declares a key gets its variant. A dependency's sources are re-parsed into every
+/// consumer that composes them, so a library shipping a `TestingKey` would otherwise inject that variant —
+/// and the mock types it names — into each one, production consumers included. Refused whether or not the
+/// run opted in: opting in says "this target may emit variants", not "this target adopts every key its
+/// dependencies happen to declare".
+package func foreignTestingKeyDiagnostic(
+    _ key: DiscoveredTestingKey,
+    consumerModule: String
+) -> Diagnostic {
+    Diagnostic(
+        location: key.location,
+        message:
+            "'\(key.keyReference)' declares a test-graph variant but is composed into '\(consumerModule)' "
+            + "from module '\(key.originModule)'. Only the target that declares a TestingKey emits its "
+            + "variant graph, so this key cannot take effect here — and a Wire-aware library's key reaches "
+            + "every consumer that re-parses it, production ones included. Move the TestingKey out of "
+            + "'\(key.originModule)' and into the test target that uses it.",
         severity: .error
     )
 }
