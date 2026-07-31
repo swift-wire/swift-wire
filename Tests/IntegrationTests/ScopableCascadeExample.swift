@@ -1,5 +1,6 @@
 import Synchronization
 import Wire
+import WireTesting
 
 /// M6a Phase 2 runtime fixture — the `@Scopable` cascade reaching a `@BindType`d dependency through an
 /// *app-scoped* consumer. A `@Singleton` controller reads `any AccountRepository` in its `init`; the

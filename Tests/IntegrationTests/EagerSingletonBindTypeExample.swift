@@ -1,5 +1,6 @@
 import Synchronization
 import Wire
+import WireTesting
 
 /// H2.2a "B" gate — an eager `@BindType`'d binding whose backing `init` runs a side-effect. It is
 /// constructed at app bootstrap (the `@Provides` is called by `_wireBootstrap()` because a `@Scoped(seed:)`

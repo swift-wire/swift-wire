@@ -1,5 +1,6 @@
 import Synchronization
 import Wire
+import WireTesting
 
 /// M6a Phase 1 runtime fixture — a `@BindType` doubles substitution reaching a dependency *inside a seed
 /// scope* (the no-cascade case). A `@Scoped(seed:)` controller injects `any TodoRepository`; the production

@@ -1,6 +1,7 @@
 import Synchronization
 import Wire
 import WireTestLibrary
+import WireTesting
 
 /// H2.2a regression fixture — the borrow case the original proxy gate missed. A non-generic
 /// `@RouteController @Scoped(seed:)` subject that injects a **plain app `@Singleton`** (a `UserStore`-style

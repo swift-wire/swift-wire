@@ -1,6 +1,7 @@
 import Synchronization
 import Wire
 import WireTestLibrary
+import WireTesting
 
 /// Per-subject doubles fixture — the case every other `@BindType` fixture leaves untested, because they all
 /// carry a single mocked slot and so cannot tell a per-subject set apart from the key-wide one.

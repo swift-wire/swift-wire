@@ -1,6 +1,7 @@
 import Synchronization
 import Wire
 import WireTestLibrary
+import WireTesting
 
 /// Phase-1 gate for seedless `@Scopable` — an **app-scoped** (`@Singleton`) route contributor that consumes a
 /// `@BindType`'d slot. `AppScopedController` is a `@Singleton @RouteController` (its own request entry, not a

@@ -1,6 +1,6 @@
 import Testing
 
-@testable import Wire
+@testable import WireTesting
 
 // `TestingKey`'s runtime identity. A key is passed to an adapter's suite trait as a *value*, and the value
 // has to say which declaration it came from — its declaring reference is a compile-time name the value does
