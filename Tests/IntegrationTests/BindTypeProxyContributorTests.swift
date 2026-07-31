@@ -16,7 +16,7 @@ struct BindTypeProxyContributorTests {
 
         // The test holds the mock and supplies it through the generated doubles struct.
         let mock = MockProxyRepository()
-        let doubles = _WireProxyFixture_bindMockDoubles(proxyRepository: mock)
+        let doubles = _WireProxyFixture_bindMock_ProxyRouteControllerDoubles(proxyRepository: mock)
 
         // Build the variant proxy once (like production), then enter request scope with the doubles.
         let proxy = Wire.bootstrapWireProxyFixture_bindMock_ProxyRouteControllerContributor(wireGraph: graph)

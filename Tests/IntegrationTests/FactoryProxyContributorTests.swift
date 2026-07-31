@@ -10,7 +10,7 @@ struct FactoryProxyContributorTests {
         let graph = try await Wire.bootstrapFactoryProxyFixture_bindMock()
 
         let mock = MockFactoryProxyRepository()
-        let doubles = _FactoryProxyFixture_bindMockDoubles(factoryProxyRepository: mock)
+        let doubles = _FactoryProxyFixture_bindMock_FactoryProxyRouteControllerDoubles(factoryProxyRepository: mock)
 
         let proxy = Wire.bootstrapFactoryProxyFixture_bindMock_FactoryProxyRouteControllerContributor(wireGraph: graph)
         let (subject, teardown) = try await proxy._wireEnterScope(FactoryProxyRequestSeed(id: "req-1"), doubles)

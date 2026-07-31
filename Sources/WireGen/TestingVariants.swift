@@ -186,7 +186,6 @@ extension WireGen {
                 root: $0,
                 key: key,
                 variantName: variantName,
-                doublesType: doublesType,
                 appSingletons: inputs.appSingletons,
                 appEdges: inputs.partitionInputs.appEdges,
                 factories: inputs.factories,

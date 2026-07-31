@@ -10,7 +10,7 @@ struct GenericProxyContributorTests {
         let graph = try await Wire.bootstrapGenProxyFixture_bindMock()
 
         let mock = MockGenProxyRepository()
-        let doubles = _GenProxyFixture_bindMockDoubles(genProxyRepository: mock)
+        let doubles = _GenProxyFixture_bindMock_GenProxyRouteControllerDoubles(genProxyRepository: mock)
 
         let proxy = Wire.bootstrapGenProxyFixture_bindMock_GenProxyRouteControllerContributor(wireGraph: graph)
         let (subject, teardown) = try await proxy._wireEnterScope(GenProxyRequestSeed(id: "req-1"), doubles)
@@ -28,7 +28,7 @@ struct GenericProxyContributorTests {
         let graph = try await Wire.bootstrapGenProxyFixture_bindMock()
 
         let mock = MockGenProxyRepository()
-        let doubles = _GenProxyFixture_bindMockDoubles(genProxyRepository: mock)
+        let doubles = _GenProxyFixture_bindMock_GenPartialRouteControllerDoubles(genProxyRepository: mock)
 
         let proxy = Wire.bootstrapGenProxyFixture_bindMock_GenPartialRouteControllerContributor(wireGraph: graph)
         let (subject, teardown) = try await proxy._wireEnterScope(GenPartialRequestSeed(id: "req-1"), doubles)

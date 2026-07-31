@@ -11,7 +11,7 @@ struct ScopableRouteContributorTests {
         let graph = try await Wire.bootstrapAppScopedFixture_bindMock()
 
         let mock = MockAppScopedRepository()
-        let doubles = _AppScopedFixture_bindMockDoubles(appScopedRepository: mock)
+        let doubles = _AppScopedFixture_bindMock_AppScopedControllerDoubles(appScopedRepository: mock)
 
         let proxy = Wire.bootstrapAppScopedFixture_bindMock_AppScopedControllerContributor(wireGraph: graph)
         // Seedless entry — the doubles are the only argument (no seed); the controller is rebuilt on demand.
@@ -43,7 +43,7 @@ struct ScopableRouteContributorTests {
         let graph = try await Wire.bootstrapGenAppScopedFixture_bindMock()
 
         let mock = MockGenAppBackend()
-        let doubles = _GenAppScopedFixture_bindMockDoubles(genAppBackend: mock)
+        let doubles = _GenAppScopedFixture_bindMock_GenAppControllerDoubles(genAppBackend: mock)
 
         let proxy = Wire.bootstrapGenAppScopedFixture_bindMock_GenAppControllerContributor(wireGraph: graph)
         let (subject, teardown) = try await proxy._wireEnterScope(doubles)
