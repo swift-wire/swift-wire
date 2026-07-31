@@ -25,9 +25,12 @@ extension WireGen {
         proxyIdentities: Set<String>
     ) -> [DiscoveredScopeBoundType] {
         aggregate.allBindings.values.flatMap { $0 }.compactMap { binding in
+            // App-scoped (non-bridging) proxies only. Detected by dependency kind rather than the
+            // `_wireEnterScope` field name, so an aggregate proxy — whose thunks are suffixed with their
+            // subject — isn't mistaken for one.
             guard case .scopeBound(let type) = binding,
                 proxyIdentities.contains(type.qualifiedTypeName),
-                !type.dependencies.contains(where: { $0.name == contributorProxyScopeEntryFieldName })
+                !type.isBridgeProxy
             else { return nil }
             return type
         }

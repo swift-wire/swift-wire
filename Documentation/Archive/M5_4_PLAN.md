@@ -266,7 +266,7 @@ whole-scope — it isn't the per-request path (the generated witness never calls
 nature (a scope struct has no single root). It's still swift-wire's own testable seed-scope constructor
 (`BootstrapTests` validates shared-singletons / per-seed-identity / ordering through it), so it's not dead
 globally — but in a *consumer* it's emitted-but-`internal` dead code. Retiring it from consumer emission is
-tracked as **ROADMAP M6d** (needs a thunk-based construction harness for `BootstrapTests` first).
+tracked as **ROADMAP M7d** (needs a thunk-based construction harness for `BootstrapTests` first).
 
 ## Key sub-decisions (pinned — all resolved as shipped)
 
