@@ -1,5 +1,6 @@
 import Synchronization
 import Wire
+import WireTesting
 import WireTestLibrary
 
 /// H2.2a regression fixture — the borrow case the original proxy gate missed. A non-generic

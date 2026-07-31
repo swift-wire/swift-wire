@@ -1,5 +1,6 @@
 import Synchronization
 import Wire
+import WireTesting
 import WireTestLibrary
 
 /// H2.2a runtime fixture — the doubles-threaded contributor-proxy scope entry. A `@RouteController`-marked

@@ -1,4 +1,5 @@
 import Wire
+import WireTesting
 
 /// Phase-3 seed-façade generic gate — a plain (non-route) generic `@Scoped(seed:)` subject over an opaque
 /// `@BindType`'d backend, entered via the seed façade (`Wire.bootstrap<Variant>_<Seed>Scope`) rather than a

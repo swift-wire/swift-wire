@@ -1,5 +1,6 @@
 import Synchronization
 import Wire
+import WireTesting
 import WireTestLibrary
 
 /// Phase-1 gate for seedless `@Scopable` — an **app-scoped** (`@Singleton`) route contributor that consumes a

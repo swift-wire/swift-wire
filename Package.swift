@@ -15,6 +15,15 @@ let package = Package(
     ],
     products: [
         .library(name: "Wire", targets: ["Wire"]),
+        // The test-graph vocabulary — `TestingKey` and `@BindType`. Split from `Wire` so that declaring a
+        // variant is a *dependency* a target has to take, not something every Wire consumer can reach by
+        // default: a production target that never links this cannot compile a `TestingKey()` at all, which
+        // is an earlier and plainer failure than WireGen's `--testing-variants` refusal.
+        //
+        // `@TestScopable` deliberately stays in `Wire`. It marks a production type as safe to rebuild per
+        // request under test, so it is written in production sources — moving it here would make every
+        // module carrying one depend on the testing target, which is the opposite of the point.
+        .library(name: "WireTesting", targets: ["WireTesting"]),
         .plugin(name: "WireBuildPlugin", targets: ["WireBuildPlugin"]),
         // The codegen executable, exposed so an adapter package's build plugin can invoke it via
         // `context.tool(named: "WireGen")` — an adapter that owns route (or other domain) codegen runs
@@ -33,6 +42,13 @@ let package = Package(
         .target(
             name: "Wire",
             dependencies: ["WireMacrosImpl"]
+        ),
+        // The test-graph vocabulary. Depends on `Wire` for `BindingKey` (the keyed `@BindType` overload names
+        // it) and on the same macro plugin — `@BindType` is a marker macro, so which module *declares* it is
+        // free, and declaring it here is what makes the dependency visible in a consumer's manifest.
+        .target(
+            name: "WireTesting",
+            dependencies: ["Wire", "WireMacrosImpl"]
         ),
         .macro(
             name: "WireMacrosImpl",
@@ -71,7 +87,7 @@ let package = Package(
         ),
         .testTarget(
             name: "WireTests",
-            dependencies: ["Wire"]
+            dependencies: ["Wire", "WireTesting"]
         ),
         .testTarget(
             name: "WireMacrosImplTests",
@@ -95,7 +111,9 @@ let package = Package(
         ),
         .testTarget(
             name: "IntegrationTests",
-            dependencies: ["Wire", "WireTestLibrary"],
+            // `WireTesting` for the `TestingKey`/`@BindType` fixtures — a test target takes it explicitly,
+            // which is the whole point of the split.
+            dependencies: ["Wire", "WireTesting", "WireTestLibrary"],
             plugins: [.plugin(name: "WireBuildPlugin")]
         ),
     ]

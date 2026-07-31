@@ -1,5 +1,6 @@
 import Synchronization
 import Wire
+import WireTesting
 import WireTestLibrary
 
 /// H2.2a generic-subject spike — shape 1 (full concretization). A `@RouteController @Scoped(seed:)` subject

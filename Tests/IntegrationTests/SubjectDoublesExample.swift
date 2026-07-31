@@ -1,5 +1,6 @@
 import Synchronization
 import Wire
+import WireTesting
 import WireTestLibrary
 
 /// Per-subject doubles fixture — the case every other `@BindType` fixture leaves untested, because they all

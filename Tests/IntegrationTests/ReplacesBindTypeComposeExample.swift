@@ -1,5 +1,6 @@
 import Synchronization
 import Wire
+import WireTesting
 import WireTestLibrary
 
 /// H2.2a `@Replaces` + `@BindType` composition — the precedence chain per type:
