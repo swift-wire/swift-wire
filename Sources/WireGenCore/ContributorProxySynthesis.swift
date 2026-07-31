@@ -57,20 +57,20 @@ package func applyContributorProxies(
         }
     }
 
-    // Aggregates: one proxy per *annotation*, holding every subject that bears it. Unlike the per-subject
+    // Aggregates: one proxy per *group*, holding every subject in it. Unlike the per-subject
     // loop above, hold-vs-bridge is decided per subject, so one aggregate can store an app-scoped subject
     // directly and carry a scope-entry thunk for a `@Scoped(seed:)` peer. Subjects are gathered across
     // partitions (an app subject and a seeded subject live in different ones) and ordered deterministically
     // by type name so emission is stable.
     for (_, aggregate) in aggregates.sorted(by: { $0.value.typeName < $1.value.typeName }) {
-        var subjects: [(subject: DiscoveredScopeBoundType, identity: String, partition: Partition)] = []
+        var subjects: [AggregateSubject] = []
         for (partition, bindings) in allBindings {
             for binding in bindings {
                 guard case .scopeBound(let subject) = binding,
                     let identity = binding.aliasTargetIdentity,
                     aggregate.subjectIdentities.contains(identity)
                 else { continue }
-                subjects.append((subject, identity, partition))
+                subjects.append(AggregateSubject(subject: subject, identity: identity, partition: partition))
             }
         }
         guard !subjects.isEmpty else { continue }
@@ -96,6 +96,15 @@ package func applyContributorProxies(
     // declaration (`renderContributorProxyDeclaration`) into the consumer graph file, since Phase A moves
     // proxy-type emission out of the adapter macro and into the plugin.
     return (result, reattributed, Set(proxyBySubject.values))
+}
+
+/// One aggregate member as gathered from the graph: the subject, the identity its use-sites match on,
+/// and the partition it was found in (which locates the proxy). A named type rather than a tuple —
+/// three members is past what reads legibly, and past SwiftLint's `large_tuple`.
+private struct AggregateSubject {
+    let subject: DiscoveredScopeBoundType
+    let identity: String
+    let partition: Partition
 }
 
 /// The partition a contributor proxy is placed in, derived from its `proxyScope`. `.singleton` → the
@@ -135,144 +144,6 @@ private func contributorProxyDirectives(
         }
     }
     return directiveBySubject
-}
-
-/// One `.contributesAggregateProxy` directive: the multibinding key, the fixed proxy type name, and the
-/// identities of every subject bearing the annotation — the group the single proxy is synthesised over.
-struct AggregateProxyDirective {
-    let key: String
-    let typeName: String
-    let proxyScope: DiscoveredProxyScope
-    var subjectIdentities: Set<String>
-}
-
-/// Gather the aggregate directives, keyed by annotation name, each carrying the subjects that bear it.
-/// Empty when no annotation declares `.contributesAggregateProxy` — the aggregate pass then no-ops.
-private func aggregateProxyDirectives(
-    annotations: [DiscoveredAdapterAnnotation],
-    useSites: [ContributionAliasUseSite]
-) -> [String: AggregateProxyDirective] {
-    var directives: [String: AggregateProxyDirective] = [:]
-    for annotation in annotations {
-        guard case .contributesAggregateProxy(let key, let typeName, let proxyScope) = annotation.capability
-        else { continue }
-        directives[annotation.annotationName] = AggregateProxyDirective(
-            key: key,
-            typeName: typeName,
-            proxyScope: proxyScope,
-            subjectIdentities: []
-        )
-    }
-    guard !directives.isEmpty else { return [:] }
-    for site in useSites where directives[site.annotationName] != nil {
-        directives[site.annotationName]?.subjectIdentities.insert(site.targetIdentity)
-    }
-    return directives.filter { !$0.value.subjectIdentities.isEmpty }
-}
-
-/// The single proxy binding for a group of subjects — one **labelled** dependency per subject, each
-/// independently *held* (the subject stored directly) or *bridged* (a `_wireEnterScope_<Subject>` thunk),
-/// exactly as `contributorProxyBinding` decides for one. Two departures from the per-subject form, both
-/// forced by there being more than one subject:
-///
-///   • **Field names carry the subject.** A single proxy names its subject positionally (`_wireSubject`,
-///     unlabelled so the graph names no member); N subjects cannot all be positional, so each is labelled
-///     `_wireSubject_<Subject>` / `_wireEnterScope_<Subject>`. **At one subject the singular names are
-///     kept**, so a one-member aggregate emits byte-identically to `.contributesProxy` and the existing
-///     field-name contract with domain tools is untouched.
-///   • **Generic parameters union.** The proxy restates every generic subject's parameters. Two subjects
-///     may declare the same parameter name (both `T`), so parameters are renamed positionally on
-///     collision and the renaming is applied to that subject's dependency type — the same substitution
-///     `liftSpecialised` performs for lift nodes. Verified by spike-29: the graph then carries one lift
-///     axis per generic subject and maps them positionally, even when it orders the axes differently.
-func aggregateProxyBinding(
-    for subjects: [DiscoveredScopeBoundType],
-    key: String,
-    typeName: String,
-    proxyScope: DiscoveredProxyScope
-) -> DiscoveredScopeBoundType {
-    let single = subjects.count == 1
-    var takenParameters: Set<String> = []
-    var names: [String] = []
-    var constraints: [String: String] = [:]
-    var whereClauses: [String] = []
-    var dependencies: [DependencyParameter] = []
-
-    for subject in subjects {
-        // Rename this subject's parameters only where they collide with one already claimed by an
-        // earlier subject, so the common (no-collision) case emits the subject's own spellings.
-        var renaming: [String: String] = [:]
-        for parameter in subject.genericParameterNames {
-            var name = parameter
-            var disambiguator = 2
-            while takenParameters.contains(name) {
-                name = "\(parameter)\(disambiguator)"
-                disambiguator += 1
-            }
-            if name != parameter { renaming[parameter] = name }
-            takenParameters.insert(name)
-            names.append(name)
-            if let constraint = subject.genericParameterConstraints[parameter] {
-                constraints[name] = constraint
-            }
-        }
-        if let clause = subject.genericWhereClause {
-            whereClauses.append(renaming.isEmpty ? clause : substitutingIdentifierTokens(clause, renaming))
-        }
-        dependencies.append(
-            aggregateSubjectDependency(
-                for: subject,
-                proxyScope: proxyScope,
-                renaming: renaming,
-                labelled: !single
-            )
-        )
-    }
-
-    return DiscoveredScopeBoundType(
-        typeName: typeName,
-        qualifiedTypeName: typeName,
-        typeKind: "struct",
-        genericParameterNames: names,
-        genericParameterConstraints: constraints,
-        genericWhereClause: whereClauses.isEmpty ? nil : whereClauses.joined(separator: ", "),
-        dependencies: dependencies,
-        location: subjects[0].location,
-        accessLevel: subjects[0].accessLevel,
-        contributions: [Contribution(keyReference: key, location: subjects[0].location)],
-        originModule: subjects[0].originModule
-    )
-}
-
-/// One aggregate member's dependency — hold or bridge, decided against *this* subject's own scope (the
-/// per-subject property that replaces `contributorProxyBinding`'s single `subjectIsNarrower`).
-private func aggregateSubjectDependency(
-    for subject: DiscoveredScopeBoundType,
-    proxyScope: DiscoveredProxyScope,
-    renaming: [String: String],
-    labelled: Bool
-) -> DependencyParameter {
-    let parameters = subject.genericParameterNames.map { renaming[$0] ?? $0 }
-    let subjectType =
-        parameters.isEmpty ? subject.typeName : "\(subject.typeName)<\(parameters.joined(separator: ", "))>"
-
-    if proxyScope == .singleton, let seed = subject.scopeKey?.seed {
-        return DependencyParameter(
-            name: labelled
-                ? "\(contributorProxyScopeEntryFieldName)_\(subject.typeName)"
-                : contributorProxyScopeEntryFieldName,
-            type: contributorScopeEntryThunkType(seed: seed, subject: subjectType),
-            kind: .scopeEntryThunk,
-            location: subject.location
-        )
-    }
-    return DependencyParameter(
-        // A lone held subject stays positional (`_wireSubject`), matching `.contributesProxy` exactly.
-        name: labelled ? "\(contributorProxySubjectFieldName)_\(subject.typeName)" : nil,
-        type: subjectType,
-        kind: .injectInitParameter,
-        location: subject.location
-    )
 }
 
 /// Re-point each input-edge (factory / dependency) use-site sitting on a proxied subject at that

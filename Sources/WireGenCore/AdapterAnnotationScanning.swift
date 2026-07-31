@@ -32,7 +32,12 @@ package enum DiscoveredAdapterCapability: Sendable, Equatable {
     /// — the aggregate form of `.contributesProxy`. Each subject is held or bridged independently, so a
     /// single proxy can store an app-scoped subject *and* carry a scope-entry thunk for a `@Scoped(seed:)`
     /// one. At a single subject it degenerates to exactly `.contributesProxy`'s emission.
-    case contributesAggregateProxy(key: String, proxyTypeName: String, proxyScope: DiscoveredProxyScope)
+    case contributesAggregateProxy(
+        key: String,
+        proxyTypeName: String,
+        proxyScope: DiscoveredProxyScope,
+        groupedByAttribute: String
+    )
     /// `@X` synthesises a contributor proxy that lifts the declaration's `.injectsFromGraph` peers onto
     /// itself (like `.contributesProxy`) but contributes to no multibinding — a standalone, addressable
     /// proxy the adapter's codegen reads directly (WireMVC's `@WireMVCBootstrap` global-middleware proxy).
@@ -139,13 +144,16 @@ func adapterCapability(from expression: ExprSyntax) -> DiscoveredAdapterCapabili
         if member.declName.baseName.text == "contributesAggregateProxy",
             let toArgument = call.arguments.first(where: { $0.label?.text == "to" }),
             let nameArgument = call.arguments.first(where: { $0.label?.text == "proxyTypeName" }),
-            let name = nameArgument.expression.as(StringLiteralExprSyntax.self)?.representedLiteralValue
+            let name = nameArgument.expression.as(StringLiteralExprSyntax.self)?.representedLiteralValue,
+            let groupArgument = call.arguments.first(where: { $0.label?.text == "groupedByAttribute" }),
+            let group = groupArgument.expression.as(StringLiteralExprSyntax.self)?.representedLiteralValue
         {
             // `proxyScope:` has a single value (`.singleton`) today, read as that regardless of source.
             return .contributesAggregateProxy(
                 key: toArgument.expression.trimmedDescription,
                 proxyTypeName: name,
-                proxyScope: .singleton
+                proxyScope: .singleton,
+                groupedByAttribute: group
             )
         }
         if member.declName.baseName.text == "liftsPeersToProxy",

@@ -485,9 +485,14 @@ would need, and M5's design rule keeps the registration backend swappable off th
 
 - **M6d.0 — the spike (the gate).** ✅ **Run — passed.** See *Spike results*.
 - **M6d.0b — the proxy cutover.** `WireOpenAPIGen` + an adapter-owned `WireOpenAPIBuildPlugin` (the
-  `WireMVCBuildPlugin` two-tool shape), the alias flipped to a proxy-contributing capability, the macro
-  demoted to a marker, and a witness that delegates `registerHandlers`. No user-facing change and **no
-  generated-symbol coupling**. Gates: Wire Core needs no change; existing consumers serve identically.
+  `WireMVCBuildPlugin` two-tool shape), the macro demoted to a marker, and a witness that delegates
+  `registerHandlers` to the subject. No user-facing change and **no generated-symbol coupling**. Gate:
+  existing consumers serve identically.
+
+  **Go straight to `.contributesAggregateProxy`** rather than `.contributesProxy` and migrating later.
+  The one-conformer constraint makes the aggregate the correct end shape even for a single controller,
+  and a one-member aggregate emits byte-identically to the per-subject form — so adopting it now costs
+  nothing and multi-controller support arrives with no second cutover.
 - **M6d.0c — the aggregate capability.** ✅ **De-risked** — [spike-29](../../../swift-wire-spikes/spike-29-wire-aggregate-proxy/)
   proved the shape: one aggregate holding hold, bridge and generic subjects at once, with per-request
   identity, teardown and per-root pruning all intact, driven by a *real* plugin-emitted scope-entry

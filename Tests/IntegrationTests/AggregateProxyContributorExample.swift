@@ -64,7 +64,7 @@ struct AggregateUnreachableSibling: Sendable {
 }
 
 @Scoped(seed: AggregateRequestSeed.self, allowUnused: true)
-@AggregateController
+@AggregateController(spec: "alpha")
 struct AggregateTaskController: Sendable {
     @Inject var identity: AggregateSessionIdentity
     @Inject var resource: AggregateRequestResource
@@ -81,7 +81,7 @@ final class AggregateReportStore: Sendable {
 }
 
 @Singleton
-@AggregateController
+@AggregateController(spec: "alpha")
 struct AggregateReportController: Sendable {
     /// Exposed so a test can assert by *identity* that the aggregate holds the graph's own singleton
     /// rather than a fresh construction — the claim a process-global construction count cannot make.
@@ -130,7 +130,7 @@ private struct AggregateLuceneish: AggregateSearchBackend {
 }
 
 @Singleton
-@AggregateController
+@AggregateController(spec: "alpha")
 struct AggregateSearchController<Backend: AggregateSearchBackend>: Sendable {
     private let backend: Backend
 
@@ -139,4 +139,17 @@ struct AggregateSearchController<Backend: AggregateSearchBackend>: Sendable {
     }
 
     func search(_ query: String) -> String { backend.find(query) }
+}
+
+// MARK: - a SECOND group on the same annotation
+
+/// Bearing the same `@AggregateController` but a different `spec`, so it lands on its own proxy —
+/// `_WireAggregateContributor_beta` — rather than joining the `alpha` aggregate. This is the multi-spec
+/// case: task-cluster's spec lives in one module and its controllers in another, so the group has to be
+/// declared at the use site rather than inferred from where the subject lives.
+@Singleton
+@AggregateController(spec: "beta")
+struct BetaOnlyController: Sendable {
+    @Inject init() {}
+    func beta() -> String { "beta" }
 }

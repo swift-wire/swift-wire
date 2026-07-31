@@ -11,20 +11,21 @@ struct AggregateProxyContributorTests {
         // generic, making the proxy a lift node) and one bridged. Where `.contributesProxy` would have
         // synthesised three proxies, this is one.
         let graph = try await Wire.bootstrap()
-        let aggregate = graph._WireAggregateContributorOfSomeAggregateSearchBackend
+        let aggregate = graph._WireAggregateContributor_alphaOfSomeAggregateSearchBackend
 
         #expect(aggregate._wireSubject_AggregateReportController.reports() == "r1,r2")
         #expect(aggregate._wireSubject_AggregateSearchController.search("swift") == "hit(swift)")
 
         // The multibinding receives ONE element for three annotated subjects — where `.contributesProxy`
         // would have contributed three separate proxies.
-        #expect(graph.aggregateContributorHost.controllers.count == 1)
+        // Two groups on one annotation → two aggregates in the multibinding, one per spec.
+        #expect(graph.aggregateContributorHost.controllers.count == 2)
         #expect(graph.aggregateContributorHost.soloControllers.count == 1)
     }
 
     @Test func aBridgedSubjectIsBuiltPerRequestWhileHeldPeersAreShared() async throws {
         let graph = try await Wire.bootstrap()
-        let aggregate = graph._WireAggregateContributorOfSomeAggregateSearchBackend
+        let aggregate = graph._WireAggregateContributor_alphaOfSomeAggregateSearchBackend
 
         let (first, firstTeardown) = try await aggregate._wireEnterScope_AggregateTaskController(
             AggregateRequestSeed(id: "bridge-a")
@@ -50,6 +51,14 @@ struct AggregateProxyContributorTests {
         #expect(AggregateConstructionLog.shared.count("teardown-bridge-b") == 1)
     }
 
+    @Test func aSecondGroupOnTheSameAnnotationGetsItsOwnProxy() async throws {
+        // `@AggregateController(spec: "beta")` groups separately from `spec: "alpha"`, so one annotation
+        // yields two proxies — the multi-spec case. Grouping is declared at the use site because a
+        // spec's generated types and its controllers routinely live in different modules.
+        let graph = try await Wire.bootstrap()
+        #expect(graph._WireAggregateContributor_beta._wireSubject.beta() == "beta")
+    }
+
     @Test func aOneSubjectAggregateKeepsTheSingularFieldName() async throws {
         // The compatibility rule: with one subject there is nothing to disambiguate, so the field stays
         // `_wireSubject` — positional, exactly what `.contributesProxy` emits. This test compiles only if
@@ -64,7 +73,7 @@ struct AggregateProxyContributorTests {
         let graph = try await Wire.bootstrap()
         let (subject, _) =
             try await graph
-            ._WireAggregateContributorOfSomeAggregateSearchBackend
+            ._WireAggregateContributor_alphaOfSomeAggregateSearchBackend
             ._wireEnterScope_AggregateTaskController(AggregateRequestSeed(id: "pruning"))
 
         #expect(subject.identity.userID == "user-pruning")
