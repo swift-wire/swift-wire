@@ -10,7 +10,7 @@ struct BorrowingProxyContributorTests {
         let graph = try await Wire.bootstrapBorrowFixture_bindMock()
 
         let mock = MockBorrowRepository()
-        let doubles = _BorrowFixture_bindMockDoubles(borrowRepository: mock)
+        let doubles = _BorrowFixture_bindMock_BorrowRouteControllerDoubles(borrowRepository: mock)
 
         let proxy = Wire.bootstrapBorrowFixture_bindMock_BorrowRouteControllerContributor(wireGraph: graph)
         let (subject, teardown) = try await proxy._wireEnterScope(BorrowRequestSeed(id: "req-1"), doubles)

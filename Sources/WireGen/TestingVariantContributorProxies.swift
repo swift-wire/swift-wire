@@ -50,7 +50,10 @@ extension WireGen {
                 factories: factories,
                 key: key,
                 variantName: variantName(for: key),
-                doublesType: doublesStructTypeName(forKeyReference: key.keyReference),
+                doublesType: subjectDoublesStructTypeName(
+                    variantName: variantName(for: key),
+                    subjectTypeName: bareTypeName(parsed.subject)
+                ),
                 module: module
             )
             if !transforms.isEmpty { transformsByProxy[proxy.typeName] = transforms }
@@ -135,7 +138,10 @@ extension WireGen {
         let doublesThunkType = contributorScopeEntryThunkType(
             seed: seed,
             subject: subject,
-            doubles: doublesStructTypeName(forKeyReference: key.keyReference)
+            doubles: subjectDoublesStructTypeName(
+                variantName: variantName,
+                subjectTypeName: bareTypeName(subject)
+            )
         )
         let dependencies = proxy.dependencies.map { dependency -> DependencyParameter in
             guard dependency.name == contributorProxyScopeEntryFieldName else {

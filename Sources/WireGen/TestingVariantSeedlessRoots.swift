@@ -141,12 +141,17 @@ extension WireGen {
         root: SeedlessRoot,
         key: DiscoveredTestingKey,
         variantName: String,
-        doublesType: String,
         appSingletons: [DiscoveredBinding],
         appEdges: [BindingIdentity: [BindingIdentity]],
         factories: [SynthesizedFactory],
         aggregate: DiscoveryAggregate
     ) -> SeedlessReconstruction? {
+        // A reconstruction is per-subject by construction, so its scope entry threads the subject's own
+        // doubles rather than the key-wide struct — the reconstruction's bindings are exactly that set.
+        let doublesType = subjectDoublesStructTypeName(
+            variantName: variantName,
+            subjectTypeName: root.subject.typeName
+        )
         guard
             let built = buildReconstructionScope(
                 root: root,
