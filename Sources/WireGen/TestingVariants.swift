@@ -357,6 +357,23 @@ extension WireGen {
         return accumulation
     }
 
+    /// Refuse any `TestingKey` that reached a build which did not opt into test-graph variants — the
+    /// `--testing-variants` gate. Called instead of `buildTestingVariants` for a non-test consumer, so a key
+    /// in production sources (or composed in from a Wire-aware dependency) fails the build with a guided
+    /// message rather than silently compiling a variant graph and its mocks into the shipping binary.
+    ///
+    /// Deduped by key reference, matching how `buildTestingVariants` iterates, so one declaration yields one
+    /// diagnostic however many `@BindType`s it stacks.
+    static func failIfAnyTestingKeyOutsideTestTarget(in aggregate: DiscoveryAggregate) {
+        var seen: Set<String> = []
+        let diagnostics = aggregate.testingKeys
+            .filter { seen.insert($0.keyReference).inserted }
+            .map { testingVariantsNotEnabledDiagnostic($0, consumerModule: aggregate.module) }
+        guard !diagnostics.isEmpty else { return }
+        printDiagnostics(diagnostics)
+        exit(1)
+    }
+
     /// Write any test-graph variant's source-pattern diagnostics (the cascade's unmarked-`@Scopable` hops
     /// and stale-`@BindType` substitutions) and validation failures to stderr, and `exit(1)` on any error —
     /// same discipline as the production graphs, so a broken variant fails the build with a guided message

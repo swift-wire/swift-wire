@@ -315,6 +315,49 @@ package func unmarkedSeedlessRootDiagnostic(
     )
 }
 
+/// The WireGen flag opting a run into emitting test-graph variants. Passed by the build plugin for a test
+/// target only; a run without it refuses any `TestingKey` it discovers
+/// (``testingVariantsNotEnabledDiagnostic(_:consumerModule:)``). Declared here so WireGen and its tests name
+/// one string — a build plugin can't link a library target, so `WireBuildPlugin` restates the literal.
+package let testingVariantsFlag = "--testing-variants"
+
+/// The diagnostic for a `TestingKey` reaching a build that has not opted into test-graph variants — the
+/// consumer target is not a test target, so `--testing-variants` was not passed.
+///
+/// A variant is test-only machinery: it rewrites the key's `@BindType` slots to read from a doubles value
+/// the test supplies. Emitting one for a production target would compile the variant graph, its
+/// `_<Key>Doubles` struct, and every mock type they name into the shipping binary — dead code that is
+/// nonetheless linked, reachable through the module-internal `Wire.bootstrap<Variant>()`, and built from
+/// whatever the `@BindType` names. So a key that arrives here is refused rather than quietly varied.
+///
+/// Two shapes, distinguished because the fix differs: a key declared in the target being built (move it to
+/// a test target), and one composed in from a Wire-aware dependency whose sources this target re-parses
+/// (the dependency is shipping test fixtures — the fix is on its side).
+package func testingVariantsNotEnabledDiagnostic(
+    _ key: DiscoveredTestingKey,
+    consumerModule: String
+) -> Diagnostic {
+    let preamble =
+        key.originModule == consumerModule
+        ? "'\(key.keyReference)' declares a test-graph variant, but '\(consumerModule)' is not a test target."
+        : "'\(key.keyReference)' declares a test-graph variant and is composed into '\(consumerModule)' from "
+            + "module '\(key.originModule)', which is not a test target."
+    let fix =
+        key.originModule == consumerModule
+        ? "Move the TestingKey into a test target."
+        : "Move the TestingKey out of '\(key.originModule)' and into a test target — a Wire-aware library's "
+            + "TestingKey composes into every consumer that re-parses it, including production ones."
+    return Diagnostic(
+        location: key.location,
+        message:
+            preamble
+            + " Test-graph variants substitute @BindType doubles into the graph, so they are emitted only for "
+            + "a test target — otherwise the variant graph and the mock types it names compile into the "
+            + "shipping binary. \(fix)",
+        severity: .error
+    )
+}
+
 /// The diagnostic for a `@BindType` substitution whose slot no binding produces — a stale or mistyped
 /// substitution, surfaced rather than silently discarded.
 package func unmatchedBindTypeDiagnostic(_ substitution: BindTypeSubstitution) -> Diagnostic {

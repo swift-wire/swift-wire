@@ -44,6 +44,14 @@ struct WireBuildPlugin: BuildToolPlugin {
             return []
         }
 
+        // Test-graph variants (`TestingKey` + `@BindType`) are emitted only for a **test** target. A variant
+        // rewrites the key's slots to read from test-supplied doubles, so emitting one for a production
+        // target would compile the variant graph — and every mock type it names — into the shipping binary.
+        // Passing the opt-in here, off the target's own kind, means a `TestingKey` that drifts into
+        // production sources fails the build instead of silently varying it. The literal is restated from
+        // `WireGenCore.testingVariantsFlag`: a build plugin can't link a library target.
+        let testingVariants = sourceModule.kind == .test ? ["--testing-variants"] : []
+
         let wireGen = try context.tool(named: "WireGen")
 
         let graphURL = context.pluginWorkDirectoryURL.appendingPathComponent("_WireGraph.swift")
@@ -120,7 +128,8 @@ struct WireBuildPlugin: BuildToolPlugin {
         // external flag for the visibility threshold. See
         // MultiModuleComposition.md.
         var arguments =
-            [graphURL.path, keyChecksURL.path, "--module", sourceModule.moduleName]
+            [graphURL.path, keyChecksURL.path] + testingVariants
+            + ["--module", sourceModule.moduleName]
             + swiftSources.map(\.path)
         for group in dependencyGroups {
             let flag = group.isExternal ? "--external-module" : "--module"
