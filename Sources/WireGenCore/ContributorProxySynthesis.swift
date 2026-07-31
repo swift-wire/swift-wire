@@ -146,28 +146,54 @@ struct AggregateProxyDirective {
     var subjectIdentities: Set<String>
 }
 
-/// Gather the aggregate directives, keyed by annotation name, each carrying the subjects that bear it.
-/// Empty when no annotation declares `.contributesAggregateProxy` — the aggregate pass then no-ops.
+/// Gather the aggregate directives — one per *group*, not per annotation. The group is the value of the
+/// use-site argument the capability names (`groupedByAttribute`), so `@X(spec: "TaskAPI")` and
+/// `@X(spec: "AdminAPI")` yield two proxies from one annotation. Subjects whose attribute omits the
+/// argument share the default group, whose proxy keeps the bare `proxyTypeName`.
+///
+/// Grouping has to be declared rather than inferred: a spec's generated types and the controllers that
+/// implement it routinely live in different modules (task-cluster defines its spec in `TaskAPI` and its
+/// controllers in `TaskClusterApp`), so neither the subject's module nor the annotation alone identifies
+/// the group. Keyed by `<annotation>|<group>` so two annotations can each carry their own groups.
 private func aggregateProxyDirectives(
     annotations: [DiscoveredAdapterAnnotation],
     useSites: [ContributionAliasUseSite]
 ) -> [String: AggregateProxyDirective] {
-    var directives: [String: AggregateProxyDirective] = [:]
+    var capabilities: [String: (key: String, typeName: String, scope: DiscoveredProxyScope, attribute: String)] = [:]
     for annotation in annotations {
-        guard case .contributesAggregateProxy(let key, let typeName, let proxyScope) = annotation.capability
+        guard
+            case .contributesAggregateProxy(let key, let typeName, let proxyScope, let attribute) =
+                annotation.capability
         else { continue }
-        directives[annotation.annotationName] = AggregateProxyDirective(
-            key: key,
-            typeName: typeName,
-            proxyScope: proxyScope,
-            subjectIdentities: []
-        )
+        capabilities[annotation.annotationName] = (key, typeName, proxyScope, attribute)
     }
-    guard !directives.isEmpty else { return [:] }
-    for site in useSites where directives[site.annotationName] != nil {
-        directives[site.annotationName]?.subjectIdentities.insert(site.targetIdentity)
+    guard !capabilities.isEmpty else { return [:] }
+
+    var directives: [String: AggregateProxyDirective] = [:]
+    for site in useSites {
+        guard let capability = capabilities[site.annotationName] else { continue }
+        let group = site.argumentValue(labelled: capability.attribute)
+        let identity = "\(site.annotationName)|\(group ?? "")"
+        directives[
+            identity,
+            default: AggregateProxyDirective(
+                key: capability.key,
+                typeName: aggregateProxyTypeName(capability.typeName, group: group),
+                proxyScope: capability.scope,
+                subjectIdentities: []
+            )
+        ].subjectIdentities.insert(site.targetIdentity)
     }
-    return directives.filter { !$0.value.subjectIdentities.isEmpty }
+    return directives
+}
+
+/// `<proxyTypeName>_<group>` for a grouped aggregate, or the bare name for the default group. The group
+/// is sanitised to an identifier: it reaches here from a use-site string literal, so it may hold
+/// characters a type name can't.
+private func aggregateProxyTypeName(_ base: String, group: String?) -> String {
+    guard let group, !group.isEmpty else { return base }
+    let sanitised = String(group.map { $0.isLetter || $0.isNumber ? $0 : "_" })
+    return "\(base)_\(sanitised)"
 }
 
 /// The single proxy binding for a group of subjects — one **labelled** dependency per subject, each

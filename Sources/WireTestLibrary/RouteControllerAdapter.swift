@@ -19,6 +19,11 @@ package macro RouteController() = #externalMacro(module: "WireTestMacrosImpl", t
 package macro AggregateController() =
     #externalMacro(module: "WireTestMacrosImpl", type: "RouteControllerMacro")
 
+/// The grouped form: subjects sharing a `spec` land on one proxy, so two values yield two aggregates.
+@attached(peer)
+package macro AggregateController(spec: String) =
+    #externalMacro(module: "WireTestMacrosImpl", type: "RouteControllerMacro")
+
 /// A second aggregate marker with exactly **one** subject — gating the compatibility rule that a
 /// one-member aggregate keeps the singular field names (`_wireSubject` / `_wireEnterScope`), so it emits
 /// what `.contributesProxy` does and the field-name contract with domain codegen is unchanged.
@@ -55,7 +60,8 @@ package enum WireTestRouteAdapter {
         capability: .contributesAggregateProxy(
             to: WireTestAggregateKeys.controllers,
             proxyTypeName: "_WireAggregateContributor",
-            proxyScope: .singleton
+            proxyScope: .singleton,
+            groupedByAttribute: "spec"
         )
     )
 
@@ -64,7 +70,8 @@ package enum WireTestRouteAdapter {
         capability: .contributesAggregateProxy(
             to: WireTestAggregateKeys.soloControllers,
             proxyTypeName: "_WireSoloAggregateContributor",
-            proxyScope: .singleton
+            proxyScope: .singleton,
+            groupedByAttribute: "spec"
         )
     )
 }

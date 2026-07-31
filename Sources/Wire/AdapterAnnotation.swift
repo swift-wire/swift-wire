@@ -62,7 +62,24 @@ public enum WireAdapterCapability {
     /// every operation from one handler, so splitting a spec across controllers needs them behind one
     /// proxy. Wire stays domain-free: it collates the annotated subjects into one synthesised type and
     /// never learns why.
-    case contributesAggregateProxy(to: Any, proxyTypeName: String, proxyScope: WireProxyScope)
+    ///
+    /// **`groupedByAttribute` names the use-site argument that partitions the subjects.** One proxy is
+    /// synthesised per distinct value — `@X(spec: "TaskAPI")` and `@X(spec: "AdminAPI")` produce
+    /// `<proxyTypeName>_TaskAPI` and `<proxyTypeName>_AdminAPI`. Subjects whose attribute omits the
+    /// argument share one default group named `proxyTypeName` alone, so an adapter with a single group
+    /// needs no argument at all. The value is an opaque key to Wire; an adapter may give it meaning (for
+    /// WireOpenAPI it names the module owning the generated `APIProtocol`, which its codegen also needs
+    /// to emit the import).
+    ///
+    /// Grouping cannot be inferred from where the subjects live: task-cluster defines its spec in
+    /// `TaskAPI` and its controllers in `TaskClusterApp`, so the owning module is neither the subject's
+    /// module nor derivable from it.
+    case contributesAggregateProxy(
+        to: Any,
+        proxyTypeName: String,
+        proxyScope: WireProxyScope,
+        groupedByAttribute: String
+    )
 
     /// `@X(argument)` on a binding makes the binding depend on a graph value named by `argument` (an
     /// *input* edge), lifted onto the binding's contributor proxy. The **argument's kind** chooses what

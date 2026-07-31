@@ -24,6 +24,11 @@ package struct ContributionAliasUseSite: Sendable, Equatable {
     /// Every argument, verbatim and in order — the role list a `@MiddlewareFactory(.a, .b)` carries.
     /// `argument` is `arguments.first`; a bare attribute has an empty list.
     package let arguments: [String]
+    /// Each argument's label, positionally aligned with `arguments` — `nil` for an unlabelled one.
+    /// Captured so a capability can name the argument it reads (`.contributesAggregateProxy`'s
+    /// `groupedByAttribute`) rather than depending on argument order, which an adapter's own
+    /// annotation may vary.
+    package let argumentLabels: [String?]
     package let location: SourceLocation
     package let originModule: String
 
@@ -32,6 +37,7 @@ package struct ContributionAliasUseSite: Sendable, Equatable {
         targetIdentity: String,
         argument: String? = nil,
         arguments: [String] = [],
+        argumentLabels: [String?] = [],
         location: SourceLocation,
         originModule: String
     ) {
@@ -39,8 +45,19 @@ package struct ContributionAliasUseSite: Sendable, Equatable {
         self.targetIdentity = targetIdentity
         self.argument = argument
         self.arguments = arguments
+        self.argumentLabels = argumentLabels
         self.location = location
         self.originModule = originModule
+    }
+
+    /// The verbatim value of the argument labelled `label`, with a string literal's quotes stripped —
+    /// the group key `.contributesAggregateProxy` reads. `nil` when the attribute carries no such
+    /// argument, which is the single-group (default) case.
+    package func argumentValue(labelled label: String) -> String? {
+        guard let index = argumentLabels.firstIndex(of: label), index < arguments.count else { return nil }
+        let raw = arguments[index]
+        guard raw.hasPrefix("\""), raw.hasSuffix("\""), raw.count >= 2 else { return raw }
+        return String(raw.dropFirst().dropLast())
     }
 }
 
@@ -58,15 +75,17 @@ func scanContributionAliasUseSites(
     var sites: [ContributionAliasUseSite] = []
     for element in attributes {
         guard let attribute = element.as(AttributeSyntax.self) else { continue }
-        let arguments =
+        let labelled =
             attribute.arguments?.as(LabeledExprListSyntax.self)?
-            .map { $0.expression.trimmedDescription } ?? []
+            .map { ($0.label?.text, $0.expression.trimmedDescription) } ?? []
+        let arguments = labelled.map(\.1)
         sites.append(
             ContributionAliasUseSite(
                 annotationName: attribute.attributeName.trimmedDescription,
                 targetIdentity: targetIdentity,
                 argument: arguments.first,
                 arguments: arguments,
+                argumentLabels: labelled.map(\.0),
                 location: makeSourceLocation(of: attribute, sourcePath: sourcePath, converter: converter),
                 originModule: module
             )
