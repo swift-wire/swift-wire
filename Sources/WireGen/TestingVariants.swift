@@ -391,7 +391,8 @@ extension WireGen {
         consumerModule: String
     ) {
         var seen: Set<String> = []
-        let diagnostics = keys
+        let diagnostics =
+            keys
             .filter { seen.insert($0.keyReference).inserted }
             .map { diagnostic($0, consumerModule) }
         guard !diagnostics.isEmpty else { return }
