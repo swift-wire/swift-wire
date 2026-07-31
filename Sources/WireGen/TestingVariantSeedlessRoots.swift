@@ -116,6 +116,11 @@ extension WireGen {
     struct SeedlessReconstruction {
         let proxy: DiscoveredScopeBoundType
         let scope: SeedScopeEmission
+        /// The reconstructed subject's type name — names its per-subject doubles struct.
+        let subjectTypeName: String
+        /// This subject's complete doubles set: what its own reconstruction consumes plus what its
+        /// mock-consuming lifted `@Factory`s do. Already per-subject, so per-controller doubles reads it
+        /// directly.
         let doublesFields: [DoublesField]
         let droppedIdentities: Set<BindingIdentity>
         let facadeMethod: String
@@ -179,6 +184,7 @@ extension WireGen {
                 factoryRetypes: factoryRetypes
             ),
             scope: built.scope,
+            subjectTypeName: root.subject.typeName,
             doublesFields: built.doublesFields + factoryTransforms.flatMap { $0.doublesFields },
             droppedIdentities: built.reconstructionSet
                 .union([DiscoveredBinding.scopeBound(root.proxy).identity])

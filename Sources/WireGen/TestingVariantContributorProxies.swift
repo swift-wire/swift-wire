@@ -182,9 +182,9 @@ extension WireGen {
     }
 
     /// The bare type name of a subject expression — `MeController<Repository>` → `MeController`, used to
-    /// name the variant proxy's facade method (`bootstrap<Variant>_<Subject>Contributor`). A non-generic
-    /// subject passes through unchanged.
-    fileprivate static func bareTypeName(_ typeExpression: String) -> String {
+    /// name the variant proxy's facade method (`bootstrap<Variant>_<Subject>Contributor`) and its per-subject
+    /// doubles struct. A non-generic subject passes through unchanged.
+    static func bareTypeName(_ typeExpression: String) -> String {
         guard let angle = typeExpression.firstIndex(of: "<") else { return typeExpression }
         return String(typeExpression[typeExpression.startIndex..<angle])
     }

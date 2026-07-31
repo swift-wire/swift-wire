@@ -122,7 +122,11 @@ private func scopeEntryThunkLines(
 /// The binding identities reachable from the routed controller over the scope's resolved edges — a BFS
 /// rooted at the subject binding (found by its construction-local name). Returns `nil` (no pruning) when
 /// the scope carries no edges or the subject binding isn't found, preserving whole-scope construction.
-private func reachableBindings(from subjectLocal: String, in scope: SeedScopeEmission) -> Set<BindingIdentity>? {
+///
+/// Also the basis of a subject's doubles set: a seed scope is shared by every controller on that seed, so
+/// "which doubles does *this* controller consume" is this set intersected with the scope's doubles-sourced
+/// bindings.
+package func reachableBindings(from subjectLocal: String, in scope: SeedScopeEmission) -> Set<BindingIdentity>? {
     guard !scope.edges.isEmpty,
         let subject = scope.topologicalOrder.first(where: { propertyName(for: $0) == subjectLocal })
     else { return nil }
