@@ -443,11 +443,12 @@ spec, so the terminal's input is not negotiable. That is not a regression but th
 already took: middleware-produced values reach handlers by **A-inject** (request-scope injection),
 not by parameter projection off the box.
 
-**Mounting on a foreign `some ServerTransport` directly** — the `WireOpenAPI.apply` convenience that
-survives the fold — has no route to fold middleware around: the only interception point is the transport
-boundary, so `@Middleware` cannot apply there at all. That asymmetry is the sharpest argument for one
-collation surface: middleware consistency is unreachable through a transport registration, and reachable
-through a route.
+**Mounting on a foreign `some ServerTransport`** goes through `WireMVCServerTransport.apply`, which
+registers the collated routes and bridges them — so the operations arrive as routes and their middleware
+folds with them. Had a WireOpenAPI-specific facade survived the fold (it did not; see below), it would
+have had no route to fold middleware around at all: the only interception point on that path is the
+transport boundary. Middleware consistency is reachable through a route and unreachable through a bare
+transport registration, which is the sharpest argument for one collation surface.
 
 **`@ErrorResponse`.** The M5.4E model is terminal-scoped — pairs and closures folded into the generated
 `catch`, route-inner → controller-outer, first-match-wins, no graph injection. It transfers with one
@@ -500,9 +501,21 @@ bootstrap serves them because it serves routes.
   "serves natively on any proposal server, and on Hummingbird/Vapor/Lambda through
   `WireMVCServerTransport`". Most of this was already paid when the package moved to tools 6.4/macOS 26.
 - **A double hop for transport-only apps.** An app with no annotation-driven routes, serving on
-  Hummingbird, goes collector → routes → `ServerTransport`: two conversions where M3 did none. Keep
-  `WireOpenAPI.apply(graph, to: transport)` as a direct-mount convenience that skips the round trip —
-  a *function*, not a second collation surface.
+  Hummingbird, goes collector → routes → `ServerTransport`: two conversions where M3 did none. Accept
+  it. **`WireOpenAPI.apply` retires with the key** — do not keep it as a "direct-mount convenience",
+  which is what an earlier draft of this section recommended.
+
+  The reason is worth recording, because the idea is tempting and wrong. Such a facade takes the graph,
+  and after the fold the graph's collection is *all* routes, not just OpenAPI ones — so it must filter
+  by conformance, silently skipping every `@Controller` route in the app. An app calling it instead of
+  `WireMVCServerTransport.apply` loses its annotation-driven routes with no diagnostic; an app calling
+  both registers every operation twice. And nothing wanted it: `WireMVCServerTransport.apply` takes the
+  same arguments and already does the job properly.
+
+  The general rule this is an instance of: **once two things share a collection, a second API that
+  reads that collection can disagree with the first.** The double hop is a bounded cost with a bounded
+  fix (a fast path inside the bridge, not a parallel public entry point); silent partial registration
+  is neither.
 
 `TransportContributor` itself stays: it is exactly the shape `registerHandlers` needs, and the collector
 consumes it. It is demoted from a collated key to plumbing.
@@ -656,7 +669,8 @@ fold shape, and `WireMVCKeys.routeContributors`. All compile-checked, all in-rep
   post-1.0.
 - ~~The forcing case~~ — **settled.** task-cluster's stated direction is to move onto WireMVC's
   router, so the unified spine is the target architecture rather than a bet. Two consequences: the
-  the direct `WireOpenAPI.apply` convenience is for *other* apps, not task-cluster's path; and the
+  serving on a foreign transport is `WireMVCServerTransport.apply` rather than anything of this
+  adapter's; and the
   extra body fabrication on the `ServerTransport → WireMVC router → ServerTransport` path is
   transitional — it disappears once the app serves the router natively.
 
