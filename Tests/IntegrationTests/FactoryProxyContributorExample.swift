@@ -1,7 +1,7 @@
 import Synchronization
 import Wire
-import WireTesting
 import WireTestLibrary
+import WireTesting
 
 /// H2.2a factory-carrying-proxy regression — a `@RouteController @Scoped(seed:)` subject that also carries a
 /// lifted `@Factory` (via `@RouteMiddleware(key)`), so its contributor proxy has a `_wireFactory_<key>` field

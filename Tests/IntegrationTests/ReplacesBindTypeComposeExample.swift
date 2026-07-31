@@ -1,7 +1,7 @@
 import Synchronization
 import Wire
-import WireTesting
 import WireTestLibrary
+import WireTesting
 
 /// H2.2a `@Replaces` + `@BindType` composition — the precedence chain per type:
 ///     real binding → `@Replaces` (all graphs) → `@BindType` (its keyed variant only, wins)

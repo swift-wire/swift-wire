@@ -1,7 +1,7 @@
 import Synchronization
 import Wire
-import WireTesting
 import WireTestLibrary
+import WireTesting
 
 /// H2.2a runtime fixture — the doubles-threaded contributor-proxy scope entry. A `@RouteController`-marked
 /// `@Scoped(seed:)` subject is reached, in production, through a bridging contributor proxy whose
