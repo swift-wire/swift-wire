@@ -553,6 +553,9 @@ extension WireGen {
     /// and compiling it into a production target would link the variant graph and its mock types into the
     /// shipping binary.
     fileprivate static func renderGraphFile(_ inputs: GraphFileInputs, outputPath: String) throws {
+        // A dependency's key never varies this target's graph, opt-in or not — checked before the gate so the
+        // message names the origin module rather than the flag.
+        failIfAnyForeignTestingKey(in: inputs.aggregate)
         var testingVariants: [TestingVariant] = []
         if inputs.testingVariantsEnabled {
             testingVariants = buildTestingVariants(
@@ -564,7 +567,7 @@ extension WireGen {
             )
             failIfAnyTestingVariantInvalid(testingVariants)
         } else {
-            failIfAnyTestingKeyOutsideTestTarget(in: inputs.aggregate)
+            failIfAnyTestingKeyNotOptedIn(in: inputs.aggregate)
         }
 
         let seedScopeOrders =

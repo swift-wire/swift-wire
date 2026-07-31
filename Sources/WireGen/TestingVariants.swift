@@ -357,18 +357,44 @@ extension WireGen {
         return accumulation
     }
 
-    /// Refuse any `TestingKey` that reached a build which did not opt into test-graph variants — the
-    /// `--testing-variants` gate. Called instead of `buildTestingVariants` for a non-test consumer, so a key
-    /// in production sources (or composed in from a Wire-aware dependency) fails the build with a guided
-    /// message rather than silently compiling a variant graph and its mocks into the shipping binary.
-    ///
-    /// Deduped by key reference, matching how `buildTestingVariants` iterates, so one declaration yields one
-    /// diagnostic however many `@BindType`s it stacks.
-    static func failIfAnyTestingKeyOutsideTestTarget(in aggregate: DiscoveryAggregate) {
+    /// Refuse every `TestingKey` composed in from a Wire-aware *dependency* — a key this target does not
+    /// declare. Run whether or not `--testing-variants` was passed: a dependency's sources are re-parsed into
+    /// every consumer, so a library shipping a key would otherwise inject its variant (and the mock types it
+    /// names) into each of them. Only the declaring target emits a key's variant.
+    static func failIfAnyForeignTestingKey(in aggregate: DiscoveryAggregate) {
+        failIfAny(
+            aggregate.testingKeys.filter { $0.originModule != aggregate.module },
+            diagnosedBy: foreignTestingKeyDiagnostic,
+            consumerModule: aggregate.module
+        )
+    }
+
+    /// Refuse any `TestingKey` this target declares when the run did not opt into test-graph variants — the
+    /// `--testing-variants` gate. Called instead of `buildTestingVariants` for a consumer that did not opt in,
+    /// so a key in production sources fails the build with a guided message rather than silently compiling a
+    /// variant graph and its mocks into the shipping binary. Foreign keys are already gone by this point
+    /// (``failIfAnyForeignTestingKey(in:)`` runs first), so this speaks only about the target's own.
+    static func failIfAnyTestingKeyNotOptedIn(in aggregate: DiscoveryAggregate) {
+        failIfAny(
+            aggregate.testingKeys,
+            diagnosedBy: testingVariantsNotEnabledDiagnostic,
+            consumerModule: aggregate.module
+        )
+    }
+
+    /// Print one diagnostic per distinct key reference and abort, or return when there are none. Deduped by
+    /// reference, matching how `buildTestingVariants` iterates, so one declaration yields one diagnostic
+    /// however many `@BindType`s it stacks.
+    private static func failIfAny(
+        _ keys: [DiscoveredTestingKey],
+        diagnosedBy diagnostic: (DiscoveredTestingKey, String) -> Diagnostic,
+        consumerModule: String
+    ) {
         var seen: Set<String> = []
-        let diagnostics = aggregate.testingKeys
+        let diagnostics =
+            keys
             .filter { seen.insert($0.keyReference).inserted }
-            .map { testingVariantsNotEnabledDiagnostic($0, consumerModule: aggregate.module) }
+            .map { diagnostic($0, consumerModule) }
         guard !diagnostics.isEmpty else { return }
         printDiagnostics(diagnostics)
         exit(1)
