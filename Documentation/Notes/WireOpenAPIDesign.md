@@ -250,6 +250,14 @@ return Application(router: router, services: services, …)
 > collated surfaces. `TransportContributor` survives as plumbing — it is exactly the shape
 > `registerHandlers` needs — but is no longer a collated key.
 >
+> **`WireOpenAPI.apply(_:to:)` (below) retires with them.** Serving the collated operations on a foreign
+> `some ServerTransport` is `WireMVCServerTransport.apply(graph, to: transport)` — the same call a
+> WireMVC app already makes, registering every collated route uniformly. An adapter-specific facade
+> cannot survive the fold: after it, the graph's collection holds *all* routes, so such a facade would
+> have to filter by conformance — silently dropping the app's `@Controller` routes, and
+> double-registering if used alongside the correct call. The sections below describing `apply` are
+> M3-historical.
+>
 > The base was wrong for historical rather than analytical reasons: when M3 shipped, `some
 > ServerTransport` was the only cross-runtime target available. The proposal server became usable at M5,
 > and the two surfaces turned out to be inter-convertible — `WireMVCServerTransport` carries routes out
