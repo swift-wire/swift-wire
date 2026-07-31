@@ -12,6 +12,11 @@
 > below: OpenAPI operations become **WireMVC routes**, contributed by a single generated aggregate
 > per spec.
 >
+> Taken to its conclusion, that means **one collation surface, not two**: `@OpenAPIController`
+> contributes to `WireMVCKeys.routeContributors`, and M3's `TransportKeys.handlers` retires as a
+> collated key. See *One collation surface* — it supersedes the two-mounting-modes framing an earlier
+> draft carried, and it is what M3's own *WireMVC seam* section asked for.
+>
 > Builds on [WireOpenAPIDesign.md](WireOpenAPIDesign.md) (M3's shipped adapter),
 > [WireMVCDesign.md](WireMVCDesign.md) and [WireMVCMiddleware.md](WireMVCMiddleware.md) (the routing
 > and middleware surface being unified onto), the M5.4 request-scope proxy
@@ -413,7 +418,8 @@ scope's lifetime, its teardown point and its failure handling are identical for 
   middleware that logs after `next` still sees it live.
 - **The subject reaches the conformance through a task-local**, and that is structurally forced: the
   generator's closures capture the `UniversalServer` (and its handler) at collection time, so there is
-  no per-request channel through them. Unlike direct mode's seeding middleware, both ends are ours.
+  no per-request channel through them. Both ends are ours, so the task-local is an implementation
+  detail of the terminal rather than a seam a user can observe.
 
 **Cost: in-process testing needs a fallback.** Calling the aggregate's conformance directly (what
 spike-28 does, and what makes OpenAPI controllers testable with no harness) skips the terminal and
@@ -437,9 +443,11 @@ spec, so the terminal's input is not negotiable. That is not a regression but th
 already took: middleware-produced values reach handlers by **A-inject** (request-scope injection),
 not by parameter projection off the box.
 
-**In direct-mount mode** (below) the only interception point is the transport boundary, so `@Middleware`
-there resolves a `ServerMiddleware` instead — a genuinely different type, which is why unified mode is
-the answer to the consistency objective rather than a nicety.
+**Mounting on a foreign `some ServerTransport` directly** — the `WireOpenAPI.apply` convenience that
+survives the fold — has no route to fold middleware around: the only interception point is the transport
+boundary, so `@Middleware` cannot apply there at all. That asymmetry is the sharpest argument for one
+collation surface: middleware consistency is unreachable through a transport registration, and reachable
+through a route.
 
 **`@ErrorResponse`.** The M5.4E model is terminal-scoped — pairs and closures folded into the generated
 `catch`, route-inner → controller-outer, first-match-wins, no graph injection. It transfers with one
@@ -450,20 +458,54 @@ the spec read, so this sequences after it.
 **`@OpenAPIConfiguration`.** M3's other explicit deferral (`registerHandlers(configuration:)`) — the
 last piece of `registerHandlers`'s parameter list the adapter doesn't own.
 
-## Two mounting modes
+## One collation surface — `RouteContributor` (decided; supersedes two modes)
 
-- **Unified (the model above).** Operations become WireMVC routes. Requires the app to route through
-  WireMVC — proposal-native, or Hummingbird/Vapor via `WireMVCServerTransport`, which costs one extra
-  body fabrication on that path. WireOpenAPI gains a dependency on WireMVC (or the routing surface
-  extracts to the shared module M3 anticipated).
-- **Direct (M3 compatibility).** `WireOpenAPI.apply(graph, to: transport)` mounts the aggregate on a
-  foreign `some ServerTransport` unchanged. Keeps M3's "depends only on `OpenAPIRuntime`" property for
-  apps not adopting WireMVC. `@Middleware` degrades to `ServerMiddleware`; request scope needs a
-  task-local seeded by an adapter-supplied `ServerMiddleware` (sound by construction — the runtime's
-  chain wraps deserialize, handler and serialize in one task).
+An earlier draft of this note carried **two mounting modes**: unified (operations become WireMVC
+routes) and direct (the aggregate mounts on a foreign `some ServerTransport`), each with its own
+collation key. That is retracted. **`@OpenAPIController` contributes to `WireMVCKeys.routeContributors`,
+and `TransportKeys.handlers` retires as a collated key.**
 
-Both modes share the aggregate, the conformance, the typed shim and the scope-entry machinery. Only
-the second hat differs: `RouteContributor` versus `TransportContributor`.
+**The two surfaces are inter-convertible, and both bridges now exist**: `WireMVCServerTransport` carries
+routes *out* onto a `some ServerTransport`, and the collecting transport above carries `ServerTransport`
+registrations *in* as routes. Once each is expressible as the other, two collation keys are duplication
+rather than a separation of concerns.
+
+**`RouteContributor` is the richer base**, so it is the one to keep:
+
+- It carries the proposal's streaming primitives, the matched path parameters, and per-route middleware
+  folding. `ServerTransport`'s currency (`HTTPBody`, copyable, buffered) is the narrower one.
+- Everything an app actually wants attaches to **routes**: `@NotFound`, the `@ErrorResponse` tiers, the
+  global middleware front layer, `@WireMVCBootstrap`. A transport registration can never participate in
+  those; a route always can.
+- Converting a transport registration into a route loses nothing — the collector replay is exact.
+
+**It is also what M3 intended.** [WireOpenAPIDesign.md](WireOpenAPIDesign.md)'s *The WireMVC seam* says
+the durable primitive is one collation surface, that `@OpenAPIController` and `@Controller` should land
+in **the same key**, and that M5's controllers would be "a re-home, not a parallel surface". M5 then
+declared `WireMVCKeys.routeContributors` instead, because its witness targets the route builder — so the
+parallel surface M3 wrote to avoid is exactly what shipped. M3 picked the wrong base only because, when
+it shipped, `ServerTransport` was the sole cross-runtime option; the proposal server was not yet
+usable. Folding onto `RouteContributor` completes the re-home in the direction the evidence now supports.
+
+**What it fixes.** The aggregate proxy was collated into `TransportKeys.handlers` only, so a
+`@WireMVCBootstrap` app — which serves what reaches `WireMVCKeys.routeContributors` — never saw it.
+Contributing to the route key dissolves that: no multi-key capability in swift-wire, no bootstrap
+registration hook, no second `apply` in the composition root. The operations are routes, so the
+bootstrap serves them because it serves routes.
+
+**What it costs.**
+
+- **wire-open-api depends on wire-mvc unconditionally.** `WireOpenAPIMVC` stops being an opt-in module
+  and becomes the core. M3's headline property restates: not "depends only on `OpenAPIRuntime`" but
+  "serves natively on any proposal server, and on Hummingbird/Vapor/Lambda through
+  `WireMVCServerTransport`". Most of this was already paid when the package moved to tools 6.4/macOS 26.
+- **A double hop for transport-only apps.** An app with no annotation-driven routes, serving on
+  Hummingbird, goes collector → routes → `ServerTransport`: two conversions where M3 did none. Keep
+  `WireOpenAPI.apply(graph, to: transport)` as a direct-mount convenience that skips the round trip —
+  a *function*, not a second collation surface.
+
+`TransportContributor` itself stays: it is exactly the shape `registerHandlers` needs, and the collector
+consumes it. It is demoted from a collated key to plumbing.
 
 ## Why not full takeover
 
@@ -500,10 +542,17 @@ would need, and M5's design rule keeps the registration backend swappable off th
   per-subject hold-vs-bridge in `contributorProxyBinding`, the six single-thunk call sites, N > 1 field
   name suffixing, positional generic-parameter renaming, and the grouping discriminator. ~250–350 lines,
   no wire-mvc change. Gate: two `@OpenAPIController`s on one spec producing one conformer.
-- **M6d.1 — the inbound `ServerTransport` + route registration.** `WireOpenAPIOperations`,
-  `WireOpenAPI.invoke`, and the per-operation `builder.register` emission. **Unification lands here**:
-  one router, one `@NotFound`, one composition root. Gate: an OpenAPI operation and a `@Get` route
-  served by one `@WireMVCBootstrap` app across all three runtimes.
+- **M6d.1 — the inbound `ServerTransport`.** ✅ The collecting transport (`WireOpenAPIOperations`) and
+  the terminal that adapts proposal primitives to the generator's closure. Needed no per-operation
+  codegen: `registerHandlers` is the only thing that knows a document's operations and hands them over
+  one at a time, so the operation set is *discovered by running it* against a collector. The generated
+  conformance is one call delegating to the `TransportContributor` witness.
+- **M6d.1b — fold onto `RouteContributor`.** `@OpenAPIController` contributes to
+  `WireMVCKeys.routeContributors`; `TransportKeys.handlers` and `TransportComposable` retire as collated
+  surfaces; `WireOpenAPIMVC` merges into `WireOpenAPI`; the generator always emits both conformances
+  (no mode flag). **Unification lands here**, and the `@WireMVCBootstrap` gap closes without a new
+  capability. Breaking for M3 consumers — cheap now, expensive once anything depends on two surfaces.
+  Gate: an OpenAPI operation and a `@Get` route served by one `@WireMVCBootstrap` app.
 - **M6d.2 — `@Middleware`** at controller and route level over operations, proposal `Middleware`, same
   components as WireMVC routes. Gate: one `RequireAPIKey` applied to both kinds of route.
 - **M6d.3 — request scope**, via the aggregate's scope-entry thunks.
@@ -607,7 +656,7 @@ fold shape, and `WireMVCKeys.routeContributors`. All compile-checked, all in-rep
   post-1.0.
 - ~~The forcing case~~ — **settled.** task-cluster's stated direction is to move onto WireMVC's
   router, so the unified spine is the target architecture rather than a bet. Two consequences: the
-  direct-mount mode is compatibility for *other* apps, not task-cluster's long-term path; and the
+  the direct `WireOpenAPI.apply` convenience is for *other* apps, not task-cluster's path; and the
   extra body fabrication on the `ServerTransport → WireMVC router → ServerTransport` path is
   transitional — it disappears once the app serves the router natively.
 

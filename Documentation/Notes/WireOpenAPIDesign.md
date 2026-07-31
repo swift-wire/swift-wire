@@ -240,6 +240,25 @@ return Application(router: router, services: services, …)
 
 ## The WireMVC seam (M5)
 
+> **Superseded by M6d — the fold happened, in the other direction.** This section's *intent* held: one
+> collation surface, both annotations landing in the same key, a re-home rather than a parallel surface.
+> Its *choice of base* did not. M5 declared `WireMVCKeys.routeContributors` instead of re-homing into
+> `TransportKeys.handlers`, because its witness targets the route builder rather than
+> `some ServerTransport` — so the parallel surface this section wrote to avoid is what shipped. M6d
+> resolves it by folding the other way: `@OpenAPIController` contributes to
+> `WireMVCKeys.routeContributors`, and `TransportKeys.handlers` / `TransportComposable` retire as
+> collated surfaces. `TransportContributor` survives as plumbing — it is exactly the shape
+> `registerHandlers` needs — but is no longer a collated key.
+>
+> The base was wrong for historical rather than analytical reasons: when M3 shipped, `some
+> ServerTransport` was the only cross-runtime target available. The proposal server became usable at M5,
+> and the two surfaces turned out to be inter-convertible — `WireMVCServerTransport` carries routes out
+> onto a transport, and M6d's collecting transport carries transport registrations in as routes. Given
+> the choice, the route surface is the richer one (streaming primitives, matched path parameters,
+> per-route middleware folding) and the one every routing feature attaches to (`@NotFound`,
+> `@ErrorResponse` tiers, the global middleware layer, `@WireMVCBootstrap`). See
+> [WireOpenAPIAdvanced.md](WireOpenAPIAdvanced.md), *One collation surface*.
+
 The durable, cross-runtime primitive this milestone establishes is the
 **`ServerTransport` collation surface** — `TransportContributor`,
 `TransportKeys.handlers`, `TransportComposable` + its conformance declaration, and
