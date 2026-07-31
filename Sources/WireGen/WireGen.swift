@@ -563,7 +563,7 @@ extension WireGen {
                 proxyIdentities: inputs.proxyIdentities,
                 in: inputs.aggregate.allBindings
             ) + testingVariants.map { $0.doublesStruct } + testingVariants.flatMap { $0.subjectDoublesStructs }
-            + testingVariants.flatMap { $0.contributorFacades }
+                + testingVariants.flatMap { $0.contributorFacades }
                 + testingVariants.flatMap { $0.variantFactoryDeclarations },
             // Rule 3 — the default graph's promotions plus every container's and every test variant's, so
             // each `appendStruct` finds the ones whose consumers it constructs.
