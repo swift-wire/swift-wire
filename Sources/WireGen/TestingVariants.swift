@@ -14,6 +14,9 @@ extension WireGen {
     /// cascade's unmarked-`@Scopable` hops and stale-`@BindType` substitutions).
     struct TestingVariant {
         let doublesStruct: String
+        /// The per-subject `_<Variant>_<Subject>Doubles` declarations — one per routed subject, carrying only
+        /// the fields that subject reaches. Emitted alongside the key-wide struct, which is unchanged.
+        let subjectDoublesStructs: [String]
         let seedScopes: [SeedScopeEmission]
         /// The doubles-threaded contributor-proxy artifacts this variant emits — for each production
         /// bridging proxy over a `@Scoped(seed:)` subject the variant touches, the variant proxy `struct`
@@ -275,6 +278,13 @@ extension WireGen {
                 typeName: doublesType,
                 fields: folded.doublesFields.values.sorted { $0.name < $1.name }
             ),
+            subjectDoublesStructs: subjectDoublesStructs(
+                seedScopes: seedScopes,
+                productionProxies: inputs.productionProxies,
+                factoryTransformsByProxy: appGraph.factoryTransforms,
+                seedlessReconstructions: seedlessReconstructions,
+                variantName: variantName
+            ).map(\.declaration),
             seedScopes: seedScopes,
             contributorFacades: folded.contributorFacades,
             existentialPromotions: accumulation.promotions,

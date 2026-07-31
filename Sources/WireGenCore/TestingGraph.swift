@@ -43,6 +43,24 @@ package func doublesStructTypeName(forKeyReference keyReference: String) -> Stri
     return "_" + components.joined(separator: "_") + "Doubles"
 }
 
+/// The per-subject doubles struct type name — `_<Variant>_<Subject>Doubles`, carrying only the fields that
+/// subject reaches rather than every field the key declares. Mirrors the contributor façade's
+/// `bootstrap<Variant>_<Subject>Contributor` naming, and keeps the `_` prefix the other generated types use;
+/// an adapter that wants `NotesControllerDoubles` at the call site can `typealias` onto it.
+package func subjectDoublesStructTypeName(variantName: String, subjectTypeName: String) -> String {
+    "_\(variantName)_\(subjectTypeName)Doubles"
+}
+
+/// The doubles field a binding reads, when it is one the variant rewrote to be doubles-sourced. Recovers the
+/// field from the provider's `doubles.<field>` access path, so a caller can go from "which bindings does this
+/// subject reach" to "which doubles fields does it consume" without `DoublesField` carrying an identity.
+package func doublesSourcedFieldName(of binding: DiscoveredBinding) -> String? {
+    guard case .provider(let provider) = binding else { return nil }
+    let prefix = "doubles."
+    guard provider.accessPath.hasPrefix(prefix) else { return nil }
+    return String(provider.accessPath.dropFirst(prefix.count))
+}
+
 /// Rewrite the slots named by `substitutions` into doubles-sourced bindings,
 /// returning the updated binding set, the doubles fields, and any unmatched
 /// substitutions. A matched binding keeps its graph identity and scope but its
