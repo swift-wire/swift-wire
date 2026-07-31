@@ -12,6 +12,20 @@ import Wire
 @attached(peer)
 package macro RouteController() = #externalMacro(module: "WireTestMacrosImpl", type: "RouteControllerMacro")
 
+/// The aggregate marker — a stand-in for WireOpenAPI's `@OpenAPIController`, where the framework demands
+/// a *single* conformer for several user types. Every subject bearing it lands on ONE synthesised proxy
+/// (`_WireAggregateContributor`), each held or bridged independently. A no-op peer macro, like the others.
+@attached(peer)
+package macro AggregateController() =
+    #externalMacro(module: "WireTestMacrosImpl", type: "RouteControllerMacro")
+
+/// A second aggregate marker with exactly **one** subject — gating the compatibility rule that a
+/// one-member aggregate keeps the singular field names (`_wireSubject` / `_wireEnterScope`), so it emits
+/// what `.contributesProxy` does and the field-name contract with domain codegen is unchanged.
+@attached(peer)
+package macro SoloAggregateController() =
+    #externalMacro(module: "WireTestMacrosImpl", type: "RouteControllerMacro")
+
 /// A factory-injecting marker (stand-in for WireMVC's `@Middleware(key)`). A no-op peer macro so the
 /// attribute compiles; the `.injectsFromGraph` declaration below tells the build plugin to lift the named
 /// `@Factory` onto the annotated subject's contributor proxy as a `_wireFactory_<key>` field.
@@ -33,4 +47,30 @@ package enum WireTestRouteAdapter {
         annotation: "RouteMiddleware",
         capability: .injectsFromGraph
     )
+
+    /// The aggregate directive: collate every `@AggregateController` subject into one proxy, contributed
+    /// to `WireTestAggregateKeys.controllers`.
+    package static let aggregateController = WireAdapterAnnotationV1(
+        annotation: "AggregateController",
+        capability: .contributesAggregateProxy(
+            to: WireTestAggregateKeys.controllers,
+            proxyTypeName: "_WireAggregateContributor",
+            proxyScope: .singleton
+        )
+    )
+
+    package static let soloAggregateController = WireAdapterAnnotationV1(
+        annotation: "SoloAggregateController",
+        capability: .contributesAggregateProxy(
+            to: WireTestAggregateKeys.soloControllers,
+            proxyTypeName: "_WireSoloAggregateContributor",
+            proxyScope: .singleton
+        )
+    )
+}
+
+/// The multibinding the aggregate proxy contributes into — one element, however many subjects it holds.
+package enum WireTestAggregateKeys {
+    package static let controllers = CollectedKey<any Sendable>()
+    package static let soloControllers = CollectedKey<any Sendable>()
 }

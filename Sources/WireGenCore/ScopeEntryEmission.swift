@@ -24,16 +24,23 @@ func scopeEntryThunkLines(
     forBridgeProxy binding: DiscoveredBinding,
     scopes: [String: SeedScopeEmission]
 ) -> [String]? {
-    guard case .scopeBound(let proxy) = binding,
-        let scopeEntry = proxy.dependencies.first(where: { $0.name == contributorProxyScopeEntryFieldName })
-    else { return nil }
+    guard case .scopeBound(let proxy) = binding else { return nil }
+    // An **aggregate** proxy bridges into one scope per seeded subject, so every `.scopeEntryThunk`
+    // dependency gets its own closure — each named after its own thunk type, which is what the proxy's
+    // construction argument resolves to. A per-subject proxy has exactly one, so this is the shipped
+    // single-thunk path unchanged.
+    let scopeEntries = proxy.dependencies.filter { $0.kind == .scopeEntryThunk }
+    guard !scopeEntries.isEmpty else { return nil }
     // A *generic* bridge proxy is a lift node: the graph specialised its subject at the opaque backend
     // (`MeController<Repository>` → `MeController<some TodoRepository>`). Apply the same lift substitution
     // to the thunk's declared type — format-preserving, unlike the whitespace-canonicalised identity form,
     // which `async throws` needs — so the emitted thunk's type, local name, and return match the proxy's
     // specialised construction argument, not the raw generic form (whose bare `Repository` isn't in scope
     // in `_wireBootstrap`). A non-generic proxy is not a lift node, so its thunk type is unchanged.
-    return scopeEntryThunkLines(thunkType: liftSpecialised(scopeEntry.type, in: binding), scopes: scopes)
+    let lines = scopeEntries.flatMap { entry in
+        scopeEntryThunkLines(thunkType: liftSpecialised(entry.type, in: binding), scopes: scopes) ?? []
+    }
+    return lines.isEmpty ? nil : lines
 }
 
 /// Substitute a lift node's determined generic parameters with their `some Constraint` form in `type`,

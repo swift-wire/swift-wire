@@ -48,6 +48,22 @@ public enum WireAdapterCapability {
     /// proxy's generated `wrap` method — without injecting them onto the root binding.
     case liftsPeersToProxy(proxyTypePrefix: String, proxyScope: WireProxyScope)
 
+    /// `@X` on **several** bindings contributes ONE generated proxy holding all of them — the *aggregate*
+    /// form of `.contributesProxy`. Where `.contributesProxy` synthesises a proxy per subject (named
+    /// `<prefix><Subject>`), this synthesises a single proxy named `proxyTypeName` whose fields are every
+    /// subject bearing the annotation, each **held or bridged independently**: an app-scoped subject is
+    /// stored directly (`_wireSubject_<Subject>`), a narrower `@Scoped(seed:)` subject through its own
+    /// scope-entry thunk (`_wireEnterScope_<Subject>`). So one proxy can hold one subject and bridge into
+    /// another's request scope. At one subject the field names stay `_wireSubject` / `_wireEnterScope`, so
+    /// a single-subject aggregate emits exactly what `.contributesProxy` does.
+    ///
+    /// The forcing case is an adapter whose framework demands a *single* conformer for several user types
+    /// — WireOpenAPI, where the generator's `registerHandlers` is emitted once per document and registers
+    /// every operation from one handler, so splitting a spec across controllers needs them behind one
+    /// proxy. Wire stays domain-free: it collates the annotated subjects into one synthesised type and
+    /// never learns why.
+    case contributesAggregateProxy(to: Any, proxyTypeName: String, proxyScope: WireProxyScope)
+
     /// `@X(argument)` on a binding makes the binding depend on a graph value named by `argument` (an
     /// *input* edge), lifted onto the binding's contributor proxy. The **argument's kind** chooses what
     /// is injected:

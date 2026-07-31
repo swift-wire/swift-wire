@@ -28,6 +28,11 @@ package enum DiscoveredAdapterCapability: Sendable, Equatable {
     /// superseding the adapter macro's type emission; the domain witness body is filled by an adapter
     /// codegen tool via an `extension` in the same module. See `renderContributorProxyDeclaration`.
     case contributesProxy(key: String, proxyTypePrefix: String, proxyScope: DiscoveredProxyScope)
+    /// `@X` on several bindings contributes ONE generated proxy (named `proxyTypeName`) holding them all
+    /// — the aggregate form of `.contributesProxy`. Each subject is held or bridged independently, so a
+    /// single proxy can store an app-scoped subject *and* carry a scope-entry thunk for a `@Scoped(seed:)`
+    /// one. At a single subject it degenerates to exactly `.contributesProxy`'s emission.
+    case contributesAggregateProxy(key: String, proxyTypeName: String, proxyScope: DiscoveredProxyScope)
     /// `@X` synthesises a contributor proxy that lifts the declaration's `.injectsFromGraph` peers onto
     /// itself (like `.contributesProxy`) but contributes to no multibinding — a standalone, addressable
     /// proxy the adapter's codegen reads directly (WireMVC's `@WireMVCBootstrap` global-middleware proxy).
@@ -128,6 +133,18 @@ func adapterCapability(from expression: ExprSyntax) -> DiscoveredAdapterCapabili
             return .contributesProxy(
                 key: toArgument.expression.trimmedDescription,
                 proxyTypePrefix: prefix,
+                proxyScope: .singleton
+            )
+        }
+        if member.declName.baseName.text == "contributesAggregateProxy",
+            let toArgument = call.arguments.first(where: { $0.label?.text == "to" }),
+            let nameArgument = call.arguments.first(where: { $0.label?.text == "proxyTypeName" }),
+            let name = nameArgument.expression.as(StringLiteralExprSyntax.self)?.representedLiteralValue
+        {
+            // `proxyScope:` has a single value (`.singleton`) today, read as that regardless of source.
+            return .contributesAggregateProxy(
+                key: toArgument.expression.trimmedDescription,
+                proxyTypeName: name,
                 proxyScope: .singleton
             )
         }

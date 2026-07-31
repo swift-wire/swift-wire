@@ -16,9 +16,11 @@ extension WireGen {
     /// facade for.
     static func productionBridgeProxies(in aggregate: DiscoveryAggregate) -> [DiscoveredScopeBoundType] {
         aggregate.allBindings.values.flatMap { $0 }.compactMap { binding in
-            guard case .scopeBound(let type) = binding,
-                type.dependencies.contains(where: { $0.name == contributorProxyScopeEntryFieldName })
-            else { return nil }
+            // Detect by dependency *kind*, not by the `_wireEnterScope` field name: an aggregate proxy
+            // names its thunks `_wireEnterScope_<Subject>`, and must still be recognised as bridging so
+            // the variant drops it (a variant carries no doubles-threaded aggregate facade yet — the
+            // rewrite sites below skip it, which is the shipped behaviour for any uncovered seed).
+            guard case .scopeBound(let type) = binding, type.isBridgeProxy else { return nil }
             return type
         }
     }

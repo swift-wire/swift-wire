@@ -31,6 +31,19 @@ package let contributorProxySubjectFieldName = "_wireSubject"
 /// synthesised in M5.4.2; M5.4.1 emits the field.
 package let contributorProxyScopeEntryFieldName = "_wireEnterScope"
 
+extension DiscoveredScopeBoundType {
+    /// Every scope-entry thunk this proxy carries — one per `@Scoped(seed:)` subject it bridges into. A
+    /// per-subject proxy has at most one (named `_wireEnterScope`); an aggregate proxy has one per seeded
+    /// subject (named `_wireEnterScope_<Subject>`), so **detect by kind, never by field name**: the name is
+    /// a contract with domain codegen, not a classifier.
+    package var scopeEntryDependencies: [DependencyParameter] {
+        dependencies.filter { $0.kind == .scopeEntryThunk }
+    }
+
+    /// Whether this proxy bridges into any narrower scope — i.e. carries at least one scope-entry thunk.
+    package var isBridgeProxy: Bool { !scopeEntryDependencies.isEmpty }
+}
+
 /// The type of the reverse-order scope teardown a scope-entry thunk returns alongside its subject. The
 /// caller (the generated witness) runs it after the response, in place of the app-scope teardown walk for
 /// request-scoped bindings. Errors are collected, not thrown, matching the app-scope contract. A fixed

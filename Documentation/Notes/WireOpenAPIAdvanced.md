@@ -1,0 +1,677 @@
+# Advanced OpenAPI integration — design note (M6d)
+
+> **Status:** forward-looking design, not implemented — the design pass
+> [ROADMAP.md](../../ROADMAP.md)'s M6d entry asks for before build ("genuinely new … needs a design
+> pass"). **The M6d.0 gate has been run** (Swift 6.3.3 and the 6.4 snapshot,
+> swift-openapi-generator 1.x, macOS) — [spike-28](../../../swift-wire-spikes/spike-28-openapi-plugin-coexistence/);
+> results and the three findings that shaped this note are in *Spike results*.
+>
+> **The objective is one routing model, not two.** An app should express middleware, error mapping,
+> request scope and its composition root the same way whether a route came from an OpenAPI document
+> or from `@Get`/`@Post`. That objective — not "typed handlers" — is what selects the architecture
+> below: OpenAPI operations become **WireMVC routes**, contributed by a single generated aggregate
+> per spec.
+>
+> Builds on [WireOpenAPIDesign.md](WireOpenAPIDesign.md) (M3's shipped adapter),
+> [WireMVCDesign.md](WireMVCDesign.md) and [WireMVCMiddleware.md](WireMVCMiddleware.md) (the routing
+> and middleware surface being unified onto), the M5.4 request-scope proxy
+> ([Archive/M5_4_PLAN.md](../Archive/M5_4_PLAN.md)), and
+> [RouteErrorHandling.md](RouteErrorHandling.md). Depends on the pluggable decomposition designed in
+> [DecompositionTransformers.md](DecompositionTransformers.md), whose 1a/1b slice M6d owns.
+>
+> The spec remains the source of routing truth throughout; the generator remains the owner of
+> request/response binding. What moves is *where operations are registered*.
+
+## What M6d is
+
+`@OpenAPIController` today is the thinnest adapter in the system: a `@Contributes` alias plus a
+generated witness that calls `registerHandlers`. Everything above that line is hand-written, and an
+app that also uses WireMVC has two of everything.
+
+| | today | M6d |
+|---|---|---|
+| **handler shape** | hand-written `(Operations.X.Input) -> Output` | annotated handler; the conformance is generated |
+| **scope** | app-scoped only | `@Scoped(seed: HTTPRequest.self)`, per controller |
+| **middleware** | none | `@Middleware` at controller and route level — *the same components as WireMVC routes* |
+| **errors / 404 / entry point** | app-owned | `@ErrorResponse` tiers, `@NotFound`, `@WireMVCBootstrap` |
+| **routes per spec** | one controller, all operations | split across controllers by tag |
+
+**Non-goal: spec emission.** Generating `openapi.yaml` *from* annotations is the opposite direction
+and is not M6d.
+
+**Non-goal: owning request/response binding.** Taking over decoding as well as routing is a third
+position (see *Why not full takeover*); it trades compile-checked coupling for silent semantic
+coupling and is explicitly rejected here.
+
+## The seams this rides
+
+Three, none built for this, none needing a shape change.
+
+### 1. Plugin-owned codegen with a body hole
+
+`Sources/WireGenCore/ContributorProxyEmission.swift` emits the **structural half** of a contributor
+proxy — stored fields (`_wireSubject`, `_wireFactory_<key>`, or `_wireEnterScope` for a bridging
+proxy), the init the graph's construction call targets, and `: Sendable` on the declaration — and
+deliberately leaves a **body hole**: no conformance, no witness. A domain tool fills it in the same
+module, meeting the struct on documented field names. WireMVC's `WireMVCRouteGen` is the only
+consumer today; `WireMVCBuildPlugin` orchestrates WireGen then the domain tool over one source set.
+
+M6d makes WireOpenAPI the second consumer of exactly that arrangement. WireGen is already exposed as
+an executable product for precisely this reason.
+
+### 2. The seed types coincide
+
+WireMVC's request scope is seeded on `HTTPRequest` (swift-http-types). OpenAPIRuntime's currency at
+its transport and middleware boundaries is the *same* `HTTPRequest`. So a request-scoped binding is
+shareable across both kinds of route on one graph — one seed type, one scope model.
+
+### 3. The bridge already exists, pointing the other way
+
+`WireMVCServerTransport` mounts proposal-native WireMVC routes onto a `some ServerTransport`,
+fabricating a reader from an `HTTPBody?` and a sender that feeds one back (streaming, with real
+backpressure — spikes 13/14). M6d needs the *inbound* direction: a `ServerTransport` whose
+registrations become WireMVC routes. Same fabrication, opposite direction, and easier — the
+transport's currency (`HTTPBody`) is copyable.
+
+## The transport interaction — and why one aggregate
+
+Read off the generated `Server.swift` and OpenAPIRuntime's `UniversalServer` in spike-28.
+
+**Registration.** `registerHandlers(on:serverURL:configuration:middlewares:)` — an extension method on
+`APIProtocol` — builds a `UniversalServer(handler: self, …)` and issues one
+`transport.register(closure, method:, path:)` per operation. The transport is a parameter, never
+stored. `UniversalServer` copies the handler into `@Sendable` closures that live for the process,
+which is why any conformer must be app-scoped and `Sendable`, and why per-request state can only
+arrive through a scope-entry thunk.
+
+**Per request.** `UniversalServer.handle` builds `next = { deserialize → handler → serialize }` and
+wraps it with `for middleware in middlewares.reversed()`. Two facts follow: a `ServerMiddleware` sees
+the request *before* decoding, in the same task as the handler; and **decode failures never reach the
+adapter** — the runtime maps them, so WireMVC's `@JSONBody` content-type rules are not re-implemented
+for OpenAPI operations. The generator owns binding, in both directions.
+
+**The constraint.** `registerHandlers` is generated **once per document** and registers **every**
+operation from a single conformer. So two `@OpenAPIController` types in one target cannot split the
+API: each would have to implement the whole `APIProtocol` and each would register the full route set.
+Since the generator plugin takes one `openapi.yaml` per target, that means *one conformer per spec*.
+M3's note reads as though it assumed otherwise ("each handler registers *its own* operations"), so
+this is an unexamined assumption rather than a decision.
+
+Left alone, that constraint would force: controller-scope ≈ global scope, request scope all-or-nothing
+per API, and one enormous controller type per document. **The aggregate is the answer to all three.**
+
+## The model — one aggregate per spec, mounted as WireMVC routes
+
+Because the conformer is *ours*, it does not have to be one user type. The plugin generates a single
+aggregate per spec that wears two hats: it satisfies `APIProtocol` by dispatching each operation to
+whichever controller declared it, and it satisfies **`RouteContributor`** by registering each
+operation as a WireMVC route with that controller's middleware chain.
+
+### What the user writes
+
+```swift
+// One middleware component, used by both kinds of route — the point of the exercise.
+@Singleton struct RequireAPIKey: Middleware { … }        // the proposal's Middleware
+@Singleton struct AuditLog: Middleware { … }
+
+// ── WireMVC-native routes ──────────────────────────────────────────────
+@Singleton
+@Controller("/admin")
+@Middleware(RequireAPIKey.self)               // controller level
+struct AdminController {
+    @Get("/health") @JSONResponse
+    @Middleware(AuditLog.self)                // route level
+    func health() async throws -> Status { … }
+}
+
+// ── OpenAPI operations — identical annotations, identical components ───
+@Scoped(seed: HTTPRequest.self)
+@OpenAPIController("/api/v1")
+@Middleware(RequireAPIKey.self)
+struct TaskController {
+    @Operation("getTask") @JSONResponse
+    @Middleware(AuditLog.self)                // route level, per operation
+    func getTask(@Path id: UUID) async throws -> Components.Schemas.Task { … }
+
+    @RawOperation
+    func exportTasks(_ input: Operations.ExportTasks.Input) async throws -> Operations.ExportTasks.Output { … }
+}
+
+@Singleton                                    // an app-scoped peer on the SAME spec
+@OpenAPIController("/api/v1")
+@Middleware(RequireAdmin.self)
+struct ReportController {
+    @Operation("listReports") @JSONResponse
+    func listReports() async throws -> [Components.Schemas.Report] { … }
+}
+
+@Singleton
+@WireMVCBootstrap
+@Middleware(RequestLogger.self)               // global front layer — covers everything
+@NotFound
+struct App {}
+```
+
+### What is generated
+
+```swift
+// WireGen — the structural half: fields, init, Sendable, body hole. One per SPEC.
+struct _WireOpenAPI_TasksAPI: Sendable {
+    let _wireEnterScope_TaskController: @Sendable (HTTPRequest) async throws
+        -> (TaskController, @Sendable () async -> [any Error])
+    let _wireSubject_ReportController: ReportController
+    let _wireFactory_requireAPIKey: RequireAPIKey
+    let _wireFactory_requireAdmin: RequireAdmin
+    let _wireFactory_auditLog: AuditLog
+}
+
+// WireOpenAPIGen — hat 1: satisfy the protocol, dispatching per operation.
+extension _WireOpenAPI_TasksAPI: APIProtocol {
+
+    // Scope discipline emitted once per scoped subject rather than once per operation.
+    private func _wireWithScope_TaskController<R>(
+        _ body: (TaskController) async throws -> R
+    ) async throws -> R {
+        let (controller, teardown) = try await _wireEnterScope_TaskController(WireOpenAPIRequest.current)
+        do { let r = try await body(controller); _ = await teardown(); return r }
+        catch { _ = await teardown(); throw error }
+    }
+
+    func getTask(_ input: Operations.GetTask.Input) async throws -> Operations.GetTask.Output {
+        try await _wireWithScope_TaskController { controller in
+            let id = try OpenAPIPath<UUID>.bind(name: "id", from: input.path.id)
+            return .ok(.init(body: .json(try await controller.getTask(id: id))))
+        }
+    }
+
+    func exportTasks(_ input: Operations.ExportTasks.Input) async throws -> Operations.ExportTasks.Output {
+        try await _wireWithScope_TaskController { try await $0.exportTasks(input) }   // @RawOperation
+    }
+
+    func listReports(_ input: Operations.ListReports.Input) async throws -> Operations.ListReports.Output {
+        .ok(.init(body: .json(try await _wireSubject_ReportController.listReports())))  // app-scoped peer
+    }
+}
+
+// WireOpenAPIGen — hat 2: one WireMVC route per operation, each with ITS controller's fold.
+extension _WireOpenAPI_TasksAPI: RouteContributor {
+    func registerWireRoutes<Builder: HTTPServerRouteBuilder>(on builder: inout Builder) throws
+    where Builder.RequestContext: ~Copyable, Builder.Reader: ~Copyable,
+          Builder.ResponseSender: ~Copyable, Builder.ResponseSender.Writer: ~Copyable {
+
+        // (a) Run the generator's own registration into a collector rather than a live transport.
+        let operations = try WireOpenAPIOperations(
+            collecting: self, serverURL: WireOpenAPI.serverURL("/api/v1")
+        )
+
+        // (b) One register per operation. Method and path come from the spec; the middleware chain
+        //     from the declaring controller's annotations. Statically emitted, not looped.
+        builder.register(method: .get, path: "/api/v1/tasks/{id}") {
+            request, requestContext, pathParameters, reader, sender in
+            // The SAME fold WireMVC's route codegen already emits — controller-outer → route-inner.
+            try await WireMVCMiddlewareFold(_wireFactory_requireAPIKey, _wireFactory_auditLog)
+                .run(request, requestContext, reader, sender) { box in
+                    try await WireOpenAPI.invoke(
+                        operations[.get, "/api/v1/tasks/{id}"], box: box, pathParameters: pathParameters
+                    )
+                }
+        }
+
+        builder.register(method: .get, path: "/api/v1/reports") { … }   // RequireAdmin only
+    }
+}
+```
+
+### The two new runtime pieces
+
+```swift
+/// A `ServerTransport` that captures registrations instead of serving them.
+final class WireOpenAPIOperations: ServerTransport, @unchecked Sendable {
+    typealias Handler = @Sendable (HTTPRequest, HTTPBody?, ServerRequestMetadata) async throws
+        -> (HTTPResponse, HTTPBody?)
+    private var entries: [Key: Handler] = [:]
+
+    init(collecting handler: some APIProtocol, serverURL: URL) throws {
+        try handler.registerHandlers(on: self, serverURL: serverURL)
+    }
+    func register(_ handler: @escaping Handler, method: HTTPRequest.Method, path: String) throws {
+        entries[Key(method, path)] = handler
+    }
+    subscript(method: HTTPRequest.Method, path: String) -> Handler { entries[Key(method, path)]! }
+}
+
+/// The terminal: proposal primitives in, the generator's closure in the middle, primitives out.
+/// The inverse of `WireMVCServerTransport`'s bridge.
+enum WireOpenAPI {
+    static func invoke(
+        _ operation: WireOpenAPIOperations.Handler,
+        box: consuming some MiddlewareBox,
+        pathParameters: [String: Substring]
+    ) async throws {
+        try await box.withPendingContents { request, _, reader, sender in
+            let body = try await HTTPBody(collecting: reader)
+            let metadata = ServerRequestMetadata(pathParameters: pathParameters)   // types match exactly
+            let (response, responseBody) = try await operation(request, body, metadata)
+            try await sender.sendAndFinish(response, responseBody)
+        }
+    }
+}
+```
+
+Two details that make this cheaper than it looks: WireMVC's matched path parameters are already
+`[String: Substring]`, exactly what `ServerRequestMetadata` carries, so that hand-off is a
+pass-through; and OpenAPI's `{id}` path templates are already WireMVC's `{name}` spelling, chosen in
+M5 to match `ServerTransport`/OpenAPI path strings.
+
+### What the aggregate buys
+
+- **One routing model.** Both kinds of route land in one router, under one `@NotFound`, one global
+  middleware front layer, one `@WireMVCBootstrap` entry point, one `@ErrorResponse` tier stack.
+- **Per-operation middleware, using the same components** — because the fold is applied at *our*
+  registration, before the generator's closure runs, where the box is real.
+- **Per-controller scope.** `getTask` enters a request scope; `listReports` does not.
+- **Specs split by tag**, with no user-visible seam.
+- **Cross-controller diagnostics** — coverage becomes a property the plugin can check globally, the
+  same argument M5 makes for route-conflict detection: an operation in the spec with no handler; two
+  controllers declaring the same operation; an `@Operation` naming an operationId that isn't there.
+
+### What the aggregate costs
+
+- **A Wire capability — priced: ~250–350 lines across 7–8 files, zero in wire-mvc.** `.contributesProxy`
+  synthesizes one proxy **per subject**; this needs one per *group of subjects*. The generalization is
+  domain-free ("collate every subject bearing annotation X into one proxy of type T"). The conceptual
+  change is small: `subjectIsNarrower` in `contributorProxyBinding` is currently a property of the
+  *proxy* and becomes a property of each *subject*, so one aggregate can hold one controller directly
+  while bridging into another's request scope. The mechanical ripple is the "at most one scope-entry
+  thunk per proxy" assumption, encoded as `.first(where:)` in six places (`ScopeEntryEmission` ×3,
+  `ScopeEntryLinking`, `SeedlessReconstructionEmission`, `ContributorProxyFacadeEmission`) — small
+  individually, easy to miss collectively. Comparable in scale to M5.4.6 or 3.1c; a sub-iteration, not
+  a milestone.
+- **Keep the field names singular at N = 1.** `_wireSubject` is positional/unlabelled so the graph
+  names no member — a trick that cannot survive N subjects. Suffixing only when N > 1
+  (`_wireSubject_ReportController`) keeps today's emission byte-identical, leaves wire-mvc's 23
+  references untouched, and keeps the 850 lines of existing proxy integration tests and the golden
+  emission tests valid. New tests are then purely additive.
+- ~~Generic controllers — bound it~~ — **no restriction needed** ([spike-29](../../../swift-wire-spikes/spike-29-wire-aggregate-proxy/),
+  finding 1). The design feared a generic-parameter union with collision renaming and proposed limiting
+  v1 to one generic subject. The existing transitive-lift machinery already carries two independent
+  ones: a binding depending on `SearchController<Backend>` and `AuditController<Sink>` emits
+  `_WireGraph<T0: AuditSink, T1: SearchBackend>` and binds the aggregate as `<T1, T0>` — axes mapped
+  positionally and correctly *despite the graph ordering them differently*. What remains is not a lift
+  problem: if synthesis copies subjects' parameter *names* verbatim, two subjects both declaring `T`
+  collide in the emitted `<T, T>`. That is the same positional `T0`/`T1` renaming the graph already
+  performs. **Allow N generic subjects; rename parameters positionally during synthesis.**
+- **Grouping — two questions, two answers.** *Which operations does a controller handle?* **Spec tags**:
+  `@OpenAPIController(tag: "tasks")` claims the operations carrying that tag, which gives the plugin a
+  precise per-controller coverage set — *"you claimed `tasks`; the spec tags X and Y with it; Y has no
+  handler."* Spec-driven, like the rest of the design. It layers over per-method identity rather than
+  replacing it: an operation with several tags is ambiguous ownership (diagnostic), and an untagged one
+  must be claimed by an explicit `@Operation`. *Which controllers share an `APIProtocol`?* Tags cannot
+  answer that — two unrelated specs may both use a tag named `tasks`, and the plugin is syntactic so it
+  cannot resolve the conformance target. Default to "all `@OpenAPIController`s in the graph" (nearly
+  always one spec) and require an explicit discriminator only when two groups would emit conformances
+  into the same module — diagnosed, never guessed.
+
+## The annotation surface — one marker, per-method modes (decided)
+
+`@OpenAPIController` stays the single type-level annotation; the handler spelling is selected **per
+method** by `@Operation` or `@RawOperation`.
+
+M3's precedent appears to argue for a second name — *"the two distinct annotation names keep the two
+routing models legible instead of hiding them behind one mode-detecting macro"* — but what justified
+two names there was two **sources of routing truth**. M6d changes nothing about routing: the spec
+still owns paths, methods and statuses. Only the handler spelling differs.
+
+Granularity settles it. `@RawOperation` — the escape hatch for multipart, streamed bodies, and
+anything the annotation set can't express — is inherently per method, so a type-level annotation
+cannot express the mode. Two names would also forbid mixed controllers, and so forbid incremental
+migration. M5's visible-and-greppable-mode principle is satisfied at method granularity: grep
+`@Operation`.
+
+**`@RawOperation` is required** on every hand-written method of a Wire-managed controller. Recognising
+them by signature shape would put a heuristic in the plugin, and every heuristic here has eventually
+been replaced by an explicit spelling (`@RawRoute` roles; `@MiddlewareFactory` positional roles).
+
+## Mixed controllers
+
+The aggregate implements every `APIProtocol` requirement, choosing per method between a generated
+shim and a one-line forwarder (both shown above).
+
+**The controller drops `: APIProtocol`, and the compiler forces it.** Converting one method makes its
+signature stop satisfying the requirement (`getTask(id:) -> Task` is not `getTask(_ input:) ->
+Output`), so a controller still declaring the conformance fails to build. Once it is gone the
+aggregate is the sole conformer and completeness is compiler-checked — with spec parsing, a
+diagnostic instead.
+
+**Migration path**, each step independently reviewable:
+
+1. **Today.** The controller conforms; the proxy delegates `registerHandlers`. Untouched M3.
+2. **Adopt.** Drop `: APIProtocol`; mark every method `@RawOperation`. Behaviour identical, no bodies
+   rewritten — mechanical enough to ship as a fix-it.
+3. **Convert** one operation at a time to `@Operation` + parameter/response annotations.
+4. Optionally end with no `@RawOperation` left — or keep some permanently.
+
+**Sharp edges.**
+
+- **Identity for raw methods.** Bare `@RawOperation` relies on the method name matching the generated
+  requirement — true unless renamed; `@RawOperation("createTask")` covers that case.
+- **Visibility.** The forwarder calls the subject from the consumer module, so a controller in a
+  library needs `public` methods — the same reason its packaging needs `accessModifier: public`.
+- **The one conditional shape.** A controller with no markers keeps its own conformance so today's M3
+  controllers compile untouched. That runs against the preference that made the contributor proxy
+  unconditional in 3.1c, so it is labelled compatibility, not a mode: pre-1.0 it can be deleted by
+  requiring markers, at the cost of a one-time (fix-it-able) migration.
+
+## The typed shim
+
+Parameter binding is a **decomposition keyed by input type**.
+[DecompositionTransformers.md](DecompositionTransformers.md) already argues the general form:
+transformers dispatch on *the input type the handler actually receives*. `Operations.X.Input` is a
+third input shape alongside the middleware box and the raw primitives. WireMVC's shipped
+`RequestBound.bind(name:request:pathParameters:body:)` is request-shaped and does **not** carry over —
+the values are already decoded and live at `input.path.id` / `input.query.page` / `input.body`.
+
+**M6d owns the transformer registry.** The 1a/1b slice is deferred "until `@Configuration` forces it,
+or on a deliberate decision to buy the typed-handler surface" — only the second branch applies. M6c's
+`@Configuration` is a different annotation at different sites: three **graph-construction** sites
+desugaring to a synthesised `ConfigReader` binding, "no new adapter form, no contract extension". So
+M6c does not shrink this work.
+
+### Type-driven now, spec-driven validation next
+
+Type-driven emission derives `input.path.id` and `.ok(.init(body: .json(…)))` from the annotations and
+a status→case table, letting the Swift type checker validate against the generator's output.
+Spec-driven adds real build-time diagnostics: unknown `operationId`, a parameter annotated `@Path`
+that the spec puts in query, an undocumented status, an uncovered operation, cross-controller
+duplicates.
+
+The enabler: `openapi.yaml` and `openapi-generator-config.yaml` are **source inputs of the target**,
+not another plugin's outputs, so reading them has no plugin-ordering hazard. Reading the generator's
+emitted `Types.swift` would, and is forbidden.
+
+Emission is identical either way, so validation is additive. One exception: read
+`openapi-generator-config.yaml`'s `namingStrategy` from day one, since it changes the spelling of
+every generated member the shim touches.
+
+## Request scope
+
+The aggregate is app-scoped and holds a scope-entry thunk per `@Scoped(seed:)` controller. Everything
+downstream is reused verbatim from M5.4: the `(Seed) async throws -> (Subject, @Sendable () async ->
+[any Error])` contract, per-root reachability (M5.4.6), request-scope teardown (M5.4.5). A
+`@RawOperation` gets a freshly constructed per-request subject exactly like a typed one.
+
+**Scope entry lives in the route terminal — decided, for consistency with WireMVC.** M5.4.3 emits
+`try await self._wireEnterScope(request)` at the terminal top; unified mode does the same, so the
+scope's lifetime, its teardown point and its failure handling are identical for both kinds of route.
+
+- **`@ErrorResponse` keeps control of scope-entry failures.** M5.4E explicitly covers "a request-scoped
+  binding that throws while the terminal constructs the request scope" — mapped by the terminal's
+  `catch`. Entering scope inside the `APIProtocol` method instead would put that throw inside the
+  generator's machinery, where *its* error handling maps it. This is the load-bearing reason, not
+  aesthetics.
+- **Teardown runs after the response is written**, so the scope outlives the middleware chain and a
+  middleware that logs after `next` still sees it live.
+- **The subject reaches the conformance through a task-local**, and that is structurally forced: the
+  generator's closures capture the `UniversalServer` (and its handler) at collection time, so there is
+  no per-request channel through them. Unlike direct mode's seeding middleware, both ends are ours.
+
+**Cost: in-process testing needs a fallback.** Calling the aggregate's conformance directly (what
+spike-28 does, and what makes OpenAPI controllers testable with no harness) skips the terminal and
+finds an empty task-local. The conformance therefore uses the ambient request scope if one exists and
+enters its own if not — a conditional shape, but benign, since both paths are ours.
+
+Note the capability argument for terminal entry is weaker than it looks: WireMVC's own middleware is
+app-scoped (the `.injectsFromGraph` lift places it on the app-scoped proxy), so it cannot consume
+request-scoped bindings either. Terminal entry does not unlock that today; it is the enabler if it is
+ever wanted.
+
+## Middleware, errors, configuration
+
+**`@Middleware` — the proposal's `Middleware`, in unified mode.** Because the fold is applied at our
+registration, before the generator's closure runs, the box is real: request, context, reader and
+sender are all genuine, and the same components serve both kinds of route. Composition is WireMVC's:
+source-order, controller-outer → route-inner → terminal.
+
+WireMVC's *type-transforming* property still does not apply — `Operations.X.Input` is fixed by the
+spec, so the terminal's input is not negotiable. That is not a regression but the decision M5.4
+already took: middleware-produced values reach handlers by **A-inject** (request-scope injection),
+not by parameter projection off the box.
+
+**In direct-mount mode** (below) the only interception point is the transport boundary, so `@Middleware`
+there resolves a `ServerMiddleware` instead — a genuinely different type, which is why unified mode is
+the answer to the consistency objective rather than a nicety.
+
+**`@ErrorResponse`.** The M5.4E model is terminal-scoped — pairs and closures folded into the generated
+`catch`, route-inner → controller-outer, first-match-wins, no graph injection. It transfers with one
+adaptation: the terminal returns an `Output`, so a mapping produces a **documented response case**
+where one exists and `.undocumented(statusCode:)` otherwise. Knowing which statuses are documented is
+the spec read, so this sequences after it.
+
+**`@OpenAPIConfiguration`.** M3's other explicit deferral (`registerHandlers(configuration:)`) — the
+last piece of `registerHandlers`'s parameter list the adapter doesn't own.
+
+## Two mounting modes
+
+- **Unified (the model above).** Operations become WireMVC routes. Requires the app to route through
+  WireMVC — proposal-native, or Hummingbird/Vapor via `WireMVCServerTransport`, which costs one extra
+  body fabrication on that path. WireOpenAPI gains a dependency on WireMVC (or the routing surface
+  extracts to the shared module M3 anticipated).
+- **Direct (M3 compatibility).** `WireOpenAPI.apply(graph, to: transport)` mounts the aggregate on a
+  foreign `some ServerTransport` unchanged. Keeps M3's "depends only on `OpenAPIRuntime`" property for
+  apps not adopting WireMVC. `@Middleware` degrades to `ServerMiddleware`; request scope needs a
+  task-local seeded by an adapter-supplied `ServerMiddleware` (sound by construction — the runtime's
+  chain wraps deserialize, handler and serialize in one task).
+
+Both modes share the aggregate, the conformance, the typed shim and the scope-entry machinery. Only
+the second hat differs: `RouteContributor` versus `TransportContributor`.
+
+## Why not full takeover
+
+A third position — generate `types` only, drop `server`, and emit routing *and* binding ourselves —
+would unify decode semantics too and buy content-type routing between handlers. It is rejected:
+
+- The safety property of this design is that the shim is **type-checked against the generator's own
+  types**; every row of the coupling inventory fails at compile time. Owning binding means our reading
+  of the spec must match the wire with nothing checking it — parameter styles, `explode`, content-type
+  matrices, `Accept` negotiation. Failures become silent protocol bugs.
+- Reusing OpenAPIRuntime's `Converter` would shrink the work but it is `@_spi(Generated)`, explicitly
+  listed as *not* API in the generator's stability policy.
+- The effort is a second implementation of the generator's server half — comparable to M5 itself.
+
+It stays reachable: unified mode already builds the `(method, path) → descriptor` table a takeover
+would need, and M5's design rule keeps the registration backend swappable off that table.
+
+## Suggested sequencing
+
+- **M6d.0 — the spike (the gate).** ✅ **Run — passed.** See *Spike results*.
+- **M6d.0b — the proxy cutover.** `WireOpenAPIGen` + an adapter-owned `WireOpenAPIBuildPlugin` (the
+  `WireMVCBuildPlugin` two-tool shape), the alias flipped to a proxy-contributing capability, the macro
+  demoted to a marker, and a witness that delegates `registerHandlers`. No user-facing change and **no
+  generated-symbol coupling**. Gates: Wire Core needs no change; existing consumers serve identically.
+- **M6d.0c — the aggregate capability.** ✅ **De-risked** — [spike-29](../../../swift-wire-spikes/spike-29-wire-aggregate-proxy/)
+  proved the shape: one aggregate holding hold, bridge and generic subjects at once, with per-request
+  identity, teardown and per-root pruning all intact, driven by a *real* plugin-emitted scope-entry
+  thunk. Remaining work is the synthesis: one-per-group proxy building, the N-ary dependency list,
+  per-subject hold-vs-bridge in `contributorProxyBinding`, the six single-thunk call sites, N > 1 field
+  name suffixing, positional generic-parameter renaming, and the grouping discriminator. ~250–350 lines,
+  no wire-mvc change. Gate: two `@OpenAPIController`s on one spec producing one conformer.
+- **M6d.1 — the inbound `ServerTransport` + route registration.** `WireOpenAPIOperations`,
+  `WireOpenAPI.invoke`, and the per-operation `builder.register` emission. **Unification lands here**:
+  one router, one `@NotFound`, one composition root. Gate: an OpenAPI operation and a `@Get` route
+  served by one `@WireMVCBootstrap` app across all three runtimes.
+- **M6d.2 — `@Middleware`** at controller and route level over operations, proposal `Middleware`, same
+  components as WireMVC routes. Gate: one `RequireAPIKey` applied to both kinds of route.
+- **M6d.3 — request scope**, via the aggregate's scope-entry thunks.
+- **M6d.4 — the typed shim.** `@Operation` identity, the decomposition-transformer registry,
+  type-driven emission. **This is where the dialect coupling starts**; everything before it is
+  structural.
+- **M6d.5 — spec-read validation.** OpenAPIKit; the diagnostic set above, including the
+  cross-controller coverage checks; the spec declared as a build-command input (spike finding 6 —
+  load-bearing from here on).
+- **M6d.6 — `@ErrorResponse` / `@OpenAPIConfiguration`.**
+- **Docs + the forcing case.** This note to a decision record; `WireOpenAPIDesign.md` gains a pointer;
+  task-cluster migrated.
+
+**Ordering rationale.** Everything through M6d.3 is structural — no dependency on the generator's
+emitted symbol spellings — so the coupling table is deferred to M6d.4. Unification (M6d.1–2) is the
+stated objective and lands before the DX work rather than after it.
+
+## Coupling inventory
+
+What the design implicitly depends on, and how each failure announces itself. Almost every coupling
+is compiler-checked, because the emitted code lands *in the same module* as the code it names. Only
+the build-graph one can pass silently.
+
+**To swift-openapi-generator's output:**
+
+| # | Dependency | Fails how |
+| --- | --- | --- |
+| 1 | `Components` / `Operations` / `APIProtocol` namespaces exist | compile: cannot find type |
+| 2 | operationId → Swift type name (`namingStrategy`) | compile: cannot find type |
+| 3 | `Input`'s `.path` / `.query` / `.headers` / `.body` shape | compile: no member |
+| 4 | spec parameter name → Swift member name (safe-name transform) | compile: no member |
+| 5 | status code → `Output` case + `.undocumented` | compile: no member |
+| 6 | content type → body case and `Ok.init(body:)` | compile: no member |
+| 7 | `registerHandlers` on `extension APIProtocol` | compile — **pre-existing; M3 relies on it** |
+| 8 | `registerHandlers` issues one `transport.register` per operation, keyed by method+path | the collector finds no entry — **runtime, in the witness** |
+| 9 | `accessModifier` ≥ controller visibility; `generate:` includes `types` + `server` | compile |
+
+Row 8 is the only new *runtime* coupling the unified model adds; it fails at startup on the first
+route registration, not per request, and a generated assertion turns it into a clear message.
+
+Two properties limit the blast radius. The shim **constructs** `Output` rather than switching over it,
+so the generator's worst documented breakage — adding a response or content type introduces an enum
+case — cannot break it. And it **calls** `Ok.init(body:)` rather than referencing it as a function
+value, which is what the generator's stability article asks of adopters.
+
+That article commits to the plugin name, config format and CLI arguments; explicitly non-API are the
+number and names of generated files, the `@_spi(Generated)` runtime surface, generated business logic,
+and diagnostics. So rows 1–6 are a dialect the adapter owns deliberately: one version-pinned table,
+golden-tested. Spec parsing narrows rows 2 and 4 from guessing to computing from the same inputs.
+Depending on `_OpenAPIGeneratorCore` instead would trade a convention coupling for an
+underscored-module one, and its naming logic is `internal` — only `runGenerator`/`Config`/
+`NamingStrategy` are reachable.
+
+**To WireGen:**
+
+| # | Dependency | Fails how |
+| --- | --- | --- |
+| 10 | `_wireSubject` / `_wireFactory_<key>` / `_wireEnterScope` field names | compile: no member (spike-23's negative test) |
+| 11 | the proxy type name | declared once in the capability |
+| 12 | the proxy struct declares `: Sendable` | compile, at a confusing site — **pin with a golden test** |
+| 13 | the scope-entry thunk's type string and its inverse parser | stringly-typed, internal to Core |
+
+**To WireMVC** (unified mode): `RouteContributor`, `HTTPServerRouteBuilder.register`, the middleware
+fold shape, and `WireMVCKeys.routeContributors`. All compile-checked, all in-repo.
+
+**To the build graph:**
+
+| # | Dependency | Fails how |
+| --- | --- | --- |
+| 14 | the spec is a declared `inputFiles` entry of the domain command | **silently stale** (finding 6) |
+
+## Risks and open questions
+
+- ~~The aggregate capability is unpriced~~ — **priced and de-risked**: a sub-iteration, not a
+  milestone, and [spike-29](../../../swift-wire-spikes/spike-29-wire-aggregate-proxy/) removed its one
+  unbounded tail (the generic union). The emission side is bounded to six known call sites; the
+  synthesis side is new code with no unknowns left in it.
+- ~~Where scope entry lives~~ — **settled: the route terminal**, matching M5.4.3 (see *Request scope*).
+- ~~The grouping discriminator~~ — **settled: spec tags for operation ownership**, a default-plus-
+  diagnostic for spec membership (see *What the aggregate costs*).
+- **Same-spelling generated types across modules** (finding 5). Wire keys bindings by written type
+  text, so two modules generating `Components.Schemas.Task` from one spec produce two nominal types
+  with one spelling. Two failure shapes: both as bindings → a *"multiple bindings"* ambiguity whose
+  message misleads (the user sees one name and concludes they duplicated a provider); one as a binding
+  and one merely referenced → the graph declares the property with the unqualified spelling, which
+  resolves in the consumer's module context to *its* type, so the error lands inside generated code at
+  a line nobody wrote. Module selectors fix both, at every declaration site. The diagnostic to add:
+  bindings carry `originModule`, so the plugin can detect *two bindings whose type spelling matches but
+  whose origin modules differ, neither qualified*, and error with both source locations and a
+  `Module::` fix-it — beside the existing duplicate-binding check in WireGenCore. A general hazard that
+  generated code makes likely, which is why M6d surfaces it.
+- **Generated-symbol coupling** — see *Coupling inventory*; mitigation is one version-pinned dialect
+  table with golden tests.
+- **The extra body fabrication** on the Hummingbird/Vapor path in unified mode
+  (`ServerTransport → WireMVC router → ServerTransport`). Measure before optimising; streaming already
+  has a proven zero-buffering path in the outbound direction.
+- **Testing.** `@Replaces`, `@BindType` and the variant app graph are graph-level and carry over.
+  In-process testing needs no harness at all: construct the graph, take the aggregate, call the
+  conformance — which is exactly what spike-28's `main.swift` does.
+- **Multipart and streamed operations** land on `@RawOperation`. Whether they earn annotations is
+  post-1.0.
+- ~~The forcing case~~ — **settled.** task-cluster's stated direction is to move onto WireMVC's
+  router, so the unified spine is the target architecture rather than a bet. Two consequences: the
+  direct-mount mode is compatibility for *other* apps, not task-cluster's long-term path; and the
+  extra body fabrication on the `ServerTransport → WireMVC router → ServerTransport` path is
+  transitional — it disappears once the app serves the router natively.
+
+## Spike results (M6d.0)
+
+Run on Swift 6.3.3 and the 6.4.x-2026-07-06 snapshot / macOS, swift-openapi-generator 1.x. The fixture
+puts **three** build-tool plugins on one target — `OpenAPIGenerator`, `WireBuildPlugin`, and a
+`ShimGen` stand-in for `WireOpenAPIGen` that emits an `APIProtocol` conformance naming the generator's
+types — then adds a second target so both a library and the executable run the generator. It builds
+and runs.
+
+**1. Plugins co-exist with no ordering hazard.** All are `.buildCommand`s; none declares another's
+outputs as inputs, so they run independently and meet only at compile. This holds *because* the design
+reads `openapi.yaml` rather than the emitted `Types.swift`.
+
+**2. Wire's scan is indifferent to types that don't exist yet.** A `@Provides` binding whose *type* is
+generated by the other plugin wires cleanly — stored property, resolved dependency edge, correct
+topological order. The scan is syntactic. No Core change needed.
+
+**3. `APIProtocol: Sendable` blocks conforming the user's own controller from a generated file.**
+
+```
+error: conformance to 'Sendable' must occur in the same source file as struct 'TaskController';
+       use '@unchecked Sendable' for retroactive conformance
+```
+
+Writing `struct TaskController: Sendable` by hand clears it, but requiring that of users is the class
+of footgun 3.1c removed. **The proxy path is immune by construction** — `ContributorProxyEmission`
+already emits `: Sendable` on the declaration, so the domain extension adds only `APIProtocol`. An
+independent re-derivation of the unconditional-proxy decision. The M3 witness is unaffected:
+`registerHandlers` is on `extension APIProtocol`, so the proxy inherits it.
+
+**4. The domain generator must emit the owning module's import.** The shim failed with `cannot find
+type 'Operations' in scope` until it emitted `import Controllers` — so `WireOpenAPIGen` needs to *know*
+which module owns the generated types.
+
+**5. Two targets generating the same spec collide on binding identity.**
+
+```
+error: type 'Components.Schemas.Task' has multiple bindings; the dependency graph is ambiguous
+```
+
+Module selectors (SE-0491) resolve it and round-trip through codegen into accessor names
+(`appComponentsSchemasTask` vs `controllersComponentsSchemasTask`), but must be written at **every**
+declaration site in both modules. Qualifying one side only is worse than neither: the graph builds and
+the consumer silently binds the dependency-module value into a property typed as the local same-named
+type, failing inside generated code. A **Core** diagnostic work item.
+
+**6. The build graph has no edge between the plugins.** Measured by the emitted shim's mtime: with only
+`.swift` inputs declared, a spec-only edit re-runs swift-openapi-generator and **not** the domain tool;
+adding the YAMLs to `inputFiles` fixes it. Harmless while emission is annotation-driven, **silent** the
+moment the tool reads the spec. The only failure in the whole design that can pass a green build.
+
+**Packaging consequence.** OpenAPI controllers must live in a target that can see the generated types —
+the one running the generator, or one importing a library that runs it with `accessModifier: public`
+(verified). Exactly one target should generate from a given spec unless every affected binding is
+module-qualified.
+
+## References
+
+- [WireOpenAPIDesign.md](WireOpenAPIDesign.md) — M3's shipped adapter; the deferrals this note picks up.
+- [WireMVCDesign.md](WireMVCDesign.md), [WireMVCMiddleware.md](WireMVCMiddleware.md) — the routing and
+  middleware surface being unified onto.
+- [DecompositionTransformers.md](DecompositionTransformers.md) — decomposition keyed by input type; the
+  A-inject decision.
+- [RouteErrorHandling.md](RouteErrorHandling.md) — the `@ErrorResponse` model.
+- [Archive/M5_4_PLAN.md](../Archive/M5_4_PLAN.md) — scope-entry thunk, teardown, per-root reachability.
+- [Archive/WireMVCCodegen.md](../Archive/WireMVCCodegen.md) — Phase A, the plugin-owned orchestration
+  WireOpenAPI becomes the second consumer of.
+- [AdapterModel.md](AdapterModel.md) — the capability contract.
+- `Sources/WireGenCore/ContributorProxyEmission.swift` — the body hole and its field-name contract.
+- [spike-28](../../../swift-wire-spikes/spike-28-openapi-plugin-coexistence/) — the M6d.0 gate.

@@ -62,11 +62,21 @@ package func linkingScopeEntryCaptures(
     guard capturesBySeed.values.contains(where: { !$0.isEmpty }) else { return singletons }
 
     return singletons.map { binding in
-        guard case .scopeBound(let proxy) = binding,
-            let thunk = proxy.dependencies.first(where: { $0.kind == .scopeEntryThunk }),
-            let (seed, _, _) = parsedContributorScopeEntryThunkType(thunk.type),
-            let captures = capturesBySeed[seed], !captures.isEmpty
-        else { return binding }
+        guard case .scopeBound(let proxy) = binding else { return binding }
+        // An aggregate proxy bridges into one scope per seeded subject, so it must sort after the
+        // singletons *every* one of its thunks captures — the union, deduplicated by (type, key) so a
+        // singleton two scopes both borrow contributes a single ordering edge.
+        var seen: Set<String> = []
+        var captures: [DependencyParameter] = []
+        for thunk in proxy.dependencies where thunk.kind == .scopeEntryThunk {
+            guard let (seed, _, _) = parsedContributorScopeEntryThunkType(thunk.type),
+                let scopeCaptures = capturesBySeed[seed]
+            else { continue }
+            for capture in scopeCaptures where seen.insert("\(capture.type)|\(capture.keyIdentifier ?? "")").inserted {
+                captures.append(capture)
+            }
+        }
+        guard !captures.isEmpty else { return binding }
         return binding.appendingDependencies(captures)
     }
 }
