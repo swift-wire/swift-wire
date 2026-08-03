@@ -1,10 +1,16 @@
 # Advanced OpenAPI integration — design note (M6d)
 
-> **Status:** forward-looking design, not implemented — the design pass
-> [ROADMAP.md](../../ROADMAP.md)'s M6d entry asks for before build ("genuinely new … needs a design
-> pass"). **The M6d.0 gate has been run** (Swift 6.3.3 and the 6.4 snapshot,
-> swift-openapi-generator 1.x, macOS) — [spike-28](../../../swift-wire-spikes/spike-28-openapi-plugin-coexistence/);
+> **Status:** part design record, part build log. **M6d.0 through M6d.3 are implemented and merged**
+> in `wire-open-api`, served over real HTTP by its `Fixtures` package; M6d.4 onward remains
+> forward-looking design. The M6d.0 gate was run on Swift 6.3.3 and the 6.4 snapshot,
+> swift-openapi-generator 1.x, macOS — [spike-28](../../../swift-wire-spikes/spike-28-openapi-plugin-coexistence/);
 > results and the three findings that shaped this note are in *Spike results*.
+>
+> Where building changed a decision, the original reasoning is kept and marked rather than rewritten —
+> the two that moved most are **request scope** (designed around a task-local; measurement replaced it
+> with direct dispatch) and **one conformer per spec** (believed forced by `registerHandlers`; lifted
+> once operations were mounted individually). Sections carrying a *Superseded* or *overtaken* note are
+> the ones to read first.
 >
 > **The objective is one routing model, not two.** An app should express middleware, error mapping,
 > request scope and its composition root the same way whether a route came from an OpenAPI document
@@ -95,15 +101,22 @@ the request *before* decoding, in the same task as the handler; and **decode fai
 adapter** — the runtime maps them, so WireMVC's `@JSONBody` content-type rules are not re-implemented
 for OpenAPI operations. The generator owns binding, in both directions.
 
-**The constraint.** `registerHandlers` is generated **once per document** and registers **every**
-operation from a single conformer. So two `@OpenAPIController` types in one target cannot split the
-API: each would have to implement the whole `APIProtocol` and each would register the full route set.
-Since the generator plugin takes one `openapi.yaml` per target, that means *one conformer per spec*.
-M3's note reads as though it assumed otherwise ("each handler registers *its own* operations"), so
-this is an unexamined assumption rather than a decision.
+**The constraint — as it stood.** `registerHandlers` is generated **once per document** and registers
+**every** operation from a single conformer. So two `@OpenAPIController` types in one target could not
+split the API: each would have to implement the whole `APIProtocol` and each would register the full
+route set. Since the generator plugin takes one `openapi.yaml` per target, that meant *one conformer
+per spec*. M3's note reads as though it assumed otherwise ("each handler registers *its own*
+operations"), so this was an unexamined assumption rather than a decision.
 
 Left alone, that constraint would force: controller-scope ≈ global scope, request scope all-or-nothing
 per API, and one enormous controller type per document. **The aggregate is the answer to all three.**
+
+> **Superseded in part (M6d.3).** Registration is no longer how operations are mounted — see *Direct
+> dispatch* below. Each operation is mounted individually and forwarded to the controller that declared
+> it, so **several controllers may share one spec**, at independent scopes and with independent
+> controller-scope middleware. What survives is *one conformer* per spec — the type implementing
+> `APIProtocol` — but it now holds one subject per contributing controller rather than being one
+> controller. The aggregate is still the answer; it is just no longer forced by registration.
 
 ## The model — one aggregate per spec, mounted as WireMVC routes
 
@@ -367,6 +380,65 @@ diagnostic instead.
   unconditional in 3.1c, so it is labelled compatibility, not a mode: pre-1.0 it can be deleted by
   requiring markers, at the cost of a one-time (fix-it-able) migration.
 
+## Direct dispatch (M6d.3) — and the generator change it needs
+
+Mounting an operation individually, rather than replaying `registerHandlers`, is what unlocked
+multi-controller and multi-spec. It rests on one fact about the generated `Server.swift`: the
+per-operation methods on `UniversalServer` — `server.getTask(request:body:metadata:)` — hold the **only
+copy of an operation's deserializer/serializer pair**. `handle` is public but takes them as arguments,
+and those closures are written inline in those methods and exist nowhere else. So dispatching one
+operation means calling one, and the alternatives are the two already rejected: go through
+`registerHandlers` (which fixes the handler by value), or re-derive the coding layer from the spec,
+which is the full takeover this note rejects.
+
+Stock swift-openapi-generator makes that impossible. Two changes, both small and both upstreamable,
+carried on a fork meanwhile:
+
+1. the `UniversalServer` extension is emitted `internal` rather than `fileprivate`, so other generated
+   code **in the same module** can call it;
+2. its methods follow the configured `accessModifier:` rather than being internal regardless — as
+   `registerHandlers` in the same file already does — which is what a spec generated into its own
+   module needs, since its caller is in another module.
+
+Because those methods extend `UniversalServer`, which is `@_spi(Generated)`, they remain SPI however
+public they are declared: the emitted file imports a spec module `@_spi(Generated)` too.
+
+**Cost per request:** a four-field struct copy and a conformer construction. The `Converter`, and the
+coders it allocates, are built once for the process.
+
+### Two specs in one app
+
+The generator names its types from nothing about the document, so **every** spec module spells them
+`APIProtocol`, `Operations`, `Servers`, `Components`. In a module importing two, a bare
+`Operations.GetOrder.Input` is *"ambiguous for type lookup"* — and that includes the spellings copied
+verbatim out of a controller that was unambiguous where it was written. This is spike-28's
+same-spelling hazard arriving for real.
+
+Each spec's conformer is therefore emitted inside a namespace whose typealiases resolve it:
+
+```swift
+enum _WireOpenAPISpec_OrdersAPI {
+    typealias Operations = OrdersAPI.Operations
+    …
+    struct Conformer: APIProtocol { … }   // forwarders keep the author's spellings, qualified or not
+}
+```
+
+Verified by prototype before building: the namespace resolves a controller that qualified and one that
+did not; removing a single typealias reproduces the exact ambiguity; and a module's **own**
+declarations win over identically-spelled imported ones, so an app may generate one document itself and
+import another.
+
+`spec:` has one meaning per form and no fallback. Bare `@OpenAPIController()` is this target's own
+document; `@OpenAPIController(spec: "M")` says the generated `APIProtocol` is module `M`'s; a value
+naming no such dependency is an **error**, not a label quietly resolved against the local document. It
+cannot be derived from where a controller is declared — controllers routinely live apart from the
+document they implement, which is the whole reason the argument exists.
+
+Two constraints fall out for a module holding a generated document: it must generate `public`, and it
+must **not** enable `InternalImportsByDefault` (the generator emits plain `import` lines, and a public
+method whose parameters come from an internally-imported module does not compile).
+
 ## The typed shim
 
 Parameter binding is a **decomposition keyed by input type**.
@@ -416,15 +488,33 @@ scope's lifetime, its teardown point and its failure handling are identical for 
   aesthetics.
 - **Teardown runs after the response is written**, so the scope outlives the middleware chain and a
   middleware that logs after `next` still sees it live.
-- **The subject reaches the conformance through a task-local**, and that is structurally forced: the
-  generator's closures capture the `UniversalServer` (and its handler) at collection time, so there is
-  no per-request channel through them. Both ends are ours, so the task-local is an implementation
-  detail of the terminal rather than a seam a user can observe.
+- **The subject reaches the conformer by construction, not through ambient state.** This was designed
+  as a task-local — believed structurally forced, because `registerHandlers` captures the
+  `UniversalServer` and its handler by value at registration and offers no per-request channel. That
+  premise held only while registration was how operations were mounted. Under direct dispatch the
+  terminal copies a `UniversalServer` built once and points its `handler` at a conformer holding *this*
+  request's subject, so there is no task-local and no ambient state at all.
 
-**Cost: in-process testing needs a fallback.** Calling the aggregate's conformance directly (what
-spike-28 does, and what makes OpenAPI controllers testable with no harness) skips the terminal and
-finds an empty task-local. The conformance therefore uses the ambient request scope if one exists and
-enters its own if not — a conditional shape, but benign, since both paths are ours.
+  Three implementations were built and measured rather than argued about (release, single keep-alive
+  HTTP/1.1 connection, 20k samples): app-scoped baseline 64.9µs p50; task-local 64.7µs; per-request
+  re-registration 138.7µs; direct dispatch 69.8µs as the median of nine paired runs — level with the
+  task-local at p50 and lower in mean and p99 in all nine. Two results worth keeping: per-request
+  re-registration is **not** O(document size) as predicted (2→40 operations moved it 138.7→141.3µs) —
+  its cost is `UniversalServer.init` building a `Converter`, which allocates two `JSONEncoder`s and a
+  `JSONDecoder` once per request; and the first direct implementation made the same mistake, building a
+  server per request and measuring *worse* than re-registration. Hoisting it to a template the request
+  path copies and re-handlers is what made the strategy work. The rejected implementations are kept on
+  `wire-open-api`'s `m6d-request-scope-strategies` branch.
+
+**A request enters only the scope of the controller owning the operation it dispatches.** Entering
+every scoped controller's scope would construct subjects the request never uses — the waste per-root
+reachability (M5.4.6) exists to avoid. The conformer's other request-scoped fields are therefore
+legitimately `nil` and never read; reaching one is a `preconditionFailure`, since it means generated
+code was bypassed rather than anything a caller can cause.
+
+**In-process testing needs no fallback.** The earlier design had the conformance enter its own scope
+when no ambient one existed, a conditional shape forced by the task-local. With the subject supplied by
+construction there is nothing ambient to be missing: a test calls the controller directly.
 
 Note the capability argument for terminal entry is weaker than it looks: WireMVC's own middleware is
 app-scoped (the `.injectsFromGraph` lift places it on the app-scoped proxy), so it cannot consume
@@ -547,7 +637,9 @@ would need, and M5's design rule keeps the registration backend swappable off th
   **Go straight to `.contributesAggregateProxy`** rather than `.contributesProxy` and migrating later.
   The one-conformer constraint makes the aggregate the correct end shape even for a single controller,
   and a one-member aggregate emits byte-identically to the per-subject form — so adopting it now costs
-  nothing and multi-controller support arrives with no second cutover.
+  nothing and multi-controller support arrives with no second cutover. (Borne out: when the constraint
+  was lifted in M6d.3, swift-wire needed no change at all — the aggregate already named a lone subject
+  positionally and labelled each of several, deciding hold-vs-bridge per subject.)
 - **M6d.0c — the aggregate capability.** ✅ **De-risked** — [spike-29](../../../swift-wire-spikes/spike-29-wire-aggregate-proxy/)
   proved the shape: one aggregate holding hold, bridge and generic subjects at once, with per-request
   identity, teardown and per-root pruning all intact, driven by a *real* plugin-emitted scope-entry
@@ -567,11 +659,20 @@ would need, and M5's design rule keeps the registration backend swappable off th
   capability. Breaking for M3 consumers — cheap now, expensive once anything depends on two surfaces.
   Gate: an OpenAPI operation and a `@Get` route served by one `@WireMVCBootstrap` app.
 - **M6d.2 — `@Middleware`** at controller and route level over operations, proposal `Middleware`, same
-  components as WireMVC routes. Gate: one `RequireAPIKey` applied to both kinds of route.
-- **M6d.3 — request scope**, via the aggregate's scope-entry thunks.
+  components as WireMVC routes. ✅ Gate met: one `RequireAPIKey` applied to both kinds of route, with
+  route scope proven distinguishable from controller scope.
+- **M6d.3 — request scope**, via the aggregate's scope-entry thunks. ✅ **Landed, and larger than
+  planned.** Delivering it required replacing registration with per-operation dispatch (see *Direct
+  dispatch*), which then made two deferrals fall out almost for free:
+  - **several controllers per spec**, at independent scopes, each keeping its own controller-scope
+    fold. The one-conformer constraint no longer forces one controller;
+  - **several specs per app**, each generated into its own module, resolved by per-spec namespaces.
+
+  It also introduced this design's first hard dependency on the generator: two access-level changes,
+  carried on a fork until upstreamed.
 - **M6d.4 — the typed shim.** `@Operation` identity, the decomposition-transformer registry,
-  type-driven emission. **This is where the dialect coupling starts**; everything before it is
-  structural.
+  type-driven emission. **This is where the dialect coupling becomes broad** — rows 2–6 all bite at
+  once — though M6d.3 already opened it. Review the coupling table here, as planned.
 - **M6d.5 — spec-read validation.** OpenAPIKit; the diagnostic set above, including the
   cross-controller coverage checks; the spec declared as a build-command input (spike finding 6 —
   load-bearing from here on).
@@ -579,9 +680,12 @@ would need, and M5's design rule keeps the registration backend swappable off th
 - **Docs + the forcing case.** This note to a decision record; `WireOpenAPIDesign.md` gains a pointer;
   task-cluster migrated.
 
-**Ordering rationale.** Everything through M6d.3 is structural — no dependency on the generator's
-emitted symbol spellings — so the coupling table is deferred to M6d.4. Unification (M6d.1–2) is the
-stated objective and lands before the DX work rather than after it.
+**Ordering rationale — partly overtaken.** The plan was that everything through M6d.3 is structural,
+with no dependency on the generator's emitted symbol spellings, so the coupling table could be deferred
+to M6d.4. That held for M6d.1–2 and failed at M6d.3: direct dispatch calls
+`server.<operation>(request:body:metadata:)`, an emitted symbol, and needed the generator to widen its
+access. The dialect coupling therefore starts one milestone earlier than written, and rows 15–17 below
+are its first entries. Unification (M6d.1–2) did land before the DX work, as intended.
 
 ## Coupling inventory
 
@@ -600,11 +704,19 @@ the build-graph one can pass silently.
 | 5 | status code → `Output` case + `.undocumented` | compile: no member |
 | 6 | content type → body case and `Ok.init(body:)` | compile: no member |
 | 7 | `registerHandlers` on `extension APIProtocol` | compile — **pre-existing; M3 relies on it** |
-| 8 | `registerHandlers` issues one `transport.register` per operation, keyed by method+path | the collector finds no entry — **runtime, in the witness** |
+| 8 | ~~`registerHandlers` issues one `transport.register` per operation, keyed by method+path~~ | **retired at M6d.3** — nothing replays registration; routes come from the document |
 | 9 | `accessModifier` ≥ controller visibility; `generate:` includes `types` + `server` | compile |
+| 15 | per-operation methods exist on `UniversalServer`, named as the `APIProtocol` requirement | compile: no member |
+| 16 | those methods are reachable — **needs the fork** (internal, and following `accessModifier:`) | compile: inaccessible due to protection level |
+| 17 | a spec module's generated names collide with every other spec module's | compile: "ambiguous for type lookup" — **structurally avoided by per-spec namespaces** |
 
-Row 8 is the only new *runtime* coupling the unified model adds; it fails at startup on the first
-route registration, not per request, and a generated assertion turns it into a clear message.
+Row 8 was the unified model's only *runtime* coupling and is gone: routes are read from the document
+and mounted individually, so there is no collector to come up empty, and no second derivation of the
+registered path — the runtime's own `apiPathComponentsWithServerPrefix` composes it.
+
+Rows 15–16 are the design's first hard dependency on the generator, and the only one that is not
+satisfiable with a released version. Row 16 is the reason the fork exists; row 17 is a hazard the
+emission avoids by construction rather than diagnosing.
 
 Two properties limit the blast radius. The shim **constructs** `Output` rather than switching over it,
 so the generator's worst documented breakage — adding a response or content type introduces an enum
@@ -636,6 +748,7 @@ fold shape, and `WireMVCKeys.routeContributors`. All compile-checked, all in-rep
 | # | Dependency | Fails how |
 | --- | --- | --- |
 | 14 | the spec is a declared `inputFiles` entry of the domain command | **silently stale** (finding 6) |
+| 18 | a dependency module's document is likewise a declared input | **silently stale** — same failure, one module further out |
 
 ## Risks and open questions
 
@@ -646,7 +759,9 @@ fold shape, and `WireMVCKeys.routeContributors`. All compile-checked, all in-rep
 - ~~Where scope entry lives~~ — **settled: the route terminal**, matching M5.4.3 (see *Request scope*).
 - ~~The grouping discriminator~~ — **settled: spec tags for operation ownership**, a default-plus-
   diagnostic for spec membership (see *What the aggregate costs*).
-- **Same-spelling generated types across modules** (finding 5). Wire keys bindings by written type
+- **Same-spelling generated types across modules** (finding 5). ⚠️ **Arrived at M6d.3** — two specs in
+  one app is exactly this, and it is resolved structurally by per-spec namespaces (see *Two specs in
+  one app*) rather than by the diagnostic this entry anticipated. Wire keys bindings by written type
   text, so two modules generating `Components.Schemas.Task` from one spec produce two nominal types
   with one spelling. Two failure shapes: both as bindings → a *"multiple bindings"* ambiguity whose
   message misleads (the user sees one name and concludes they duplicated a provider); one as a binding
