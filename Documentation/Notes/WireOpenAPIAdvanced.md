@@ -1,8 +1,9 @@
 # Advanced OpenAPI integration — design note (M6d)
 
-> **Status:** part design record, part build log. **M6d.0 through M6d.3 are implemented and merged**
-> in `wire-open-api`, served over real HTTP by its `Fixtures` package; M6d.4 onward remains
-> forward-looking design. The M6d.0 gate was run on Swift 6.3.3 and the 6.4 snapshot,
+> **Status:** part design record, part build log. **M6d.0 through M6d.6 are implemented and merged**
+> in `wire-open-api`, served over real HTTP by its `Fixtures` package — everything except
+> `@OpenAPIConfiguration`, the second half of M6d.6, and the decomposition-transformer registry, which is
+> deferred (see *The typed shim*). The M6d.0 gate was run on Swift 6.3.3 and the 6.4 snapshot,
 > swift-openapi-generator 1.x, macOS — [spike-28](../../../swift-wire-spikes/spike-28-openapi-plugin-coexistence/);
 > results and the three findings that shaped this note are in *Spike results*.
 >
@@ -462,6 +463,41 @@ or on a deliberate decision to buy the typed-handler surface" — only the secon
 desugaring to a synthesised `ConfigReader` binding, "no new adapter form, no contract extension". So
 M6c does not shrink this work.
 
+> **Built without it, and the registry stays deferred (M6d.4).** Binding is emitted directly against a
+> fixed set of four wrappers rather than through a registry. Nothing is extensible as a result — an app
+> cannot add a binding of its own — but wire-mvc does not offer that either, and its route codegen binds
+> by the same fixed set. A registry that only one of the two adapters had would be the wrong shape: this
+> belongs in wire-mvc as a base mechanism both lean on, and until it exists there, adding one here would
+> mean two parallel dispatch models rather than one.
+
+### What was built (M6d.4)
+
+The surface the note sketched, with one correction and one addition.
+
+**The correction: the binding annotations are property wrappers, not macros.** `@Path id: UUID` cannot
+be a macro at all — Swift rejects it with *"'peer' macro cannot be attached to parameter"*. WireMVC's
+`@Path`/`@Query`/`@Header`/`@JSONBody` are `@propertyWrapper` structs, which SE-0293 does allow on a
+parameter, so they are usable **as they are**: the adapter reads the *same types*, not a parallel set.
+That is the unification claim discharged rather than asserted. `@Operation` is new and is an ordinary
+peer marker.
+
+**The addition: the document decides more than the note assumed.** A parameter's *location* is read
+from the document, never from the annotation — the annotation says only which parameter is meant. So
+`@Query` on something the spec puts in the path is an error rather than a silent misbinding, and a
+`$ref`'d parameter resolves like any other. The same rule extends to responses and request bodies: which
+status a handler constructs, whether it carries a body, and whether that body is optional are all read
+from the document, and the handler is checked against it.
+
+    @Operation
+    func summariseTask(
+        @Path id: String,
+        @Query("include-done") includeDone: Bool?,
+        @Header("X-Request-Id") requestID: String?
+    ) async throws -> Components.Schemas.Task
+
+`@JSONResponse(status:)` and `@ResponseStatus(_:)` name the response where the document declares more
+than one success — split on whether the handler returns a body, the same split WireMVC draws.
+
 ### Type-driven now, spec-driven validation next
 
 Type-driven emission derives `input.path.id` and `.ok(.init(body: .json(…)))` from the annotations and
@@ -470,6 +506,36 @@ Spec-driven adds real build-time diagnostics: unknown `operationId`, a parameter
 that the spec puts in query, an undocumented status, an uncovered operation, cross-controller
 duplicates.
 
+### Naming: two transcriptions, held by the generator itself
+
+Naming generated symbols is what the typed shim added that no earlier milestone needed. Every prior one
+copied spellings the author had already written; the shim has to *produce* `Operations.GetTask` from an
+operationId, `input.path.userId` from a parameter name, and `.created` from a status.
+
+Measurement killed the cheap options first. The namespace is **not** the capitalised method name —
+`httpProxyURL` becomes `HTTPProxyURL` — and the relationship differs by strategy: under `defensive` the
+namespace *equals* the method name, under `idiomatic` it does not. And the transform is `internal` to
+`_OpenAPIGeneratorCore`; `NamingStrategy` is public but is a two-case enum carrying none of the
+behaviour, so there is nothing to call. A validate-and-reject predicate covering only the identity cases
+was priced and rejected for one reason: header names are conventionally hyphenated, `X-Request-Id`
+becomes `xRequestId` under either strategy, so `@Header` would have been unusable.
+
+So `SafeNameGenerator` and `HTTPStatusCodes.safeName(for:)` are transcribed into `WireOpenAPINaming`,
+kept structurally identical to upstream and excluded from this package's formatter and linter — the
+file's value is that a future diff against upstream stays readable, and bringing it in line with local
+style is the one change that would destroy that.
+
+**What makes a copy safe is not the copy.** It fails when the original moves and ours does not, surfacing
+as "cannot find type" inside generated code. So the golden tables are produced by *running the
+generator*: `swift run NamingGoldenTool` builds a corpus document, generates under both strategies, and
+reads back the names it emitted — exhaustively for statuses, 100 through 599. Unit tests hold the
+transcription to those tables; CI runs the tool with `--check`, so a generator bump that changes naming
+fails with a name-by-name diff rather than silently.
+
+Two facts worth carrying into any future work here. `Config.defaultNamingStrategy` is **defensive**, so a
+document that merely omits the setting is not the arrangement most examples show. And status 100 is
+emitted as a backticked `` `continue` `` — the backticks are part of the name.
+
 The enabler: `openapi.yaml` and `openapi-generator-config.yaml` are **source inputs of the target**,
 not another plugin's outputs, so reading them has no plugin-ordering hazard. Reading the generator's
 emitted `Types.swift` would, and is forbidden.
@@ -477,6 +543,18 @@ emitted `Types.swift` would, and is forbidden.
 Emission is identical either way, so validation is additive. One exception: read
 `openapi-generator-config.yaml`'s `namingStrategy` from day one, since it changes the spelling of
 every generated member the shim touches.
+
+> **Done, and the document is read with OpenAPIKit (M6d.5).** The diagnostics listed above all exist. The
+> reading behind them does not use Yams directly any more: a dictionary walk worked for documents shaped
+> like the fixture's and quietly mishandled the rest — a parameter declared by `$ref` carries no `name`,
+> so it was dropped, and a handler binding it was then rejected for binding something *"the document does
+> not declare"*, a false error against ordinary OpenAPI. It now decodes with OpenAPIKit, the model the
+> generator itself uses, including its version handling, and calls `locallyDereferenced()` once so nothing
+> downstream can forget to follow a reference. Range and `default` response keys are excluded
+> deliberately: they name no single status, so a typed handler cannot construct one.
+>
+> `namingStrategy` is read, as instructed — both plugins pass the config file and declare it an input, so
+> changing the strategy re-runs this tool and not only the generator.
 
 ## Request scope
 
@@ -554,30 +632,52 @@ adaptation: the terminal returns an `Output`, so a mapping produces a **document
 where one exists and `.undocumented(statusCode:)` otherwise. Knowing which statuses are documented is
 the spec read, so this sequences after it.
 
-> **Not yet true, and the unification's largest remaining hole (M6d.4).** `@ErrorResponse` is emitted by
-> wire-mvc's `RouteCodegen`, for `@Controller` routes. OpenAPI routes are emitted by this adapter's own
-> `DirectDispatchEmitter`, which emits **no error mapping at all** — so `@ErrorResponse` currently applies
-> to an OpenAPI operation for no error whatsoever, not merely for decode failures. What an operation gets
-> instead is the runtime's mapping, applied in the terminal.
+> **Built (M6d.6), across two sites.** It transfers, with more adaptation than the paragraph above
+> anticipated, because *where* a mapping is matched decides what it can do.
 >
-> Two consequences worth stating plainly, because the objective of this milestone is one error model and
-> this is two:
+> **In the forwarder**, an error still has the author's own type and an `Output` is the value being
+> returned, so a mapping produces the document's own response case and the generator serialises it exactly
+> as it would a success. **At the terminal**, via a hook the witness supplies, for what the forwarder can
+> never see: a body the deserializer rejected is thrown *before* the forwarder is entered. `DecodingError`
+> and `Swift.Error` are matched at both, since a handler can throw them too — the forwarder copy only
+> where the document declares the status, because taxing every covered operation would penalise exactly
+> the mappings meant to be broad.
 >
-> - **The error types differ.** A WireMVC `@JSONBody` failure is a `WireMVCBindingError`; the same
->   failure on an OpenAPI operation is an `OpenAPIRuntime.ServerError` wrapping a `DecodingError`. A
->   mapping written for one does not match the other.
-> - **The statuses differ.** A malformed body is **422** through WireMVC (`.malformedBody` →
->   `.unprocessableContent`) and **400** through the runtime. A contradictory `Content-Type` is 415 on
->   both. So the same user mistake is answered differently depending on which kind of route served it.
+> An earlier draft of this note claimed the original error was unreachable outside the forwarder, behind
+> the internal `RuntimeError`. That was wrong: `makeError` unwraps `handlerFailed` and
+> `failedToParseRequest` into the public `ServerError.underlyingError`, so the author's error and a
+> `DecodingError` are both reachable there. What is *not* reachable is the missing-value and
+> unexpected-content-type family, which returns `nil` from that unwrapping and stays behind the internal
+> type — matchable only by a catch-all, and otherwise keeping the runtime's 400/415, which are already the
+> right answers. Exposing those publicly is a small, precise ask of swift-openapi-runtime.
 >
-> The fix has a template: wire-mvc's own resolution order, *composed `@ErrorResponse` mappings
-> (route-inner first) → binding-error built-in → `Swift.Error` catch-all → built-in 500*. This adapter's
-> witness should emit the same structure, with the runtime's `HTTPResponseConvertible` mapping taking the
-> built-in tier — which also moves the current catch out of `WireOpenAPIRoutes.invoke`, where it consumes
-> the error before any mapping could see it, and into the witness where it belongs *last*. Reconciling
-> the two default statuses is a separate question, and probably should not be reconciled: each ecosystem's
-> default reflects its own contract, and `@ErrorResponse` is the place to unify them for an app that
-> cares. **M6d.6.**
+> **Two forms, and the document picks which is legal**, which is what turned "a documented error body
+> means `@RawOperation` for the whole operation" into something expressible:
+>
+> | the document says that status… | the only legal form |
+> | --- | --- |
+> | carries no body | `@ErrorResponse(E.self, .notFound)` |
+> | carries a body | `@ErrorResponse(E.self, .notFound, { e in Problem(…) })` |
+>
+> The three-argument form is **wire-mvc's**, added there rather than here: it is meaningful for a `@Get`
+> route too, and `UsersController` now uses it. That keeps the shared vocabulary shared. The closure form
+> is not supported for operations and is not planned to be — it yields a status and bytes, and neither
+> thing that buys (a status chosen from the error's value, a non-JSON body) can be resolved against the
+> document or checked against it.
+>
+> A mapping in the forwarder must name a status the document declares, since it answers as one of the
+> operation's responses. A terminal one need not: a request that failed to decode never became this
+> operation's `Input`. `.internalServerError` is exempt at both — wire-mvc already ends its chain with an
+> implicit 500, and a document promises 404 in a way it does not promise 500.
+>
+> Ordering is WireMVC's throughout: route-inner before controller-outer, first match wins, a shadowed
+> mapping dropped rather than emitted as an unreachable `catch`, and a catch-all required to be last —
+> wire-mvc's own rule, extended across scopes, since anything after one is dead code nothing else reports.
+>
+> One asymmetry to keep in view: the forwarder's copy is serialised by the generator and gets the
+> document's declared headers; the terminal's is assembled here and sets only `Content-Type`. Inherent —
+> the terminal never had an operation context — but the two copies are *near*-identical rather than
+> identical.
 
 **`@OpenAPIConfiguration`.** M3's other explicit deferral (`registerHandlers(configuration:)`) — the
 last piece of `registerHandlers`'s parameter list the adapter doesn't own.
@@ -703,18 +803,25 @@ would need, and M5's design rule keeps the registration backend swappable off th
 
   It also introduced this design's first hard dependency on the generator: two access-level changes,
   carried on a fork until upstreamed.
-- **M6d.4 — the typed shim.** `@Operation` identity, the decomposition-transformer registry,
-  type-driven emission. **This is where the dialect coupling becomes broad** — rows 2–6 all bite at
-  once — though M6d.3 already opened it. Review the coupling table here, as planned.
-- **M6d.5 — spec-read validation.** OpenAPIKit; the diagnostic set above, including the
-  cross-controller coverage checks; the spec declared as a build-command input (spike finding 6 —
-  load-bearing from here on).
-- **M6d.6 — `@ErrorResponse` / `@OpenAPIConfiguration`.** Larger than it reads: OpenAPI witnesses emit
-  no error mapping at all today, so this is where the *one error model* claim is actually made good — see
-  the note under *Middleware, errors, configuration*. Until then an operation gets the runtime's mapping
-  and a `@Get` route gets `@ErrorResponse`, which is two models.
+- **M6d.4 — the typed shim.** ✅ `@Operation`, parameter binding through WireMVC's own property
+  wrappers, request bodies, and responses selected from the document. The dialect coupling did become
+  broad, and naming it required transcribing two pieces of the generator (see *Naming*). The
+  decomposition-transformer registry is **deferred** — wire-mvc has no such mechanism either, and it
+  belongs there first.
+- **M6d.5 — spec-read validation.** ✅ OpenAPIKit, the full diagnostic set, and both the document and the
+  generator config declared as build-command inputs. Reading the document as a dictionary was the thing
+  this milestone actually had to fix: `$ref`s were silently dropped.
+- **M6d.6 — `@ErrorResponse` / `@OpenAPIConfiguration`.** `@ErrorResponse` ✅ — the *one error model*
+  claim is made good, across two sites and two forms, with wire-mvc growing the second form so the
+  vocabulary stays shared. `@OpenAPIConfiguration` **remains**, and is now smaller than this entry
+  implies: nothing calls `registerHandlers`, so the question is only how an app supplies the
+  `Configuration` the `UniversalServer` is built with — `dateTranscoder`, `jsonEncodingOptions`,
+  `multipartBoundaryGenerator`, `xmlCoder`. Every app currently gets `.init()`, so a document whose dates
+  are not ISO8601 cannot be served through the typed shim. The open part is the surface, not the
+  plumbing.
 - **Docs + the forcing case.** This note to a decision record; `WireOpenAPIDesign.md` gains a pointer;
-  task-cluster migrated.
+  task-cluster migrated. The fork should be upstreamed, or at least pinned to a revision, before anything
+  else depends on it.
 
 **Ordering rationale — partly overtaken.** The plan was that everything through M6d.3 is structural,
 with no dependency on the generator's emitted symbol spellings, so the coupling table could be deferred
@@ -745,6 +852,15 @@ the build-graph one can pass silently.
 | 15 | per-operation methods exist on `UniversalServer`, named as the `APIProtocol` requirement | compile: no member |
 | 16 | those methods are reachable — **needs the fork** (internal, and following `accessModifier:`) | compile: inaccessible due to protection level |
 | 17 | a spec module's generated names collide with every other spec module's | compile: "ambiguous for type lookup" — **structurally avoided by per-spec namespaces** |
+| 19 | the safe-name transform, **transcribed** (`GeneratorSafeNames`) | a generator bump changes naming → **CI, name-by-name**, via a golden generated by running it |
+| 20 | the status→case table, **transcribed** (`GeneratorStatusNames`) | same, exhaustively over 100–599 |
+| 21 | `Config.defaultNamingStrategy` is `.defensive` | silent misnaming of every symbol in an unconfigured document — pinned by a test |
+| 22 | `ServerError.underlyingError` holds the *unwrapped* cause | an `@ErrorResponse` mapping stops matching — **runtime, and only for terminal-scoped mappings** |
+| 23 | wire-mvc's three-argument `@ErrorResponse` | compile |
+
+Rows 19–20 are a different *kind* of coupling from the rest: not an assumption about output but a copy of
+internal logic. They are the design's first, taken deliberately (see *Naming*) and held by generating the
+expected values from the real generator rather than by asserting our own.
 
 Row 8 was the unified model's only *runtime* coupling and is gone: routes are read from the document
 and mounted individually, so there is no collector to come up empty, and no second derivation of the
@@ -808,6 +924,15 @@ fold shape, and `WireMVCKeys.routeContributors`. All compile-checked, all in-rep
   whose origin modules differ, neither qualified*, and error with both source locations and a
   `Module::` fix-it — beside the existing duplicate-binding check in WireGenCore. A general hazard that
   generated code makes likely, which is why M6d surfaces it.
+- **The fork.** ⚠️ **Arrived, and unresolved.** Direct dispatch and cross-module specs need two
+  access-level changes to swift-openapi-generator, carried on a fork; a third, smaller ask now exists
+  against swift-openapi-runtime (surface the missing-value decode causes so they are matchable by type).
+  Neither is upstreamed, and `Fixtures/Package.swift` tracks a *branch* rather than a pinned revision, so
+  CI can move underneath the project. Both are cheap to fix and neither is blocking, which is exactly how
+  such things persist.
+- **Non-JSON bodies and responses** are diagnosed toward `@RawOperation` rather than supported —
+  `plainText` and `binary` carry `HTTPBody`, not a schema type, so the shim has nothing to construct.
+  Whether they earn a form is unanswered.
 - **Generated-symbol coupling** — see *Coupling inventory*; mitigation is one version-pinned dialect
   table with golden tests.
 - **The extra body fabrication** on the Hummingbird/Vapor path in unified mode
