@@ -101,6 +101,14 @@ the request *before* decoding, in the same task as the handler; and **decode fai
 adapter** — the runtime maps them, so WireMVC's `@JSONBody` content-type rules are not re-implemented
 for OpenAPI operations. The generator owns binding, in both directions.
 
+> **Half wrong, found by serving it (M6d.4).** The runtime *classifies* a decode failure — wrapping it
+> in a `ServerError` carrying an `httpStatus` — and then **rethrows**. It does not produce a response. In
+> a stock deployment the *transport* catches that and answers; here WireMVC is the transport and knew
+> nothing of it, so the error escaped to the router, which had no response to write and dropped the
+> connection: `curl` reporting no reply at all to a request with a malformed body. The terminal now
+> catches `HTTPResponseConvertible`, which `ServerError` conforms to, so the mapping is still the
+> runtime's own and not one invented here. What holds is the second half: binding is not re-implemented.
+
 **The constraint — as it stood.** `registerHandlers` is generated **once per document** and registers
 **every** operation from a single conformer. So two `@OpenAPIController` types in one target could not
 split the API: each would have to implement the whole `APIProtocol` and each would register the full
@@ -546,6 +554,31 @@ adaptation: the terminal returns an `Output`, so a mapping produces a **document
 where one exists and `.undocumented(statusCode:)` otherwise. Knowing which statuses are documented is
 the spec read, so this sequences after it.
 
+> **Not yet true, and the unification's largest remaining hole (M6d.4).** `@ErrorResponse` is emitted by
+> wire-mvc's `RouteCodegen`, for `@Controller` routes. OpenAPI routes are emitted by this adapter's own
+> `DirectDispatchEmitter`, which emits **no error mapping at all** — so `@ErrorResponse` currently applies
+> to an OpenAPI operation for no error whatsoever, not merely for decode failures. What an operation gets
+> instead is the runtime's mapping, applied in the terminal.
+>
+> Two consequences worth stating plainly, because the objective of this milestone is one error model and
+> this is two:
+>
+> - **The error types differ.** A WireMVC `@JSONBody` failure is a `WireMVCBindingError`; the same
+>   failure on an OpenAPI operation is an `OpenAPIRuntime.ServerError` wrapping a `DecodingError`. A
+>   mapping written for one does not match the other.
+> - **The statuses differ.** A malformed body is **422** through WireMVC (`.malformedBody` →
+>   `.unprocessableContent`) and **400** through the runtime. A contradictory `Content-Type` is 415 on
+>   both. So the same user mistake is answered differently depending on which kind of route served it.
+>
+> The fix has a template: wire-mvc's own resolution order, *composed `@ErrorResponse` mappings
+> (route-inner first) → binding-error built-in → `Swift.Error` catch-all → built-in 500*. This adapter's
+> witness should emit the same structure, with the runtime's `HTTPResponseConvertible` mapping taking the
+> built-in tier — which also moves the current catch out of `WireOpenAPIRoutes.invoke`, where it consumes
+> the error before any mapping could see it, and into the witness where it belongs *last*. Reconciling
+> the two default statuses is a separate question, and probably should not be reconciled: each ecosystem's
+> default reflects its own contract, and `@ErrorResponse` is the place to unify them for an app that
+> cares. **M6d.6.**
+
 **`@OpenAPIConfiguration`.** M3's other explicit deferral (`registerHandlers(configuration:)`) — the
 last piece of `registerHandlers`'s parameter list the adapter doesn't own.
 
@@ -676,7 +709,10 @@ would need, and M5's design rule keeps the registration backend swappable off th
 - **M6d.5 — spec-read validation.** OpenAPIKit; the diagnostic set above, including the
   cross-controller coverage checks; the spec declared as a build-command input (spike finding 6 —
   load-bearing from here on).
-- **M6d.6 — `@ErrorResponse` / `@OpenAPIConfiguration`.**
+- **M6d.6 — `@ErrorResponse` / `@OpenAPIConfiguration`.** Larger than it reads: OpenAPI witnesses emit
+  no error mapping at all today, so this is where the *one error model* claim is actually made good — see
+  the note under *Middleware, errors, configuration*. Until then an operation gets the runtime's mapping
+  and a `@Get` route gets `@ErrorResponse`, which is two models.
 - **Docs + the forcing case.** This note to a decision record; `WireOpenAPIDesign.md` gains a pointer;
   task-cluster migrated.
 
