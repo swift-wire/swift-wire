@@ -1,17 +1,28 @@
 # Advanced OpenAPI integration — design note (M6d)
 
-> **Status:** part design record, part build log. **M6d.0 through M6d.6 are implemented and merged**
-> in `wire-open-api`, served over real HTTP by its `Fixtures` package — everything except
-> `@OpenAPIConfiguration`, the second half of M6d.6, and the decomposition-transformer registry, which is
-> deferred (see *The typed shim*). The M6d.0 gate was run on Swift 6.3.3 and the 6.4 snapshot,
-> swift-openapi-generator 1.x, macOS — [spike-28](../../../swift-wire-spikes/spike-28-openapi-plugin-coexistence/);
-> results and the three findings that shaped this note are in *Spike results*.
+> **Status: decision record.** M6d is built. **M6d.0 through M6d.6 are implemented and merged** in
+> `wire-open-api`, served over real HTTP by its `Fixtures` package and exercised by a CI script that
+> probes a running app rather than asserting generated text. Three things are deferred by decision, not
+> left undone: `@OpenAPIConfiguration` (see *Middleware, errors, configuration*), the
+> decomposition-transformer registry (see *The typed shim*), and non-JSON bodies at the terminal. One
+> thing is genuinely outstanding: **task-cluster is not migrated**, so the forcing case this design was
+> chosen for still runs on M3's adapter.
 >
-> Where building changed a decision, the original reasoning is kept and marked rather than rewritten —
-> the two that moved most are **request scope** (designed around a task-local; measurement replaced it
-> with direct dispatch) and **one conformer per spec** (believed forced by `registerHandlers`; lifted
-> once operations were mounted individually). Sections carrying a *Superseded* or *overtaken* note are
-> the ones to read first.
+> The M6d.0 gate was run on Swift 6.3.3 and the 6.4 snapshot, swift-openapi-generator 1.x, macOS —
+> [spike-28](../../../swift-wire-spikes/spike-28-openapi-plugin-coexistence/); results and the three
+> findings that shaped this note are in *Spike results*.
+>
+> **How to read it.** Where building changed a decision the original reasoning is kept and marked rather
+> than rewritten, so the note records what was believed as well as what is true. Sections carrying a
+> *Superseded* or *overtaken* note are the ones to read first. Four decisions moved under contact with a
+> compiler or a load generator:
+>
+> | decision | designed as | settled as | what moved it |
+> |---|---|---|---|
+> | request scope | task-local around `registerHandlers` | direct dispatch on a copied `UniversalServer` | measurement — and a hoisted `Converter` |
+> | conformers per spec | one, believed forced | many, and many specs per app | operations mount individually |
+> | reading the document | a dictionary walk over Yams | OpenAPIKit, fully dereferenced | `$ref` parameters were silently dropped |
+> | coding settings | an OpenAPI-only attribute | wire-mvc's `WireMVCCoding`, keyed by `BindingKey` | a `@Get` route has the same question |
 >
 > **The objective is one routing model, not two.** An app should express middleware, error mapping,
 > request scope and its composition root the same way whether a route came from an OpenAPI document
@@ -679,8 +690,62 @@ the spec read, so this sequences after it.
 > the terminal never had an operation context — but the two copies are *near*-identical rather than
 > identical.
 
-**`@OpenAPIConfiguration`.** M3's other explicit deferral (`registerHandlers(configuration:)`) — the
-last piece of `registerHandlers`'s parameter list the adapter doesn't own.
+**Coding — decided, and it did not land here (M6d.6).** M3's other explicit deferral was
+`registerHandlers(configuration:)`. The question that replaced it is narrower and better: nothing calls
+`registerHandlers`, so an app only has to supply the `Configuration` its `UniversalServer` is built with.
+
+Asking *where* that setting belongs is what changed the answer. `dateTranscoder` and
+`jsonEncodingOptions` are not OpenAPI concerns — a `@Get` route returning a `Date` has exactly the same
+question, and was answering it differently. So the tier is **wire-mvc's**, not this adapter's:
+`WireMVCCoding` (dates + JSON options) selected by `@Coding` at three scopes, innermost winning, the
+same tiering `@Middleware` and `@ErrorResponse` use. This note's adapter contributes one bridge,
+`Configuration(wireMVCCoding:)`, and the witness signature that carries the value inward.
+
+**Why inward rather than around.** Global middleware wraps the finished router *once*, and that is valid
+because middleware composes as a function of the request. Coding is consumed at leaf sites — inside each
+route's binding and response encoding — so it cannot be wrapped around anything; it has to travel. Hence
+`registerWireRoutes(on:coding:)` rather than a router-level decoration. This is the sharpest difference
+between the two kinds of cross-cutting concern the adapter carries.
+
+**The bug this fixed was live.** Foundation writes a `Date` as seconds since 2001 and the OpenAPI runtime
+writes ISO8601, so one app served two spellings of the same instant depending on which authoring style
+produced the route. The fixture now returns a fixed date from both kinds and CI asserts they agree —
+though agreement alone is weak evidence, since ISO8601 is now the default on both sides. The fixture's
+app-wide coding therefore asks for **sorted keys**, which is nobody's default: only an operation whose
+`Configuration` was built from that value can produce it. A second controller overrides with a keyed
+binding that writes epoch seconds, so the tiering is resolved by a running app rather than asserted in
+generated text — and CI fails as loudly if the override leaks to the controller next door as if it never
+applied.
+
+**The mapping is total in both directions**, which is what makes routing OpenAPI coding through a
+WireMVC tier safe rather than lossy. `JSONEncodingOptions` has exactly three members — `sortedKeys`,
+`withoutEscapingSlashes`, `prettyPrinted` — and `JSONCoding` has a setting for each (wire-mvc gained
+`prettyPrints` for the third). Nothing is dropped in transit. The **defaults deliberately differ** from
+the runtime's `[.sortedKeys, .prettyPrinted]`: an app that says nothing now gets compact output from its
+operations, because the app's settings win over one document's generated code.
+
+**Selection is a `BindingKey`, after a wrong turn worth recording.** The first design gave `@Coding` a
+`CodingSource` protocol, so each configuration needed a wrapper type declared solely to give the graph a
+distinct type to key on. That was a second mechanism for a problem swift-wire already solves. The tell
+was that the wrapper was never *optional*: swift-wire keys the graph by type and all three tiers select
+the same type, so with types as the only selector there was one spelling for every scope, and an override
+could never resolve to anything different. The protocol existed to manufacture the distinct types the
+mechanism needed, not because "a coding source" is a real concept — which is the signature of a mechanism
+invented around the absence of the right one.
+
+`BindingKey<WireMVCCoding>` is the right one. `@Coding` now takes either a key or `WireMVCCoding.self`,
+exactly as `@Middleware` takes either: the by-type form selects the unkeyed binding, which is what an app
+with one coding wants — nothing to tell apart, so no name to invent — and a key earns its keep once a
+second binding of the type exists. Naming *the same* binding at two nested scopes is then the residual
+mistake, since it reads as an override and resolves to one value; it is diagnosed rather than ignored.
+No swift-wire change was needed: `applyAdapterDependencies` already resolves `@X(K)` for any
+`.injectsFromGraph` annotation.
+
+**`@OpenAPIConfiguration` is deferred, and is now nearly empty.** What remains after coding moved out is
+`multipartBoundaryGenerator` and `xmlCoder` — genuinely OpenAPI-only, with no WireMVC counterpart to
+unify with. Neither has anything to act on: multipart and XML bodies are not supported at the terminal,
+so the attribute would store values nothing reads. It waits for non-JSON bodies rather than shipping
+ahead of them.
 
 ## One collation surface — `RouteContributor` (decided; supersedes two modes)
 
@@ -759,7 +824,10 @@ would unify decode semantics too and buy content-type routing between handlers. 
 It stays reachable: unified mode already builds the `(method, path) → descriptor` table a takeover
 would need, and M5's design rule keeps the registration backend swappable off that table.
 
-## Suggested sequencing
+## Sequencing — as planned, and as it went
+
+Written as a plan and kept as a record: each entry now says what shipped, so the ordering rationale
+below can be judged against what actually happened rather than against what was expected.
 
 - **M6d.0 — the spike (the gate).** ✅ **Run — passed.** See *Spike results*.
 - **M6d.0b — the proxy cutover.** `WireOpenAPIGen` + an adapter-owned `WireOpenAPIBuildPlugin` (the
@@ -811,17 +879,19 @@ would need, and M5's design rule keeps the registration backend swappable off th
 - **M6d.5 — spec-read validation.** ✅ OpenAPIKit, the full diagnostic set, and both the document and the
   generator config declared as build-command inputs. Reading the document as a dictionary was the thing
   this milestone actually had to fix: `$ref`s were silently dropped.
-- **M6d.6 — `@ErrorResponse` / `@OpenAPIConfiguration`.** `@ErrorResponse` ✅ — the *one error model*
-  claim is made good, across two sites and two forms, with wire-mvc growing the second form so the
-  vocabulary stays shared. `@OpenAPIConfiguration` **remains**, and is now smaller than this entry
-  implies: nothing calls `registerHandlers`, so the question is only how an app supplies the
-  `Configuration` the `UniversalServer` is built with — `dateTranscoder`, `jsonEncodingOptions`,
-  `multipartBoundaryGenerator`, `xmlCoder`. Every app currently gets `.init()`, so a document whose dates
-  are not ISO8601 cannot be served through the typed shim. The open part is the surface, not the
-  plumbing.
-- **Docs + the forcing case.** This note to a decision record; `WireOpenAPIDesign.md` gains a pointer;
-  task-cluster migrated. The fork should be upstreamed, or at least pinned to a revision, before anything
-  else depends on it.
+- **M6d.6 — `@ErrorResponse` / configuration.** `@ErrorResponse` ✅ — the *one error model* claim is
+  made good, across two sites and two forms, with wire-mvc growing the second form so the vocabulary
+  stays shared. Coding ✅, but **in wire-mvc**: `dateTranscoder` and `jsonEncodingOptions` turned out not
+  to be OpenAPI concerns at all, so they became `WireMVCCoding` and `@Coding`, and this adapter kept only
+  the bridge. That closed a live inconsistency — the two kinds of route wrote dates differently — and
+  makes the *one routing model* claim true of encoding as well as of middleware and errors.
+  `@OpenAPIConfiguration` is **deferred**: what is left of it (`multipartBoundaryGenerator`, `xmlCoder`)
+  has nothing to act on until non-JSON bodies are supported at the terminal. See *Middleware, errors,
+  configuration*.
+- **Docs + the forcing case.** This note is now a decision record and `WireOpenAPIDesign.md` carries the
+  forward pointer ✅. **task-cluster is not yet migrated** — it is still on M3's hand-written
+  `registerHandlers`, and it is the only remaining claim in this note that no running code makes. The
+  fork should be upstreamed, or at least pinned to a revision, before anything else depends on it.
 
 **Ordering rationale — partly overtaken.** The plan was that everything through M6d.3 is structural,
 with no dependency on the generator's emitted symbol spellings, so the coupling table could be deferred
@@ -833,8 +903,9 @@ are its first entries. Unification (M6d.1–2) did land before the DX work, as i
 ## Coupling inventory
 
 What the design implicitly depends on, and how each failure announces itself. Almost every coupling
-is compiler-checked, because the emitted code lands *in the same module* as the code it names. Only
-the build-graph one can pass silently.
+is compiler-checked, because the emitted code lands *in the same module* as the code it names. Two can
+pass silently: the build-graph one (row 14/18), and row 24 — a runtime that *gains* a JSON option breaks
+nothing and compiles clean, it just quietly stops being something an app can ask for.
 
 **To swift-openapi-generator's output:**
 
@@ -857,6 +928,8 @@ the build-graph one can pass silently.
 | 21 | `Config.defaultNamingStrategy` is `.defensive` | silent misnaming of every symbol in an unconfigured document — pinned by a test |
 | 22 | `ServerError.underlyingError` holds the *unwrapped* cause | an `@ErrorResponse` mapping stops matching — **runtime, and only for terminal-scoped mappings** |
 | 23 | wire-mvc's three-argument `@ErrorResponse` | compile |
+| 24 | `JSONEncodingOptions` has exactly three members, each with a `JSONCoding` counterpart | a fourth member is **silently unmappable** — the bridge stops being total and an app cannot ask for it |
+| 25 | `DateTranscoder`'s two requirements match `DateTranscoding`'s | compile: the bridge is a forwarding wrapper |
 
 Rows 19–20 are a different *kind* of coupling from the rest: not an assumption about output but a copy of
 internal logic. They are the design's first, taken deliberately (see *Naming*) and held by generating the
@@ -1009,7 +1082,8 @@ module-qualified.
 
 - [WireOpenAPIDesign.md](WireOpenAPIDesign.md) — M3's shipped adapter; the deferrals this note picks up.
 - [WireMVCDesign.md](WireMVCDesign.md), [WireMVCMiddleware.md](WireMVCMiddleware.md) — the routing and
-  middleware surface being unified onto.
+  middleware surface being unified onto. `WireMVCDesign.md`'s *Added after M5.0* records `@Coding`,
+  which this milestone caused but which belongs there.
 - [DecompositionTransformers.md](DecompositionTransformers.md) — decomposition keyed by input type; the
   A-inject decision.
 - [RouteErrorHandling.md](RouteErrorHandling.md) — the `@ErrorResponse` model.

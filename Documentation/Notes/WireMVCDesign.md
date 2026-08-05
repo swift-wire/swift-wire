@@ -190,6 +190,21 @@ discipline is JAX-RS/OpenAPI-flavored; `@ResponseStatus` is the Spring name.)
 - Typed error→response mapping, response header/cookie control → later.
 - `@Head` / `@Options` verbs → later or via the raw handler.
 
+## Added after M5.0
+
+- **`@Coding` — the settings a route encodes and decodes with** (dates, JSON options), at three scopes
+  with the innermost winning, the same tiering `@Middleware` and `@ErrorResponse` use. It arrived during
+  M6d and the reasoning is recorded there — see *Middleware, errors, configuration* in
+  [WireOpenAPIAdvanced.md](WireOpenAPIAdvanced.md) — because the question was asked from the OpenAPI
+  side and the answer is why it landed **here** instead: a `@Get` route returning a `Date` has exactly
+  the same question as a generated operation, and the two were answering it differently. Foundation
+  writes seconds since 2001; the OpenAPI runtime writes ISO8601.
+- `WireMVCCoding.default` is therefore **not** Foundation's default. ISO8601 dates are a deliberate
+  change of behaviour: a number since 2001 is not something an API client can read, and matching the
+  OpenAPI runtime is what lets one app serve both kinds of route consistently.
+- Selection is a `BindingKey<WireMVCCoding>`, or `WireMVCCoding.self` for an app with one coding —
+  the two forms `@Middleware` has, for the same reason.
+
 ## The generated shape (from spike-12)
 
 Per route, the macro emits one `builder.register(method:path:handler:)` call with a thin

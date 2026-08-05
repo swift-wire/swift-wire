@@ -8,6 +8,21 @@
 > and [AdapterModel.md](AdapterModel.md) still carry — that was the post-construction
 > side-effect *sink* (`_wireRegister(instance:, transport:)` emitted after graph
 > build), retired in M2.3 when collation replaced it. M3 is collation, like M2.
+>
+> **Superseded in part by M6d** — [WireOpenAPIAdvanced.md](WireOpenAPIAdvanced.md),
+> which is built and merged. Read that note first for anything about *how operations
+> are mounted*: M6d retires `TransportKeys.handlers` as a collated key, so
+> `@OpenAPIController` contributes to `WireMVCKeys.routeContributors` and operations
+> register individually rather than through `registerHandlers`. It settles three
+> deferrals this note names — request-scoped controllers, per-controller middleware,
+> and `registerHandlers(configuration:)`. The last dissolved rather than shipped:
+> coding turned out to be a WireMVC concern, because a `@Get` route asks the same
+> question and was answering it differently.
+>
+> What stands unchanged is *why the adapter targets `ServerTransport`*, and the
+> cross-runtime argument for it — M6d builds on that rather than replacing it. The
+> **WireMVC seam** section below asked for the single collation surface M6d then
+> delivered.
 
 ## What M3 is
 
