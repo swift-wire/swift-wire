@@ -59,8 +59,15 @@ func aggregateProxyDirectives(
     var directives: [String: AggregateProxyDirective] = [:]
     for site in useSites {
         guard let capability = capabilities[site.annotationName] else { continue }
-        let group = site.argumentValue(labelled: capability.groupedByAttribute)
-        let identity = "\(site.annotationName)|\(group ?? "")"
+        // The group is the attribute's argument when it names one, and otherwise **the module the
+        // annotation is written in**. That makes a bare annotation mean "the group belonging to my own
+        // module", which is what an author reading the file can see — rather than "whatever the target
+        // being compiled is", which they cannot: the answer would depend on which executable pulled the
+        // library in, and two libraries each shipping their own bare-annotated subjects would collide on
+        // one proxy. The adapter's own generator resolves the same way, so both sides agree without
+        // either needing to know which module is consuming.
+        let group = site.argumentValue(labelled: capability.groupedByAttribute) ?? site.originModule
+        let identity = "\(site.annotationName)|\(group)"
         directives[
             identity,
             default: AggregateProxyDirective(
