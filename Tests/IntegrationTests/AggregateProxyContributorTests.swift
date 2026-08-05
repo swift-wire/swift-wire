@@ -63,8 +63,12 @@ struct AggregateProxyContributorTests {
         // The compatibility rule: with one subject there is nothing to disambiguate, so the field stays
         // `_wireSubject` — positional, exactly what `.contributesProxy` emits. This test compiles only if
         // that holds (a suffixed `_wireSubject_SoloAggregateOnlyController` would not resolve).
+        //
+        // The *type* name carries the group, and a bare annotation's group is the module it is written
+        // in — here the test module. That is what makes a group stable: it does not depend on which
+        // target consumes the annotation.
         let graph = try await Wire.bootstrap()
-        #expect(graph._WireSoloAggregateContributor._wireSubject.solo() == "solo")
+        #expect(graph._WireSoloAggregateContributor_IntegrationTests._wireSubject.solo() == "solo")
     }
 
     @Test func perRootReachabilitySurvivesTheAggregate() async throws {
