@@ -187,7 +187,10 @@ discipline is JAX-RS/OpenAPI-flavored; `@ResponseStatus` is the Spring name.)
   or framework-specific) carries it. WebSocket routes are registered directly on the
   framework and WireMVC coexists — unless/until the proposal *and* OpenAPIRuntime both grow
   upgrade support.
-- Typed error→response mapping, response header/cookie control → later.
+- Typed error→response mapping → **shipped** as `@ErrorResponse` (M5.4E); see
+  [RouteErrorHandling.md](RouteErrorHandling.md).
+- Response header/cookie control → **partially shipped** (see *Response header fields* below); the
+  route-level surface and the middleware contribution channel are still open.
 - `@Head` / `@Options` verbs → later or via the raw handler.
 
 ## Added after M5.0
@@ -204,6 +207,36 @@ discipline is JAX-RS/OpenAPI-flavored; `@ResponseStatus` is the Spring name.)
   OpenAPI runtime is what lets one app serve both kinds of route consistently.
 - Selection is a `BindingKey<WireMVCCoding>`, or `WireMVCCoding.self` for an app with one coding —
   the two forms `@Middleware` has, for the same reason.
+
+### Response header fields — `WireMVCOutcome` carries them
+
+`WireMVCOutcome` became a **struct** (`status`, `headerFields`, `body: [UInt8]?`) where it was a two-case
+enum. The cases only ever differed in whether a body was present, so a third component would have had to be
+duplicated across both payloads. `.status(_:)` and `.body(_:_:)` survive as static factories, so no
+construction site changed — including the emitted witness, which is byte-identical before and after.
+
+The forcing case was not DX. `send(on:)` built `HTTPResponse(status:)` with **no** fields, and nothing
+downstream synthesises any (checked: `WireMVCRouter`, `WireMVCServerTransport`, the proposal's
+`HTTPResponseSender`, `NIOHTTPServer`) — so every `@JSONResponse` route was shipping its body untyped.
+`WireMVCOutcome.json` now seeds `Content-Type: application/json` unless the caller supplies one, matching
+the OpenAPI generator's `ContentType.applicationJSON` (plain, no charset) so one app's two kinds of route
+agree. `.status(_:)` and `.body(_:_:)` seed nothing: neither knows what the bytes are.
+
+Because `@ErrorResponse` mappings already return a `WireMVCOutcome`, error responses gained header fields
+by the same change — which is what makes a `401` able to carry the `WWW-Authenticate` that RFC 9110 §11.6.1
+requires of it. That was previously unexpressible at any tier.
+
+**Still open, and deliberately separate:** a route-level surface for setting them (a static annotation for
+constants, a handler out-param for computed ones — the `@Header` request binding's mirror), and a channel
+for *middleware* to contribute, which is what a session cookie needs. The second is the harder one: the
+terminal writes the response during `next`, so a middleware cannot append after `next` and cannot
+post-process (see [WireMVCMiddleware.md](WireMVCMiddleware.md), *Short-circuit & the box shape*) — the
+contribution has to be registered before `next` and drained when the outcome is built, by both the terminal
+and the `responding` gate path. Prior art for that shape is ASP.NET Core's `OnStarting`.
+
+**Not addressed:** `Content-Length`. Nothing sets it, so bodies frame as chunked. Fixing it is a framing
+decision (a declared length conflicts with a `Transfer-Encoding` the transport may add) and wants deciding
+on its own, not as a side effect of the header work.
 
 ## The generated shape (from spike-12)
 
