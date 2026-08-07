@@ -741,6 +741,35 @@ mistake, since it reads as an override and resolves to one value; it is diagnose
 No swift-wire change was needed: `applyAdapterDependencies` already resolves `@X(K)` for any
 `.injectsFromGraph` annotation.
 
+### Response header fields — and the one place the mechanism differs
+
+wire-mvc gained response header control after M6d: `@ResponseHeader` and a labelled response tuple for
+routes, and a `ResponseHeaderRegistry` middleware contribute to. The registry rides the middleware box, and
+a `WireMVCContext` courier carries it from the global front layer down to each route.
+
+Operations inherit all of it, because they *are* WireMVC routes — a global `@Middleware` setting a security
+header, a controller-scope one setting `Vary`, the tier order, the verbs. The emitter here took the same
+four changes the wire-mvc codegen did: the witness's `Builder.RequestContext` gains
+`ResponseHeaderCarrying`, the fold reads the registry off the courier and builds its box over the unwrapped
+`takeBase()`, the no-fold path binds the courier, and the fold's factory specialisation moves to
+`Builder.RequestContext.Base.self`.
+
+**The one genuine difference is where the response head is built.** A `@Get` route's terminal constructs a
+`WireMVCOutcome`, so contributions are resolved into it. An operation's response is built inside
+`WireOpenAPIRoutes.invoke` from the generated `Output` type — there is no outcome to inject into. So its
+terminal writes through `ResponseHeaderApplyingSender`, which resolves contributions into whatever head
+passes through it. That is the same mechanism a `@RawRoute` uses, for the same reason, and it is what keeps
+*one routing model* true of response headers: without it a global `@Middleware` would set a header on a
+`@Get` route and silently not on an operation — the exact split M6d exists to close.
+
+Declared, document-level response headers are a separate question and unchanged: the generator already
+types those per response (`Output.Ok.Headers`), and they arrive as part of the `Output` value. What this
+adds is the *ambient* tier — fields no single operation declares, contributed by middleware — which the
+document has no way to express.
+
+CI asserts the header on both an operation and an annotation-driven route. Asserting one kind only would
+let the other regress unnoticed, which is how the gap survived until the wire-mvc side had already merged.
+
 **`@OpenAPIConfiguration` is deferred, and is now nearly empty.** What remains after coding moved out is
 `multipartBoundaryGenerator` and `xmlCoder` — genuinely OpenAPI-only, with no WireMVC counterpart to
 unify with. Neither has anything to act on: multipart and XML bodies are not supported at the terminal,
@@ -966,7 +995,16 @@ underscored-module one, and its naming logic is `internal` — only `runGenerato
 | 13 | the scope-entry thunk's type string and its inverse parser | stringly-typed, internal to Core |
 
 **To WireMVC** (unified mode): `RouteContributor`, `HTTPServerRouteBuilder.register`, the middleware
-fold shape, and `WireMVCKeys.routeContributors`. All compile-checked, all in-repo.
+fold shape, `WireMVCKeys.routeContributors`, and — since response headers — `ResponseHeaderCarrying`,
+`WireMVCContext.takeBase()`, the box's `responseHeaders`, and `ResponseHeaderApplyingSender`. All
+compile-checked, all in-repo.
+
+The response-header couplings are worth calling out as the sharpest in this table, because they all
+landed at once and three of the four are *shape* couplings rather than name couplings: the box gained a
+required `responseHeaders:` argument, the register closure's context became a courier that must be
+unwrapped, and the fold's factory specialisation moved to `Builder.RequestContext.Base`. Each announces
+itself at compile time, but only after wire-mvc's `main` is re-resolved — this package tracks it by
+branch, so a break appears on the next update rather than in the PR that caused it.
 
 **To the build graph:**
 
