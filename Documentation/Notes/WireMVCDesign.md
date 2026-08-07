@@ -154,6 +154,14 @@ explicit `@JSONResponse` was chosen over JSON-by-default), and dissolves the 200
 *silent-default* debate — nothing is implicit. (Prior art: the required-annotation
 discipline is JAX-RS/OpenAPI-flavored; `@ResponseStatus` is the Spring name.)
 
+> **Refined once a status can be returned.** A handler may now return its status in a response
+> tuple, which leaves the annotation nothing to say for some shapes — a bodiless
+> `(status:headers:)` return takes **no** response annotation, and `@JSONResponse(status:)`
+> beside a returned status is rejected. The rule holds in substance (every route states its mode
+> exactly once, in an annotation *or* in a return type that says it unambiguously) and the
+> `Void`-with-no-annotation diagnostic is unchanged. See *What the response annotation is for,
+> once a status can be returned* below.
+
 ### Handler shape & errors
 
 - `async` / `throws` / sync / non-throwing handlers all supported; the generated witness
@@ -189,8 +197,9 @@ discipline is JAX-RS/OpenAPI-flavored; `@ResponseStatus` is the Spring name.)
   upgrade support.
 - Typed error→response mapping → **shipped** as `@ErrorResponse` (M5.4E); see
   [RouteErrorHandling.md](RouteErrorHandling.md).
-- Response header/cookie control → **partially shipped** (see *Response header fields* below); the
-  route-level surface and the middleware contribution channel are still open.
+- Response header/cookie control → **shipped for routes** (`@ResponseHeader` + the response tuple, see
+  below); the **middleware** contribution channel is the remaining piece, and is what a session cookie
+  needs.
 - `@Head` / `@Options` verbs → later or via the raw handler.
 
 ## Added after M5.0
@@ -226,13 +235,107 @@ Because `@ErrorResponse` mappings already return a `WireMVCOutcome`, error respo
 by the same change — which is what makes a `401` able to carry the `WWW-Authenticate` that RFC 9110 §11.6.1
 requires of it. That was previously unexpressible at any tier.
 
-**Still open, and deliberately separate:** a route-level surface for setting them (a static annotation for
-constants, a handler out-param for computed ones — the `@Header` request binding's mirror), and a channel
-for *middleware* to contribute, which is what a session cookie needs. The second is the harder one: the
-terminal writes the response during `next`, so a middleware cannot append after `next` and cannot
-post-process (see [WireMVCMiddleware.md](WireMVCMiddleware.md), *Short-circuit & the box shape*) — the
-contribution has to be registered before `next` and drained when the outcome is built, by both the terminal
-and the `responding` gate path. Prior art for that shape is ASP.NET Core's `OnStarting`.
+### The route surface — `@ResponseHeader` and the response tuple
+
+Two spellings, split by whether the value is known before the program runs:
+
+```swift
+@Singleton @Controller("/docs") @ResponseHeader(.cacheControl, "no-store")
+struct DocController {
+    @Get("/{id}") @JSONResponse @ResponseHeader(.vary, "Origin", .append)
+    func document(@Path id: UUID) async throws
+    -> (status: HTTPResponse.Status, headers: HTTPFields, body: Document) {
+        let doc = try await store.document(id)
+        return (.ok, [.eTag: doc.etag], doc)
+    }
+}
+```
+
+`@ResponseHeader` is repeatable at controller and route scope for **constants**. A **computed** field is
+returned in a labelled tuple, in any of four shapes: `(headers:body:)`, `(status:body:)`,
+`(status:headers:body:)`, or `(status:headers:)` for a bodiless response — which is the computed-redirect
+shape (a returned `Location`), the single most common need in the example sweep.
+
+### What the response annotation is for, once a status can be returned
+
+Allowing a returned status forced the annotation's job to be stated precisely, because for some shapes it
+had nothing left to say. It carries two things — the response **mode** (is there a body, and in which
+codec) and the **status** when that is static — and a returned status takes the second away:
+
+| Return | Mode declared by | Status from |
+| --- | --- | --- |
+| `Void` | `@ResponseStatus` | its argument (required) |
+| `T` | `@JSONResponse` — names the codec | its argument (default `.ok`) |
+| `(headers:body:)` | `@JSONResponse` — codec | its argument |
+| `(status:body:)` / `(status:headers:body:)` | `@JSONResponse` — codec | **the return**; the argument is rejected |
+| `(status:headers:)` | **the return type** | **the return**; any annotation is rejected |
+
+So a **bodiless response tuple takes no response annotation at all**, and writing one is a diagnostic. Both
+facts an annotation could state are already in the signature, more explicitly than an attribute puts them:
+no `body` label means no body, and `status:` means the status is computed. A bare `@ResponseStatus()` was
+considered and rejected — it would have been a mandatory declaration carrying no information, which is the
+thing the annotation rule exists to prevent, not an instance of it.
+
+A body-carrying tuple still needs `@JSONResponse`, because *that* names the codec (and is what makes a
+future `@HTMLResponse` its sibling); only its `status:` argument is rejected. Making the dead value
+unwritable is stronger than diagnosing it after the fact.
+
+**The M5.0 rule survives in substance**, restated: *every route states its response mode exactly once — in
+an annotation, or in a return type that says it unambiguously.* The silent-default the original rule was
+written against is untouched: a `Void` handler with no annotation is still a diagnostic, because there the
+status genuinely is unstated.
+
+**Returned, not mutated through an out-parameter.** The first design handed the handler a mutable
+`ResponseHeaderSink`; it was wrong twice over. Mechanically, a property wrapper is the only custom attribute
+a function parameter accepts and one applied to `inout` projects an *immutable* binding, so the spelling
+does not work at all. Architecturally, it was the wrong lineage: value-carried response metadata is what
+every typed/declarative framework does (axum's tuple `IntoResponse`, Spring's `ResponseEntity`, JAX-RS
+`Response`, Hummingbird's `EditedResponse`), while the mutate-a-handle model belongs to the context-centric
+family (Go's `ResponseWriter`, Express, FastAPI's `response:` parameter). Decisively, an `@Operation` route
+already returns the OpenAPI generator's `Output.Ok(headers:body:)` — value-carried — so a sink would have
+re-opened the split M6d closed.
+
+**Keyed on labels, not element type spellings.** The macro is syntactic, so matching on `HTTPFields` would
+misread a body type spelled that way and would inherit the type-spelling fragility
+[WireMVCMiddleware.md](WireMVCMiddleware.md) already records as a residual. An *unlabelled* tuple stays a
+body, so no existing handler changes meaning.
+
+**One vocabulary of verbs, shared with middleware.** `set` (default), `append`, `setIfAbsent`. The earlier
+draft gave annotations a fixed replace rule and reserved verbs for middleware, justified by annotations
+being statically visible to each other — an inner scope can always restate a combined value. That argument
+has exactly one hole, and `Set-Cookie` is it: RFC 6265 §3 forbids folding that field, so "restate combined"
+is unavailable precisely where a second value is most wanted. Rather than special-case the field, the verbs
+are uniform. Annotations and middleware differ in *when* their value exists and in *what they reach*, not in
+how contributions combine.
+
+**Resolution is one ordered application**, `WireMVCResponseHeaders.resolved`:
+
+```
+controller @ResponseHeader → route @ResponseHeader → handler return → middleware (outer last)
+```
+
+Tier order *is* application order — there is no separate override pass, so a route's `.set` replaces the
+controller's and its `.append` adds to it by construction. Middleware last and outer-wins matches
+Hummingbird and Vapor, where middleware mutate on the way out; it keeps a policy header set at the app edge
+from being overridden by something nested inside it.
+
+**It never folds.** Every write goes through `HTTPFields`' multi-value subscript, so repeated fields stay
+separate field lines. Folding would be *legal* for list-valued fields — RFC 9110 §5.3 makes the two forms
+semantically identical — but is forbidden for `Set-Cookie` and required against by HTTP/2 (RFC 9113 §8.2.3),
+so staying multi-line is correct everywhere with no per-field knowledge and no RFC field table. A caller
+wanting one folded line writes the combined value with `.set`. There is deliberately **no** fold verb: for
+list fields it would be redundant, for `Set-Cookie` harmful, and for singular fields (`Content-Type`,
+`Location`) neither append nor fold is valid anyway. `HTTPFields`' *single*-value subscript folds on write
+and its getter joins on read without special-casing `Set-Cookie`, so touching it anywhere in the resolve
+path is the one invariant that would break this silently.
+
+**Still open — the middleware channel.** A middleware has no return value to carry a field in (the
+proposal's `Middleware.intercept` is universally generic in `Return`), so it contributes through the box.
+The timing is the hard part: the terminal writes the response *during* `next`, so a middleware can neither
+append after `next` nor post-process (see [WireMVCMiddleware.md](WireMVCMiddleware.md), *Short-circuit & the
+box shape*). The contribution must be registered before `next` and drained when the outcome is built, by the
+terminal **and** the `responding` gate path — a gate that writes a 403 directly must drain them too, or the
+session examples half-work. Prior art for that shape is ASP.NET Core's `OnStarting`.
 
 **Not addressed:** `Content-Length`. Nothing sets it, so bodies frame as chunked. Fixing it is a framing
 decision (a declared length conflicts with a `Transfer-Encoding` the transport may add) and wants deciding
