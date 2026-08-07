@@ -197,9 +197,10 @@ discipline is JAX-RS/OpenAPI-flavored; `@ResponseStatus` is the Spring name.)
   upgrade support.
 - Typed error→response mapping → **shipped** as `@ErrorResponse` (M5.4E); see
   [RouteErrorHandling.md](RouteErrorHandling.md).
-- Response header/cookie control → **shipped for routes** (`@ResponseHeader` + the response tuple, see
-  below); the **middleware** contribution channel is the remaining piece, and is what a session cookie
-  needs.
+- Response header/cookie control → **shipped**: `@ResponseHeader` + the response tuple for routes, and
+  `ResponseHeaderRegistry` on the box for middleware (see below). A session cookie is expressible.
+  The **global** tier lands with it (`WireMVCContext` as a courier), so a global `@Middleware` reaches a
+  route's response — including routes with no `@Middleware` of their own, raw routes, and the 404.
 - `@Head` / `@Options` verbs → later or via the raw handler.
 
 ## Added after M5.0
@@ -329,13 +330,120 @@ list fields it would be redundant, for `Set-Cookie` harmful, and for singular fi
 and its getter joins on read without special-casing `Set-Cookie`, so touching it anywhere in the resolve
 path is the one invariant that would break this silently.
 
-**Still open — the middleware channel.** A middleware has no return value to carry a field in (the
-proposal's `Middleware.intercept` is universally generic in `Return`), so it contributes through the box.
-The timing is the hard part: the terminal writes the response *during* `next`, so a middleware can neither
-append after `next` nor post-process (see [WireMVCMiddleware.md](WireMVCMiddleware.md), *Short-circuit & the
-box shape*). The contribution must be registered before `next` and drained when the outcome is built, by the
-terminal **and** the `responding` gate path — a gate that writes a 403 directly must drain them too, or the
-session examples half-work. Prior art for that shape is ASP.NET Core's `OnStarting`.
+### The middleware channel — `ResponseHeaderRegistry` on the box
+
+A middleware has no return value to carry a field in (the proposal's `Middleware.intercept` is universally
+generic in `Return`), so it contributes through the box:
+
+```swift
+let headers = input.responseHeaders
+headers.add(.set(.strictTransportSecurity, "max-age=31536000"))   // known on the way in
+headers.onSend {                                                   // not knowable until the handler ran
+    guard let cookie = try await store.persistIfEdited(session) else { return [] }
+    return [.append(.setCookie, cookie.description)]
+}
+return try await next(input)
+```
+
+**Registered on the way in, evaluated on the way out.** This is the load-bearing constraint, and it is not
+a choice: the terminal writes the response *during* `next` (see
+[WireMVCMiddleware.md](WireMVCMiddleware.md), *Short-circuit & the box shape*), so by the time an outer
+middleware resumes the bytes are gone. Mutating a response after `next` — what Hummingbird's
+`SessionMiddleware` does — is not expressible here at all. `onSend` is the shape that survives it, and is
+ASP.NET Core's `HttpResponse.OnStarting` for the same reason: headers stop being writable once the body
+starts.
+
+**Ordering.** Drain applies registration calls in **reverse**, so the outermost middleware — which
+registers first, on the way in — applies last and wins. That matches a wrap-style stack's natural
+behaviour (Hummingbird and Vapor middleware mutate on the way out, outermost last) and keeps a policy
+header set at the app edge from being overridden by something nested inside it. Order *within* one call is
+preserved, so a middleware never sees its own contributions reversed.
+
+**Threaded by the box, enforced by the compiler.** The registry is a class carried in *both* box states and
+reached by a borrowing accessor beside `peekedRequest`, so `withPendingContents` / `withContents` keep
+their signatures — the destructures user middleware actually call are untouched. It is a **required**
+parameter of `pending(…)` / `responded(…)`: a transforming middleware that rebuilds the box must thread it,
+and one that forgets fails to compile rather than silently discarding every contribution. The fixture
+`MultiPartMiddleware` proved this the moment the parameter landed. Same principle as the projection
+guarantee — the compiler enforces participation, nothing asserts it.
+
+**The gate path drains too.** A gate short-circuits the terminal, so `respondingWith(_:)` — responding with
+a `WireMVCOutcome` — drains into it before sending. Without that, contributions would vanish on exactly the
+paths that most want them (a `401` needing its challenge, a redirect needing a cookie set on the way out).
+Raw `responding` keeps handing over the sender and does **not** drain; that is documented on it, and it
+stays for streaming, which has no outcome shape.
+
+### The global tier — `WireMVCContext` as a courier
+
+A *global* `@Middleware` initially could not contribute at all. The global tier is a front layer wrapping
+`router.handle` (M5.5 Phase 5) and builds its own box; the route builds a fresh one inside, so the two
+registries never met. That is the security-headers and CORS case, so it is not a corner.
+
+**Why the obvious fixes don't work.** `GlobalMiddlewareHandler` declares its associated types *equal* to its
+inner's, and `HTTPServerRequestHandler.handle` takes exactly four values and is the proposal's, not ours.
+So the front layer cannot wrap the sender, cannot wrap the context, and has no parameter to hand anything
+down in. Two designs were worked through and rejected:
+
+- **Fold the global chain into every route** (threading it through `registerWireRoutes`, as `coding:`
+  already is). Costs one fold entry per route, moves globals *inside* route matching, and needs a
+  `Middleware`-shaped constraint across two method generic parameters — close enough to spike-15's
+  inexpressible fold to be a real risk.
+- **`finalize(globalMiddleware:)`, folding globals at the router.** *Not expressible*: `ServingHandler` is a
+  single associated type on `FinalizableHTTPServerRouteBuilder` and cannot be parameterised by the chain
+  per call. Same family of failure as spike-15 — `Middleware`'s two primary associated types not fitting
+  through a boundary that wants one type.
+- **A WireMVC-owned handler protocol with a fifth parameter.** Expressible, but it invents a second channel
+  for exactly what `RequestContext` is: `HTTPServerCapability.RequestContext` is an *empty marker* whose
+  documented purpose is per-request capabilities, and this record's own rule is *enrichment rides
+  `RequestContext`*.
+
+**The design.** `WireMVCContext<Base>` carries the registry from a handler at the top of the stack
+(`WireMVCContextHandler`, always present) down through the front layer to the router. It conforms with
+`RequestContext == Base` while its inner conforms with the wrapper — different types on different
+conformances, which is what lets it wrap where the front layer cannot. That the front layer *couldn't* was
+a declaration choice in it, not a language constraint; mistaking one for the other is what sent the first
+two designs down blind alleys.
+
+**It is a courier, not a carrier — and is unwrapped on arrival.** The registry lives on the *box*, where
+route and controller middleware already read it; the context only gets it across `handle`. So the generated
+register closure reads the registry, calls `takeBase()`, and builds the route's box over the **unwrapped**
+context. Nothing below routing meets the type: a context-transforming middleware wraps the app's real
+context, and the plugin's capability-forwarding conformances stay one layer shallower. If M6b later puts a
+per-request *logger* on it — something route code genuinely consumes — the unwrap comes out, and at that
+point the exposure is earned rather than incidental.
+
+**Spiked before building** (wrapper, consuming unwrap, differing inner/outer conformances, a route
+end-to-end): all four compile. The unwrap is `WireDisconnected/take()`'s shape — `consume base` out of a
+consuming method — which was the piece most likely to fail given this package's history with linear values.
+
+**Raw routes take a wrapping sender, not a drain.** A `@RawRoute` writes its own head, so there is no
+outcome to inject into; `ResponseHeaderApplyingSender` resolves contributions into whatever head is written
+through it instead. That is what reaches the `@NotFound` fallback, which *must* be raw and was otherwise
+the one response a global header could never appear on. The explicit-role form is excluded — its sender is
+a transformed slot whose type a middleware pins, and naming a transformed slot is already the "I am taking
+over this primitive" signal.
+
+**Every typed route drains**, not only those with a fold. The byte-identical emission plain routes used to
+keep was given up deliberately: most routes have no `@Middleware` of their own, and a conditional drain
+would have missed exactly those, silently.
+
+**`WireMVCContext` is `public`, and that is forced.** A `@WireMVCBootstrap`'s `createRouteBuilder(for:)`
+names its builder's context type and is written in the app's module, so an internal type cannot appear
+there. The escape considered was an adapter `HTTPServer` whose `RequestContext` *is* the courier: the app's
+signature is generic, so it would name the type without spelling it. **Spiked, and it does not save the
+access** — the adapter must be public for the generated `@main` to name it, and
+
+    type alias 'RequestContext' must be declared public because it matches a requirement
+    in public protocol 'HTTPServer'
+
+so its witness, and therefore the courier, must be public too. A public conformance to a public protocol
+cannot hide its associated types. Both routes end in the same place.
+
+**The adapter is still worth building, for a different reason.** It compiles — including for a base server
+that is itself `~Copyable`/`~Escapable`, which `HTTPServer` permits — and it moves the wrapping into
+`serve(handler:)`. That leaves `createServer()` and `createRouteBuilder(for:)` **unchanged in every app**,
+where the direct approach makes every composition root edit three type arguments. Source compatibility, not
+encapsulation, is what it buys.
 
 **Not addressed:** `Content-Length`. Nothing sets it, so bodies frame as chunked. Fixing it is a framing
 decision (a declared length conflicts with a `Transfer-Encoding` the transport may add) and wants deciding
