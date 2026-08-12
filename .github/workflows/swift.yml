@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [ main ]
 
+# The `6.3.3` literals below are **deliberate**, not a duplicated pin. `.swift-version` names the toolchain
+# swift-wire is developed against (a 6.4 snapshot, matching wire-mvc and wire-open-api, which build it as a
+# dependency); these jobs are a *regression check* that the package still compiles on the current release
+# toolchain. Bumping `.swift-version` must not touch them — they move only when the released Swift does.
+#
+# `Swift64Pinned` is the job that *does* read `.swift-version` — it covers the 6.4 toolchain this package is
+# developed against, against the pre-release swift-syntax 604 line a 6.4 adopter gets.
 jobs:
   BuildAndTestLinux:
     name: Linux ${{ matrix.os }} / Swift ${{ matrix.swift-version }}
@@ -122,28 +129,42 @@ jobs:
       - name: Run tests
         run: swift test
 
-  Swift64Nightly:
-    name: Swift 6.4 nightly / swift-syntax 604-prerelease
-    # Early warning that the macros and generated code build and test on the upcoming Swift 6.4
-    # toolchain against the swift-syntax 604 line it ships with — the version a real 6.4 adopter
-    # uses. 604 is still pre-release, tracked via its release/6.4.x branch because SPM version
-    # ranges don't resolve pre-release tags. Uses the nightly 6.4 container since
-    # SwiftyLab/setup-swift only installs released toolchains. (swift-syntax 603 on its aligned
-    # release compiler is already covered by the SwiftSyntaxMatrix job above.)
+  Swift64Pinned:
+    name: Swift 6.4 (pinned) / swift-syntax 604-prerelease
+    # That the macros and generated code build and test on the Swift 6.4 toolchain this package is
+    # developed against, using the swift-syntax 604 line it ships with — the version a real 6.4 adopter
+    # uses. 604 is still pre-release, tracked via its release/6.4.x branch because SPM version ranges
+    # don't resolve pre-release tags. (swift-syntax 603 on its aligned release compiler is already
+    # covered by the SwiftSyntaxMatrix job above.)
+    #
+    # Pinned via `.swift-version` rather than the nightly container it used to run on: a red build here
+    # should mean this change broke, not that the toolchain moved overnight. Toolchain bumps are a
+    # deliberate edit to that file.
     runs-on: ubuntu-24.04
-    container: swiftlang/swift:nightly-6.4.x-noble
     steps:
       - uses: actions/checkout@v6
+      - name: Read the pinned toolchain
+        run: echo "SWIFT_SNAPSHOT=$(cat .swift-version)" >> "$GITHUB_ENV"
+      - name: Install system dependencies
+        # libcurl4-openssl-dev is required by the toolchain itself (Foundation networking on Linux) and
+        # must precede the install, or Swiftly's post-install check fails.
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev libsqlite3-dev libcurl4-openssl-dev
+      - name: Install Swiftly + the pinned toolchain
+        run: |
+          curl -L "https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz" | tar zxf -
+          ./swiftly init --assume-yes --skip-install
+          echo "$HOME/.local/share/swiftly/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/share/swiftly/bin/swiftly" install "$SWIFT_SNAPSHOT" --use --assume-yes
       - name: Pin swift-syntax to the 604 (release/6.4.x) line
         run: |
           sed -i 's|"603.0.0"..<"604.0.0"|branch: "release/6.4.x"|' Package.swift
           grep swift-syntax Package.swift
       - name: Resolve dependencies
-        run: swift package update
+        run: swiftly run swift package update
       - name: Build
-        run: swift build -c release -Xswiftc -strict-concurrency=complete
+        run: swiftly run swift build -c release -Xswiftc -strict-concurrency=complete
       - name: Run tests
-        run: swift test
+        run: swiftly run swift test
 
   StaticLinuxSDK:
     name: Static Linux SDK (cross-compile to aarch64-musl)
