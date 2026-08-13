@@ -75,6 +75,43 @@ Teardown folds in as one more collated step (unconditional, since every graph is
 `Teardownable`), so the Tier-2 bootstrap ends with the graph teardown wired without the
 app doing anything.
 
+## Prior art — the same constraint, three escape hatches
+
+The structural problem here isn't Swift's: contributions are spread across a module graph,
+something has to collect them, and no single site knows them all. Rust hits it constantly,
+because proc macros are strictly per-item with no channel between invocations — a macro
+expanding `@X` on one type cannot know another `@X` exists anywhere. Three answers are in
+production there, and the differences map onto choices this note is making.
+
+**An out-of-band compiler (pavex).** A separate binary (`pavexc`) reads rustdoc JSON across the
+crate graph, resolves the whole graph, and generates the wiring. Same family as Wire's plugin —
+a whole-program collector living outside macro expansion — and the only one of the three that
+gets *type* information rather than syntax. It pays by pinning to an unstable format. Wire's
+plugin re-parses sources instead, so it stays on a stable toolchain and gets no type
+information; see [ChoosingADIFramework.md](ChoosingADIFramework.md), *Macros vs. codegen*.
+
+**A build script plus a user-placed epilogue (lockjaw).** `build_script()` in `build.rs`
+collects; `epilogue!()` in `main.rs` validates and emits. Libraries skip the epilogue, binaries
+cannot. This is the cautionary one for this note, because it solves collation and still **leaves
+a user-side obligation** — the binary must remember to invoke `epilogue!()`. That is the same
+shape as the bug this document exists to kill: added a contributor, forgot the call at the root,
+silent until something doesn't happen. A design that collates centrally but still asks the app
+to declare something hasn't finished the job. The Tier-2 macro emitting *every* discovered step,
+rather than the app calling each `apply`, is what closes it here.
+
+**Link-time distributed slices (linkme / inventory).** Contributors self-register into a slice
+the linker assembles, or via life-before-main constructors. Zero ceremony and no central
+declaration at all — which is exactly why it can't answer either question this note cares about.
+There is nowhere to *count* contributions, so the interim reminder below ("graph has N
+contributions to this key; ensure `apply` is wired") has no analogue: nothing knows the total
+until the program is already running. And ordering is link order, which is not deterministic in
+any useful sense — directly relevant to open question 1. Wire can impose a deterministic order
+precisely because the plugin holds the whole list at build time.
+
+Worth carrying forward: the interim diagnostic and the ordering guarantee are both
+*consequences of collating centrally at build time*, not incidental conveniences. A link-time
+design would be less ceremony and would forfeit both.
+
 ## Interim: a build-time reminder (could land before M5)
 
 Short of full collation, the plugin already knows each collation key's contribution count.
@@ -101,3 +138,11 @@ Tier-2 is far off.
   router → apply → Application → run`) this generalises.
 - [WireMVCAbstraction.md](WireMVCAbstraction.md) — the cross-runtime adapters whose apply
   steps must collate.
+- [ChoosingADIFramework.md](ChoosingADIFramework.md), *Macros vs. codegen* — the source-parsing
+  vs. compiler-artefact trade the pavex comparison above turns on.
+- External, for the prior-art section: [pavex](https://docs.rs/pavex) and
+  [its design post](https://www.lpalmieri.com/posts/a-taste-of-pavex-rust-web-framework/);
+  [lockjaw](https://docs.rs/lockjaw) (`build_script()` + `epilogue!()`, and the
+  [caveats](https://azureblaze.github.io/lockjaw/caveats.html) that disown its cross-crate
+  mechanism); [linkme](https://docs.rs/linkme) and [inventory](https://docs.rs/inventory) for
+  the link-time registration model.

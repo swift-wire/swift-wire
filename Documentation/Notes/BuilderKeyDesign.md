@@ -43,10 +43,28 @@ by supplying a `@resultBuilder` type. The collected contributors
 are folded through that builder; the consumer receives the built
 artifact.
 
-This is the multibinding feature that no other DI framework offers
-because no other language has Swift's `@resultBuilder` machinery at
-the language level. Dagger's `@ElementsIntoSet` is the closest
-equivalent in the JVM world and is fixed to set concatenation.
+This is the multibinding feature no other DI framework offers.
+Dagger's `@ElementsIntoSet` is the closest equivalent in the JVM
+world and is fixed to set concatenation.
+
+The claim wants stating precisely, though, because the *fold* half
+is not unique to Swift. Rust's `tower` accumulates types the same
+way: `ServiceBuilder::new().layer(a).layer(b)` produces a nested
+`Stack<B, Stack<A, Identity>>`, so contributor order changes the
+resulting *type* and not merely the evaluation sequence —
+structurally the same thing as the `buildPartialBlock` middleware
+case below, in a language with no result builders at all. What
+tower cannot do is assemble that stack from contributors it did not
+enumerate at the call site: the `.layer()` chain is hand-written in
+one place, by one author who already knows every element.
+
+So the novelty is the **combination** — distributed collation folded
+through user-defined composition semantics. `@resultBuilder` is what
+makes the second half expressible as a library feature rather than a
+hand-written chain; Wire's contribution is wiring the first half into
+it. Stating this as "no other language has result builders"
+understates the point and invites a counterexample that doesn't
+actually threaten it.
 
 ## Core emission shape
 

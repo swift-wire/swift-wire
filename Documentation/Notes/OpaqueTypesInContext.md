@@ -1,10 +1,14 @@
 # Opaque types in context — how other DI frameworks solve the same problem
 
-> **Status:** comparative research, July 2026. Companion to
+> **Status:** comparative research, July 2026; **Rust added August 2026**. Companion to
 > [`OpaqueTypesSupport.md`](OpaqueTypesSupport.md), which specifies Wire's model;
 > this note places that model against the rest of the field and records what the
 > comparison implies for Wire's public claims. Framework behaviour is cited from
-> primary docs and issue trackers as of the research date.
+> primary docs and issue trackers as of the research date. One gap remains from the
+> August pass: pavex's guide pages are unreachable to automated fetching (they 404),
+> so its row is grounded in the `docs.rs` attribute reference and the design blog
+> rather than the guide. If pavex has a generic-constructor capability documented
+> only in the guide, the *Not applicable* cell is what would change.
 
 ## The question, and the two axes it splits into
 
@@ -104,6 +108,8 @@ advantage.
 | **Koin** | No — the `KClass` key erases type parameters | — | Dispatch-path only |
 | **Kodein** | Partial — `generic()` TypeTokens survive erasure by reflection (slow); `erased()` is fast but erasure-prone | Reflection | Dispatch-path only |
 | **Fruit (C++)** | No | Compile-time-checked graph, interface-bound | Real — heap + vtable, from a baseline that has neither |
+| **lockjaw (Rust)** | Undocumented — no mention of generics or type parameters in the README, docs.rs, the user guide, or the caveats page | Compile-time-checked graph (missing bindings, duplicate bindings, cycles); concrete static dispatch, `Cl<T>` only to carry scoped-vs-freestanding ownership | None — the graph holds concrete types |
+| **pavex (Rust)** | **Not applicable** — there is no binding identity to make open. Constructors are functions keyed by their concrete return type | Resolution is by concrete output type, wired into a generated call graph | None — generated code has no `dyn`, no type-map |
 
 **On the JVM and .NET, abstracting is nearly free — but "nearly", and only
 because the baseline is already dynamic.** It is not that abstraction is
@@ -124,6 +130,63 @@ framework nothing. Fruit is the useful control here — C++ has the same zero-co
 baseline as Swift, so its interface bindings pay a real delta, and it took that
 delta rather than build the template machinery to avoid it.
 
+**Rust splits the cell Fruit was standing in for, and is the better control.**
+Rust has the same zero-cost baseline as Swift and C++: abstracting through
+`dyn Trait` costs a heap indirection, a vtable call, and lost specialisation —
+Swift's `any P` bill minus the copy-into-a-box pathology, since a `dyn` is always
+already behind a pointer. What differs is the trailhead. Rust's *idiomatic* way to
+express "depends on an abstraction" is a generic parameter (`T: Repository`) or
+`impl Trait`, not the erased form, so the zero-cost construct is also the default
+one. A Rust DI framework that preserves concrete identity is therefore not building
+machinery — it is declining to erase. Two do. **lockjaw** is Dagger-inspired,
+rejects missing bindings, duplicate bindings, and cycles at compile time, and
+resolves through concrete static dispatch. **pavex** sidesteps identity altogether:
+a separate compiler (`pavexc`) reads rustdoc JSON across the crate graph, keys
+constructors by concrete return type, and emits a plain Rust crate whose wiring is,
+in its author's words, "just functions calling each other" — no reflection, no
+dynamic dispatch, no type-maps.
+
+**Lockjaw's price is worth recording, because it is a Swift-versus-Rust finding and
+not a lockjaw one.** Its own caveats page lists three mechanisms — resolving fully
+qualified type paths, bypassing Rust's visibility rules to grant lockjaw cross-crate
+access to otherwise-private symbols, and generating `impl` blocks outside the module
+that declares the struct — and calls them "abhorrent engineering practices that
+abuse undocumented behaviors of Rust," concluding that "they are the main reasons
+you should not use Lockjaw in any serious project." The third is the interesting
+one: Rust requires an inherent `impl` to sit with its type, so a framework that
+wants to *add* a conformance to a type the user declared has to fight the language.
+Swift extensions add conformances from any file or module as a matter of course,
+which is exactly what Wire's adapter macros rely on — `@OpenAPIController` adding a
+`TransportContributor` conformance is unremarkable in Swift and a hack in Rust. So
+lockjaw is evidence that the *shape* is expressible in Rust, not that Rust has a
+usable peer to the adapter contract; cite it as a design precedent, not as a
+competitor.
+
+The Rust field also supplies the counter-example, and it is the same failure the
+Swift table records. **shaku** — the most widely used Rust DI crate — validates the
+graph at compile time and then hands every dependency back as `Arc<dyn Interface>`,
+spending its compile-time analysis and forfeiting the representation anyway. That
+combination is worth naming because it is the one an evaluator is most likely to
+have met: *compile-time-checked* and *zero-cost* are independent properties, and
+most frameworks that advertise the first quietly concede the second. SafeDI concedes
+it in Swift, shaku concedes it in Rust, and the concession is invisible in both
+until you look at what the resolver returns.
+
+**This tightens axis 1 rather than loosening it.** Wire, Dagger, lockjaw, and pavex
+all reach parity with hand-written wiring in their own language; the comparison
+worth making is what parity *costs* each of them. Dagger gets it free because the
+JVM baseline is already dynamic — there is nothing cheaper to forfeit. lockjaw and
+pavex get it nearly free because Rust's cheapest construct is also its most
+idiomatic one. Wire has to build the lifting, the constrained-parameter bridge, and
+the identity model, because Swift's idiomatic abstraction is `any P` and `some P` in
+binding position is exotic. Same destination; the distance from the trailhead is the
+language's doing, not the framework's. This is also why Fruit alone was a misleading
+control — it is a zero-cost-baseline language whose DI framework *declined* the
+ceiling, which makes Wire look unusual for reaching it. Rust is a zero-cost-baseline
+language where frameworks reach it routinely, and it reframes the question from "who
+reaches the ceiling" to **"how much machinery does the language make you build to get
+there."** That is the honest form of Wire's claim, and it survives the comparison.
+
 **On axis 1 this is parity, not advantage.** Dagger imposes no delta over
 hand-written JVM wiring, and Wire imposes none over hand-written Swift; Dagger
 gets there for free and could not be improved by adding opaque identities,
@@ -142,12 +205,23 @@ and variance-aware matching. The trade inverts cleanly:
   consumer needs a `some P` producer all the way down, and every hop must be
   restructured as a generic type.
 
-That virality cost has no analogue anywhere in the field. In Dagger,
+That virality cost has no analogue among *DI frameworks*. In Dagger,
 `@Binds Repo bind(DynamoRepo impl)` changes nothing upstream — the consumer
 injects `Repo` and every intermediate type is untouched. In Wire the consumer
 becomes `TaskController<Repository: TaskRepository>` and so does everything
 between it and the leaf. This belongs in the README as the honest headline trade,
 because it is what an evaluator hits on day two.
+
+It is not, however, unusual as a *language* pattern, and that is the reassuring
+half. Rust propagates `T: Repository` bounds through intervening types in exactly
+this way, routinely, at ecosystem scale — so the style is demonstrably livable
+rather than a shape only Wire asks of its users. The instructive detail is what Rust
+does when virality stops being worth it: it reaches for `Box<dyn Trait>` at the hop
+where the chain gets painful, and nobody reads that as a defeat. Wire already ships
+the same valve — `some P` satisfies `any P` promotion — and the Rust precedent
+argues for documenting it as the *sanctioned* pressure release rather than a
+fallback, since the ecosystem that has lived longest with viral generics settled on
+precisely that pairing.
 
 Two mappings worth reusing in user-facing docs, since they reach for vocabulary
 the target audience already has:
@@ -246,3 +320,14 @@ does not search conformers.
 - [swift-dependencies — protocol/generic dependencies (discussion #25)](https://github.com/pointfreeco/swift-dependencies/discussions/25)
 - [Needle](https://github.com/uber/needle)
 - [Fruit (C++)](https://github.com/google/fruit)
+- [lockjaw (Rust) — Dagger-inspired compile-time DI](https://docs.rs/lockjaw), its
+  [announcement thread](https://users.rust-lang.org/t/lockjaw-dagger-inspired-compile-time-dependency-injection-framework/64049),
+  and the [caveats page](https://azureblaze.github.io/lockjaw/caveats.html) that
+  disowns its own mechanisms
+- [pavex (Rust)](https://docs.rs/pavex) — 0.2.10, June 2026; and
+  [A taste of pavex](https://www.lpalmieri.com/posts/a-taste-of-pavex-rust-web-framework/)
+  for the rustdoc-JSON code-generation model and the "no indirection" claim
+- [teloc (Rust)](https://github.com/p0lunin/teloc) — monomorphised type-level container;
+  dormant, useful as a design reference for the no-`dyn` container shape
+- [shaku (Rust)](https://docs.rs/shaku/latest/shaku/) — the counter-example: compile-time
+  graph validation that still resolves through `Arc<dyn Interface>`
