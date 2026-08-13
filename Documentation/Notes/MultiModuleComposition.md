@@ -124,6 +124,24 @@ contract unchanged and lands when its cost is felt:
   `@Factory` factory-lift already takes. `_WireExports.swift` doesn't
   "become the manifest"; it's retired (detection moves to the Wire-product
   dependency).
+
+  **Open question — a third route, worth answering before the design locks
+  (2026-08).** Both options above are *committed artifact* or *public
+  symbols referenced by name*. Rust's pavex takes neither: its generator
+  consumes **rustdoc JSON** — the compiler's own description of a
+  dependency's public API — which is neither hand-committed nor referenced
+  by name, and which gives it real type information instead of syntax.
+  Swift's nearest analogue is `.swiftinterface`, which SPM already produces
+  under library evolution. **Unverified:** whether a build-tool plugin can
+  read a dependency's `.swiftinterface`, and whether it is produced at all
+  outside library-evolution builds. If it can, it is the shape M7a wants
+  without asking libraries to commit anything, and it would carry type
+  information the source-parsing route structurally cannot have (see
+  [`OpaqueTypesInContext.md`](OpaqueTypesInContext.md) on what matching
+  syntax without a type checker forecloses). If it can't, it is the same
+  "a consumer can't read another target's outputs" wall as the marker, and
+  the two routes above stand unchanged. Cheap to answer, and it gates the
+  choice.
 - **M7b — reachability pruning (bulk lands with M5.4).** M1 eager-
   constructs *every* binding in the merged graph, including a library
   binding nothing reaches — so a large dependency costs all its singletons
@@ -198,6 +216,19 @@ selectors disambiguate, they don't *normalize* — `A::Logger` and
 Module qualification is therefore a composition concern, not part of the
 deferred typealias/collection-sugar normalization.)
 
+**Prior art: lockjaw hit this exact wall.** Rust's lockjaw needs fully
+qualified type paths for the same reason Wire does — comparing bindings
+discovered across separately-compiled units — and its caveats page lists
+"path resolution" first among three mechanisms it describes as "abhorrent
+engineering practices that abuse undocumented behaviors of Rust." It had
+neither a structural route to the answer nor a language-level spelling for
+the emission. Both halves of the position above are the reply:
+qualification is knowable structurally because Wire parsed the module
+itself, and SE-0491 gives the emission a first-class syntax. Useful as
+independent evidence that this problem is real rather than anticipated,
+and that the structural route is the one that doesn't end in abusing the
+toolchain.
+
 ## Visibility — the cross-module threshold
 
 The sibling break, easy to forget. [`VisibilityModel.md`](VisibilityModel.md)'s
@@ -212,6 +243,20 @@ So the declaration-too-private threshold becomes **context-dependent**:
 `internal` for in-module consumption, `public`/`package` for
 cross-module-consumed bindings. Whether a binding is cross-module-
 consumed is, again, knowable structurally from the composition graph.
+
+**Prior art: lockjaw took the other branch, and disowns it.** Rust has the
+same break — a consuming crate cannot reach another crate's private items
+— and lockjaw's answer was to **bypass** Rust's visibility rules, granting
+itself access to symbols the language keeps private, precisely so users
+wouldn't have to widen anything for cross-crate use. That is the second of
+the three practices its own caveats page cites as a reason "you should not
+use Lockjaw in any serious project." The threshold above is the honest
+branch of the same fork: cross-module-consumed means ≥ `public` /
+`package`, with no framework-privileged access path and nothing
+undocumented relied upon. Worth keeping to hand, because "why do I have to
+make this `public`?" is a predictable adopter objection, and the answer is
+that the ergonomic alternative was built, shipped, and withdrawn by its
+own author.
 
 ## Multibinding key references across modules
 

@@ -5,7 +5,10 @@
 > revisited when M1 ships and the seed-typed-scope model has been
 > validated against real adoption. The point of this draft is to
 > preserve conceptual work before context drifts, not to commit to a
-> public position.
+> public position. *Extension surface* revised August 2026 with the
+> Rust comparison; see
+> [OpaqueTypesInContext.md](OpaqueTypesInContext.md) for the survey
+> it draws on.
 
 ## Core thesis
 
@@ -178,6 +181,37 @@ Spring's named scopes aren't.
 **Friction:** No type-level binding identity — registration is by
 runtime type lookup, so generics and protocols can be awkward.
 
+### pavex (Rust)
+
+Included as a comparison point, not an option — it is listed here
+because it is the closest non-Swift peer to Wire's shape, and the
+contrast sharpens why Wire's scope model looks the way it does.
+
+**Designed for:** Pattern B, and only Pattern B. Compile-time DI is
+the framework's organising idea rather than one of its features: a
+separate compiler (`pavexc`) reads rustdoc JSON across the crate
+graph, resolves the constructor graph, and emits a plain Rust crate
+with no runtime container in it at all.
+
+**Strengths in this shape:** Build-time validation with diagnostics
+phrased in web-application vocabulary rather than the host
+language's — possible because the generator owns the graph and can
+speak about routes and handlers rather than types. Generated wiring
+is fully concrete: no reflection, no dynamic dispatch, no type-maps.
+
+**Friction:** Three fixed lifecycles — singleton, request-scoped,
+transient — with no user-definable scope anywhere in its attribute
+surface. This is the sharpest available argument for seed-typed
+scopes, and a stronger one than the Spring comparison above: pavex
+is a *compile-time* Pattern B framework that still cannot express
+the sibling job / SQS / scheduler scopes this doc's Pattern B
+section identifies as the structurally interesting property.
+Request scope is the only short-lived scope the model admits.
+Spring at least lets you name a new scope and coexist by
+convention; pavex forecloses it. It also owns its runtime outright,
+so there is no cross-runtime question to answer — the framework
+*is* the server.
+
 ### swift-dependencies (PointFree / TCA)
 
 **Designed for:** Pattern C. `@Dependency(\.key)` is a value-lookup
@@ -237,12 +271,62 @@ is often the right call.
 Wire publishes a macro-based adapter-annotation contract that lets
 third-party packages contribute framework integrations. SafeDI and
 swift-dependencies don't have a published extension contract;
-extending them requires changes to the upstream library. Spring's
-extension model is the gold standard but reflection-driven. The
-"can third parties contribute to my graph without forking the
-library" question is decisive if you intend to compose multiple
-framework adapters (HTTP framework + queue consumer + scheduler) at
-the application level.
+extending them requires changes to the upstream library. The "can
+third parties contribute to my graph without forking the library"
+question is decisive if you intend to compose multiple framework
+adapters (HTTP framework + queue consumer + scheduler) at the
+application level.
+
+The axis is really two independent properties, and nearly every
+framework has exactly one of them:
+
+- **Published and extensible** — third parties contribute without
+  upstream changes. Spring is the mature example.
+- **Compile-time and non-reflective** — contributions are validated
+  at build time rather than discovered by scanning.
+
+Spring buys the first with reflection, which is why its extension
+model is simultaneously the gold standard and unavailable to a
+build-time framework. Compile-time frameworks mostly go the other
+way and ship a closed set of integrations. Wire's contract claims
+both, so the question worth asking is why nobody else does.
+
+The answer looks like a language affordance rather than a design
+insight, and it is more honest to say so. **lockjaw** (Rust,
+Dagger-inspired) is the one serious attempt at both outside Swift —
+compile-time-validated, non-reflective, explicitly designed so that
+library crates and their users can invert control. It works, and
+its author does not recommend it. The caveats page lists bypassing
+Rust's visibility rules to reach otherwise-private symbols across
+crates, and generating `impl` blocks outside the module declaring
+the struct, as "abhorrent engineering practices that abuse
+undocumented behaviors of Rust" — and states they are "the main
+reasons you should not use Lockjaw in any serious project."
+
+The blocker is impl-locality. Rust requires an inherent `impl` to
+sit with its type, so a third-party crate wanting to *add*
+behaviour to a type the user declared has to fight the language.
+That is exactly the move Wire's adapter macros make every time:
+`@OpenAPIController` adds a `TransportContributor` conformance to
+the user's controller from another module entirely. In Swift that
+is an extension, and unremarkable. In Rust it is the thing lockjaw
+apologises for.
+
+So the honest form of Wire's advantage here is not that the
+contract is cleverly designed — it is that Swift's extension model
+makes a published *compile-time* extension contract cheap, where
+the languages that would otherwise compete for this shape make it
+expensive. Two consequences worth carrying forward:
+
+- When evaluating any framework's extension claim, ask what
+  mechanism attaches third-party behaviour to your type.
+  Reflection (Spring), codegen into your module (Needle-shaped), a
+  first-class extension mechanism (Wire), or a hack (lockjaw) — the
+  answer predicts the failure modes better than the feature list.
+- Wire should not cite lockjaw as a competitor. It is a design
+  precedent establishing that the shape is expressible, and a
+  cautionary example of what it costs in a language without
+  extensions.
 
 ### Generics preservation
 
@@ -305,6 +389,28 @@ Not exhaustive. Use as a starting point.
   frameworks (Needle) decouple from the compiler version but require
   a separate tool in the build. This is a real trade-off in CI cost
   and stability.
+
+  There is a third point on this axis worth recording, because it
+  names something Wire gave up rather than something it chose.
+  **pavex** runs a separate compiler that consumes *rustdoc JSON* —
+  the host compiler's own output — rather than parsing sources.
+  That buys whole-program reflection over real type information:
+  signatures, conformances, and resolved paths for types the tool
+  never parsed, across the whole crate graph. It pays by pinning to
+  an unstable format, which is why pavex tracks nightly.
+
+  Wire's plugin sits in the codegen column but reads *source* via
+  SwiftSyntax, so it depends on no unstable artefact — and gets no
+  type information. That constraint is already load-bearing
+  elsewhere in the design: `OpaqueTypesInContext.md` records that
+  Wire matches syntax with no type checker available, which is
+  precisely why Spring-style conformance-and-variance search is
+  rejected and the constrained-parameter bridge reads a *declared*
+  constraint instead of searching conformers. Pavex is the existence
+  proof for the other branch. If Wire ever wants type-level
+  reasoning, the question is not "can a build plugin do this" — it
+  is whether Swift exposes a stable equivalent of rustdoc JSON to
+  consume, and today it does not.
 
 ## What this doc is missing (TODOs)
 
