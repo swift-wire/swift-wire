@@ -74,6 +74,53 @@ correctness or milestone blockers, and doing them late is deliberate:
   cross-module, so this is fix-it polish; it also needs a three-package fixture
   under `CompositionHarness/`. Slot in with a broader cross-module DX pass.
 
+## Known blockers (1.0)
+
+Unlike *Pre-1.0 polish* above, these are correctness or API-shape issues that must be resolved — or
+consciously accepted — before a 1.0 tag.
+
+### Property wrappers on non-copyable parameters (upstream)
+
+**Status:** two upstream bugs plus one evolution gap; workaround shipped. **Blocks:** the final shape of
+WireMVC's lent request-body stream binding (`@RequestBinding(.bodyStream)`).
+
+**1. SILGen crash — [swiftlang/swift#81624](https://github.com/swiftlang/swift/issues/81624), open since
+May 2025.** Referencing a property-wrapped non-copyable value crashes the compiler. Reported there for a
+local variable; it applies to function parameters too, and still reproduces on 6.3.3 (release) and 6.4-dev
+2026-08-01, so it is standing rather than a regression. The trigger is *any* mention of the value — a
+`consuming` call, a `borrowing` call, or simply passing it on. An empty body compiles, which is why the
+shape looks workable until something uses it. That issue documents a workaround — access the backing store,
+`_x.wrappedValue` — and it does work, including for parameters.
+
+**2. The workaround fails for `~Escapable` generic parameters —
+[swiftlang/swift#91473](https://github.com/swiftlang/swift/issues/91473).** Adding `~Escapable` replaces the
+crash with `copy of noncopyable typed value. This is a compiler bug. Please file a bug with a small example
+of the bug`, for a move-out, a `consume`, and a `consuming` method call alike. Three ingredients are each
+required, verified by removing them one at a time: the property wrapper, `~Escapable`, and a **generic**
+parameter — the concrete-type version compiles. Together the two issues make a property-wrapped non-copyable
+parameter unusable precisely when the wrapper is being used to guarantee that a borrowed resource cannot
+outlive its scope, which is the one combination worth having it for.
+
+**3. `inout` is not a workaround, and is not a bug.** SE-0293 (property wrappers on function and closure
+parameters) defers property wrappers on `inout` parameters explicitly — "better tackled by another
+proposal, due to its implementation complexity" — and gives the reason not to want it: "the ability to
+mutate a wrapped parameter
+would likely confuse users into thinking that the mutations they make are observable by the caller; that's
+not the case." Nothing to file; it needs a proposal, and the confusion argument is a good reason not to
+pursue one for this.
+
+**The accepted weakening.** The binding wants a parameter that is `~Copyable, ~Escapable`, making "a handler
+cannot keep the stream past the request" a compile error. Bug 2 makes that unreachable, so the parameter is
+`~Copyable` only and the stream is consumed through `withParts { cursor in … }`. The guarantee survives
+where it matters: the *cursor* — the thing that can read the socket — is a closure parameter rather than a
+property-wrapped one, so it is `~Copyable, ~Escapable` and provably cannot be stashed. What is lost is the
+outer one: a handler could move the stream into a class instead of calling `withParts`. That yields a spent
+reader rather than a dangling one (the stream owns its reader directly — no heap box), and it cannot happen
+by accident, since consuming it through `withParts` is the only path the API offers.
+
+**Why this blocks 1.0:** the weakening is in a *public API shape*. When bug 2 is fixed the parameter gains
+`~Escapable` and the documented gap disappears; shipping 1.0 first would fix the weaker guarantee in place.
+
 ## Deferred features
 
 Features the README describes but M1 deliberately didn't commit to. Each is
