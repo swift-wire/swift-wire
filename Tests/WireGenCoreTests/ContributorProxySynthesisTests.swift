@@ -254,4 +254,34 @@ struct ContributorProxySynthesisTests {
         let plainSubject = binding(named: "TodosController", in: bindings)
         #expect(plainSubject?.dependencies.contains { $0.type == "_WireFactory_Keys_factory" } == false)
     }
+
+    // MARK: - Synthesised proxies are exempt from the dead-binding warning
+
+    /// A keyless `.liftsPeersToProxy` directive — M5.5's global-middleware proxy. It contributes to no
+    /// multibinding and nothing in the graph injects it: its consumer is the adapter's *generated* code.
+    private func bootstrapAnnotation() -> DiscoveredAdapterAnnotation {
+        DiscoveredAdapterAnnotation(
+            annotationName: "WireMVCBootstrap",
+            capability: .liftsPeersToProxy(
+                proxyTypePrefix: "_WireGlobalMiddleware_",
+                proxyScope: .singleton
+            ),
+            location: mockLocation("Adapter.swift"),
+            originModule: testModule
+        )
+    }
+
+    @Test func synthesisedProxyDoesNotWarnAsDead() {
+        // The warning is anchored at the *subject's* location, so before this it read as "your Bootstrap
+        // is unused" about a synthesised type the user never wrote and cannot annotate.
+        let result = applyContributorProxies(
+            to: [.default: [controller()]],
+            annotations: [bootstrapAnnotation()],
+            useSites: [useSite("WireMVCBootstrap", on: "TodosController")]
+        )
+        let proxy = binding(named: "_WireGlobalMiddleware_TodosController", in: result.bindings[.default] ?? [])
+        #expect(proxy != nil)
+        #expect(proxy?.allowUnused == true)
+        #expect(deadBindingDiagnostics(across: result.bindings).isEmpty)
+    }
 }
