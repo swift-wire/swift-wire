@@ -321,4 +321,59 @@ struct DeadBindingDiagnosticsTests {
         // live via its multibinding's consumer.
         #expect(warnings([singleton("AuthPlugin", contributesTo: "App.plugins")]).isEmpty)
     }
+
+    // MARK: - Bridging contributor proxies (scope-entry thunks)
+
+    /// A bridging proxy over a `@Scoped(seed:)` subject: it depends on a *thunk* that constructs the
+    /// subject, not on the subject's type. The dependency is named `_wireEnterScope`, as the synthesised
+    /// proxy names it.
+    private func bridgingProxy(_ name: String, seed: String, subject: String) -> DiscoveredBinding {
+        .scopeBound(
+            DiscoveredScopeBoundType(
+                typeName: name,
+                typeKind: "struct",
+                genericParameterNames: [],
+                dependencies: [
+                    DependencyParameter(
+                        name: contributorProxyScopeEntryFieldName,
+                        type: contributorScopeEntryThunkType(seed: seed, subject: subject),
+                        kind: .injectProperty,
+                        location: mockLocation("\(name).swift"),
+                        keyIdentifier: nil
+                    )
+                ],
+                location: mockLocation("\(name).swift"),
+                accessLevel: .internal,
+                contributions: [
+                    Contribution(keyReference: "WireMVCKeys.routeContributors", location: mockLocation("\(name).swift"))
+                ],
+                allowUnused: false,
+                originModule: testModule
+            )
+        )
+    }
+
+    @Test func scopedSubjectIsLiveThroughItsProxysScopeEntryThunk() {
+        // The subject is consumed only via `@Sendable (Seed) async throws -> (Subject, Teardown)`, whose
+        // own identity is the *function* type. Before the thunk's subject was read out, every
+        // `@Scoped(seed:) @Controller` warned as dead while its graph was perfectly correct.
+        #expect(
+            warnedFiles([
+                bridgingProxy("_WireRouteContributor_Probe", seed: "HTTPRequest", subject: "ProbeController"),
+                singleton("ProbeController"),
+            ]).isEmpty
+        )
+    }
+
+    @Test func aScopedTypeNoProxyConstructsStillWarns() {
+        // The narrow read: only the subject the thunk actually names goes live. A same-shaped type no
+        // proxy constructs is still dead, so the fix can't be masking real dead bindings.
+        #expect(
+            warnedFiles([
+                bridgingProxy("_WireRouteContributor_Probe", seed: "HTTPRequest", subject: "ProbeController"),
+                singleton("ProbeController"),
+                singleton("OrphanController"),
+            ]) == ["OrphanController.swift"]
+        )
+    }
 }
