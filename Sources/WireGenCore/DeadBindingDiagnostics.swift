@@ -121,6 +121,9 @@ private func consumedIdentities(
     for binding in consumers {
         for dependency in binding.dependencies {
             record(bridgedDependencyIdentity(dependency, in: binding))
+            // A bridging proxy consumes its subject *through* the scope-entry thunk, so the edge's own
+            // identity is the closure type and the subject would otherwise look dead. See below.
+            if let subject = scopeEntrySubjectIdentity(of: dependency) { record(subject) }
         }
         for injection in binding.memberInjections {
             for parameter in injection.parameters {
@@ -129,6 +132,31 @@ private func consumedIdentities(
         }
     }
     return consumed
+}
+
+/// The *subject* identity a bridging contributor proxy's `_wireEnterScope` dependency consumes.
+///
+/// A `.singleton` proxy over a `@Scoped(seed:)` subject doesn't depend on the subject's type — it depends
+/// on a thunk that constructs one: `@Sendable (Seed) async throws -> (Subject, Teardown)`. That edge's
+/// identity is the *function* type, which matches no producer, so the subject was reported dead even
+/// though the proxy is exactly what constructs it. (The `.singleton` case never had the problem: its proxy
+/// holds `_wireSubject` by type, an ordinary edge.)
+///
+/// Returns `nil` for every other dependency, so the analysis is otherwise unchanged. A *generic* proxy's
+/// thunk names a specialised subject (`MeController<Repository>`) that won't match the generic template's
+/// identity, but generic bindings are already exempt from the warning, so nothing is missed.
+private func scopeEntrySubjectIdentity(of dependency: DependencyParameter) -> BindingIdentity? {
+    guard dependency.name == contributorProxyScopeEntryFieldName,
+        let parsed = parsedContributorScopeEntryThunkType(dependency.type)
+    else { return nil }
+    let components = identityComponents(parsed.subject)
+    // Unkeyed: `@Scoped`/`@Singleton` self-producers carry no user-facing key.
+    return BindingIdentity(
+        qualifier: components.qualifier,
+        base: components.base,
+        isOptional: components.isOptional,
+        key: nil
+    )
 }
 
 /// Whether an unconsumed binding should warn. An explicit `allowUnused:
