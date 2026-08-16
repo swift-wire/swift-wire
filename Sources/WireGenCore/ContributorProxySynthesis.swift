@@ -240,6 +240,14 @@ func contributorProxyBinding(
         // A `.liftsPeersToProxy` proxy (key == nil) contributes to nothing — a standalone addressable
         // binding the adapter's codegen reads directly.
         contributions: key.map { [Contribution(keyReference: $0, location: subject.location)] } ?? [],
+        // A synthesised proxy is never a user declaration, so a dead-binding warning about it can only
+        // mislead: it is anchored at the *subject's* location, so it reads as "your type is unused" about
+        // a type the user did not write and cannot annotate. A keyless (`.liftsPeersToProxy`) proxy is
+        // exactly the case that warns — its consumer is the adapter's generated code, which Wire never
+        // sees — while a keyed proxy escapes only incidentally, via its contribution. Exempting both
+        // states the rule once. The *subject* is still checked normally, so a genuinely unused type is
+        // still reported.
+        allowUnused: true,
         originModule: subject.originModule
     )
 }
