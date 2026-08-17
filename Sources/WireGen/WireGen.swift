@@ -55,6 +55,15 @@ struct WireGen {
         var aggregate = discoverAllSources(groups: groups, consumerModule: consumerModule)
         print(renderDiscoveryReport(perFile: aggregate.perFile))
 
+        // `@GraphInputs` before every other pass: each stored property becomes an ordinary app-scope
+        // provider reading the bootstrap's `inputs` parameter, so from here on nothing else in the
+        // pipeline knows an input is any different from a hand-written `@Provides`.
+        if let inputs = aggregate.graphInputs.first {
+            aggregate.allBindings[.default, default: []].append(
+                contentsOf: graphInputBindings(inputs, inputsLocal: graphInputsParameterName, module: consumerModule)
+            )
+        }
+
         // Pre-graph binding rewrites — contribution aliases (`@X` → `@Contributes`),
         // adapter dependencies (`@X(T.self)`), and factory synthesis (`@X(key)`) — mutate
         // the bindings before graphs build; synthesis also yields the factories to emit.
@@ -188,6 +197,7 @@ struct WireGen {
             aggregate.factoryTemplates.append(contentsOf: result.factoryTemplates)
             aggregate.resultBuilders.append(contentsOf: result.resultBuilders)
             aggregate.graphConformances.append(contentsOf: result.graphConformances)
+            aggregate.graphInputs.append(contentsOf: result.graphInputs)
             aggregate.testingKeys.append(contentsOf: result.testingKeys)
             aggregate.testScopableTypes.formUnion(result.testScopableTypes)
         }
@@ -353,6 +363,7 @@ struct WireGen {
             across: aggregate.allBindings,
             resolvedByContainer: resolvedBindingsByContainer
         )
+        diagnostics += graphInputsDiagnostics(aggregate.graphInputs)
         diagnostics += deadFactoryDiagnostics(
             templates: aggregate.factoryTemplates,
             useSites: aggregate.aliasUseSites,
@@ -597,7 +608,8 @@ extension WireGen {
             // each `appendStruct` finds the ones whose consumers it constructs.
             existentialPromotions: inputs.defaultGraph.existentialPromotions
                 + inputs.containerGraphs.flatMap { $0.result.existentialPromotions }
-                + testingVariants.flatMap { $0.existentialPromotions }
+                + testingVariants.flatMap { $0.existentialPromotions },
+            graphInputsType: inputs.aggregate.graphInputs.first?.typeName
         )
         try generated.write(toFile: outputPath, atomically: true, encoding: .utf8)
         print("wrote \(outputPath)")
@@ -767,6 +779,9 @@ struct DiscoveryAggregate {
     /// Type names carrying `@TestScopable` across the module — the app-`@Singleton` types eligible for
     /// per-request rebuild under a test variant. The cascade + seedless reconstruction read this set.
     var testScopableTypes: Set<String> = []
+    /// `@GraphInputs` declarations across the module — the caller-supplied values `Wire.bootstrap(inputs:)`
+    /// takes. A list so more than one is diagnosed rather than silently resolved.
+    var graphInputs: [DiscoveredGraphInputs] = []
 }
 
 /// The module-scope type declarations the graph consumer emits into its generated file: the consumed

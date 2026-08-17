@@ -734,6 +734,10 @@ package struct SourceFileDiscovery: Sendable {
     /// `@BindType` substitutions stacked on it. A test target's variant graph
     /// reads these to bind the named slots to their doubles.
     package let testingKeys: [DiscoveredTestingKey]
+    /// `@GraphInputs` declarations found in this file — the struct whose stored properties become
+    /// app-scope bindings sourced from the caller's `Wire.bootstrap(inputs:)` argument. A list so more
+    /// than one can be diagnosed rather than silently resolved.
+    package let graphInputs: [DiscoveredGraphInputs]
     /// Type names carrying `@TestScopable` in this file — app-`@Singleton` types eligible for per-request
     /// rebuild under a test variant. Unioned across the module.
     package let testScopableTypes: Set<String>
@@ -754,7 +758,8 @@ package struct SourceFileDiscovery: Sendable {
         resultBuilders: [DiscoveredResultBuilder] = [],
         graphConformances: [DiscoveredGraphConformance] = [],
         testingKeys: [DiscoveredTestingKey] = [],
-        testScopableTypes: Set<String> = []
+        testScopableTypes: Set<String> = [],
+        graphInputs: [DiscoveredGraphInputs] = []
     ) {
         self.allBindings = allBindings
         self.imports = imports
@@ -772,6 +777,7 @@ package struct SourceFileDiscovery: Sendable {
         self.graphConformances = graphConformances
         self.testingKeys = testingKeys
         self.testScopableTypes = testScopableTypes
+        self.graphInputs = graphInputs
     }
 }
 
@@ -833,7 +839,8 @@ package func discover(
         resultBuilders: visitor.resultBuilders,
         graphConformances: visitor.graphConformances,
         testingKeys: visitor.testingKeys,
-        testScopableTypes: visitor.testScopableTypes
+        testScopableTypes: visitor.testScopableTypes,
+        graphInputs: visitor.graphInputs
     )
 }
 

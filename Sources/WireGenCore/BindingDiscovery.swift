@@ -124,6 +124,7 @@ final class BindingDiscovery: SyntaxVisitor {
     /// `@resultBuilder` types found in this file, with their fold result
     /// type — the producer-side result type a `BuilderKey` aggregate has.
     var resultBuilders: [DiscoveredResultBuilder] = []
+    var graphInputs: [DiscoveredGraphInputs] = []
     private let sourcePath: String
     private let converter: SourceLocationConverter
     /// The module these sources belong to, stamped onto every discovered
@@ -179,6 +180,15 @@ final class BindingDiscovery: SyntaxVisitor {
         )
         recordAdapterUseSites(name: node.name, attributes: node.attributes)
         recordTestScopable(name: node.name, attributes: node.attributes)
+        if let inputs = graphInputsDeclaration(
+            named: node.name,
+            attributes: node.attributes,
+            members: node.memberBlock.members,
+            sourcePath: sourcePath,
+            converter: converter
+        ) {
+            graphInputs.append(inputs)
+        }
         warnings.append(
             contentsOf: containerWithScopeDiagnostics(
                 nameToken: node.name,

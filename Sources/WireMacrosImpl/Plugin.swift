@@ -10,6 +10,7 @@ struct WireMacrosPlugin: CompilerPlugin {
         InjectMacro.self,
         ProvidesMacro.self,
         ContainerMacro.self,
+        GraphInputsMacro.self,
         ContributesMacro.self,
         TeardownMacro.self,
         ReplacesMacro.self,
