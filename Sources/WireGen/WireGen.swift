@@ -55,6 +55,8 @@ struct WireGen {
         var aggregate = discoverAllSources(groups: groups, consumerModule: consumerModule)
         print(renderDiscoveryReport(perFile: aggregate.perFile))
 
+        appendGraphInputBindings(to: &aggregate, consumerModule: consumerModule)
+
         // Pre-graph binding rewrites — contribution aliases (`@X` → `@Contributes`),
         // adapter dependencies (`@X(T.self)`), and factory synthesis (`@X(key)`) — mutate
         // the bindings before graphs build; synthesis also yields the factories to emit.
@@ -188,6 +190,7 @@ struct WireGen {
             aggregate.factoryTemplates.append(contentsOf: result.factoryTemplates)
             aggregate.resultBuilders.append(contentsOf: result.resultBuilders)
             aggregate.graphConformances.append(contentsOf: result.graphConformances)
+            aggregate.graphInputs.append(contentsOf: result.graphInputs)
             aggregate.testingKeys.append(contentsOf: result.testingKeys)
             aggregate.testScopableTypes.formUnion(result.testScopableTypes)
         }
@@ -207,25 +210,6 @@ struct WireGen {
         // consumed only through a specialised generic dependency counts
         // as live.
         var resolvedBindingsByContainer: [String?: [DiscoveredBinding]]
-    }
-
-    /// Partition `aggregate.allBindings` along both axes in a single
-    /// pass. Outer key: container name (`nil` for the default graph).
-    /// Inner key: scope (`nil` for the singleton scope). The default
-    /// graph is just "the container with no name" — the data model
-    /// treats `(container: nil)` and `(container: "Foo")` symmetrically
-    /// and `buildAllGraphs` iterates uniformly across both.
-    private static func partitionBindings(
-        in aggregate: DiscoveryAggregate
-    ) -> [String?: [ScopeKey?: [DiscoveredBinding]]] {
-        var partitions: [String?: [ScopeKey?: [DiscoveredBinding]]] = [:]
-        for (partition, bindings) in aggregate.allBindings {
-            partitions[partition.container, default: [:]][
-                partition.scope,
-                default: []
-            ].append(contentsOf: bindings)
-        }
-        return partitions
     }
 
     /// Build every graph the input describes: the default graph, one
@@ -353,6 +337,7 @@ struct WireGen {
             across: aggregate.allBindings,
             resolvedByContainer: resolvedBindingsByContainer
         )
+        diagnostics += graphInputsDiagnostics(aggregate.graphInputs, externalModules: aggregate.externalModules)
         diagnostics += deadFactoryDiagnostics(
             templates: aggregate.factoryTemplates,
             useSites: aggregate.aliasUseSites,
@@ -597,7 +582,11 @@ extension WireGen {
             // each `appendStruct` finds the ones whose consumers it constructs.
             existentialPromotions: inputs.defaultGraph.existentialPromotions
                 + inputs.containerGraphs.flatMap { $0.result.existentialPromotions }
-                + testingVariants.flatMap { $0.existentialPromotions }
+                + testingVariants.flatMap { $0.existentialPromotions },
+            graphInputsType: resolvedGraphInputs(
+                inputs.aggregate.graphInputs,
+                externalModules: inputs.aggregate.externalModules
+            )?.typeName
         )
         try generated.write(toFile: outputPath, atomically: true, encoding: .utf8)
         print("wrote \(outputPath)")
@@ -767,6 +756,9 @@ struct DiscoveryAggregate {
     /// Type names carrying `@TestScopable` across the module — the app-`@Singleton` types eligible for
     /// per-request rebuild under a test variant. The cascade + seedless reconstruction read this set.
     var testScopableTypes: Set<String> = []
+    /// `@GraphInputs` declarations across the module — the caller-supplied values `Wire.bootstrap(inputs:)`
+    /// takes. A list so more than one is diagnosed rather than silently resolved.
+    var graphInputs: [DiscoveredGraphInputs] = []
 }
 
 /// The module-scope type declarations the graph consumer emits into its generated file: the consumed
@@ -829,4 +821,36 @@ private func applyPreGraphBindingPasses(
     )
     allBindings = synthesis.bindings
     return (synthesis.factories, proxied.proxyIdentities)
+}
+
+/// Fold a module's `@GraphInputs` declaration into its bindings, before every other pass.
+///
+/// Each stored property becomes an ordinary app-scope provider reading the bootstrap's `inputs`
+/// parameter, so from here on nothing else in the pipeline knows an input is any different from a
+/// hand-written `@Provides`. A module that declares none is untouched.
+private func appendGraphInputBindings(to aggregate: inout DiscoveryAggregate, consumerModule: String) {
+    guard let inputs = resolvedGraphInputs(aggregate.graphInputs, externalModules: aggregate.externalModules)
+    else { return }
+    aggregate.allBindings[.default, default: []].append(
+        contentsOf: graphInputBindings(inputs, inputsLocal: graphInputsParameterName, module: consumerModule)
+    )
+}
+
+/// Partition `aggregate.allBindings` along both axes in a single pass. Outer key: container name (`nil`
+/// for the default graph). Inner key: scope (`nil` for the singleton scope). The default graph is just
+/// "the container with no name" — the data model treats `(container: nil)` and `(container: "Foo")`
+/// symmetrically and `buildAllGraphs` iterates uniformly across both.
+///
+/// File scope rather than a member: it reads only its argument, so it needs nothing from the type.
+private func partitionBindings(
+    in aggregate: DiscoveryAggregate
+) -> [String?: [ScopeKey?: [DiscoveredBinding]]] {
+    var partitions: [String?: [ScopeKey?: [DiscoveredBinding]]] = [:]
+    for (partition, bindings) in aggregate.allBindings {
+        partitions[partition.container, default: [:]][
+            partition.scope,
+            default: []
+        ].append(contentsOf: bindings)
+    }
+    return partitions
 }

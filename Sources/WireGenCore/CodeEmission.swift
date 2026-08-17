@@ -48,7 +48,11 @@ package func renderWireGraph(
     graphConformances: [DiscoveredGraphConformance] = [],
     multibindingKeys: [DiscoveredMultibindingKey] = [],
     syntheticTypeDeclarations: [String] = [],
-    existentialPromotions: [ExistentialPromotion] = []
+    existentialPromotions: [ExistentialPromotion] = [],
+    // The `@GraphInputs` type, when the module declares one — `Wire.bootstrap(inputs:)`'s parameter type.
+    // Only the *default* graph takes it: a container graph is an alternate wiring of the same module, and
+    // a seeded scope already has its own entry shape.
+    graphInputsType: String? = nil
 ) -> String {
     var lines: [String] = []
     var bootstrapEntries: [BootstrapEntry] = []
@@ -91,6 +95,7 @@ package func renderWireGraph(
         topologicalOrder: topologicalOrder,
         seedScopes: seedScopeMap(forParent: "_WireGraph"),
         existentialPromotions: existentialPromotions,
+        graphInputsType: graphInputsType,
         into: &lines,
         entries: &bootstrapEntries
     )
@@ -107,6 +112,7 @@ package func renderWireGraph(
         variant: variantAppOrders,
         seedScopeMap: { seedScopeMap(forParent: $0) },
         existentialPromotions: existentialPromotions,
+        graphInputsType: graphInputsType,
         into: &lines,
         entries: &bootstrapEntries
     )
@@ -184,6 +190,7 @@ private func appendNamedGraphs(
     variant: [String: [DiscoveredBinding]],
     seedScopeMap: (String) -> [String: SeedScopeEmission],
     existentialPromotions: [ExistentialPromotion],
+    graphInputsType: String?,
     into lines: inout [String],
     entries: inout [BootstrapEntry]
 ) {
@@ -197,6 +204,10 @@ private func appendNamedGraphs(
             topologicalOrder: order,
             seedScopes: seedScopeMap(structName),
             existentialPromotions: existentialPromotions,
+            // A *variant* graph is the default graph's order with the mocked bindings dropped, so it still
+            // contains the input providers and its bootstrap needs the same `inputs:` parameter. A
+            // *container* graph is a separate wiring whose bindings never include them, so it does not.
+            graphInputsType: variant[name] != nil ? graphInputsType : nil,
             into: &lines,
             entries: &entries
         )
@@ -324,6 +335,7 @@ private func appendStruct(
     topologicalOrder: [DiscoveredBinding],
     seedScopes: [String: SeedScopeEmission] = [:],
     existentialPromotions: [ExistentialPromotion] = [],
+    graphInputsType: String? = nil,
     into lines: inout [String],
     entries: inout [BootstrapEntry]
 ) {
@@ -355,10 +367,15 @@ private func appendStruct(
     // The bootstrap entry point lives on the `Wire` façade, not on the struct
     // — a non-generic call site that stays `Wire.\(bootstrapMethod)()` whether
     // or not the struct carries lifted parameters.
+    // `@GraphInputs` adds the one parameter: values the graph cannot construct for itself, supplied by
+    // the caller. Absent, the signature is unchanged — every existing call site still reads
+    // `Wire.bootstrap()`.
+    let inputsParameter = graphInputsType.map { "inputs \(graphInputsParameterName): \($0)" } ?? ""
+    let inputsArgument = graphInputsType == nil ? "" : "inputs: \(graphInputsParameterName)"
     entries.append(
         BootstrapEntry(
-            signature: "\(bootstrapMethod)() async throws -> \(openReturnType)",
-            body: "try await \(bootstrapFunction)()"
+            signature: "\(bootstrapMethod)(\(inputsParameter)) async throws -> \(openReturnType)",
+            body: "try await \(bootstrapFunction)(\(inputsArgument))"
         )
     )
 
@@ -410,7 +427,7 @@ private func appendStruct(
     // bypassing the type-member shadow that would happen inside
     // the struct's `static func bootstrap()` directly.
     lines.append("")
-    lines.append("private func \(bootstrapFunction)() async throws -> \(openReturnType) {")
+    lines.append("private func \(bootstrapFunction)(\(inputsParameter)) async throws -> \(openReturnType) {")
 
     guard !topologicalOrder.isEmpty else {
         // Empty graph — no bindings, return the empty memberwise init.

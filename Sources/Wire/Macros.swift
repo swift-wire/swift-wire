@@ -208,6 +208,39 @@ public macro Provides<Value>(_ key: BindingKey<Value>, allowUnused: Bool = false
 @attached(peer)
 public macro Container() = #externalMacro(module: "WireMacrosImpl", type: "ContainerMacro")
 
+/// Declares a struct whose stored properties are **graph inputs** —
+/// app-scope bindings whose values the caller constructs and hands to
+/// `Wire.bootstrap(inputs:)`.
+///
+///     @GraphInputs
+///     struct AppInputs: Sendable {
+///         let configReader: ConfigReader
+///         @Provides(AppKeys.region) let region: String
+///     }
+///
+///     let graph = try await Wire.bootstrap(inputs: AppInputs(...))
+///
+/// Every stored property becomes a binding of its own type, so a
+/// consumer injects one the ordinary way (`@Inject var config:
+/// ConfigReader`). Annotate a property with `@Provides(key)` only to
+/// key it — the same producer-side spelling a `@Provides` uses — which
+/// is how two inputs of the same type coexist.
+///
+/// This is the app-scope counterpart of a seeded scope's `seed`: a
+/// value the graph cannot construct for itself. Inputs are therefore
+/// **leaves** — constructed before the graph exists, they cannot
+/// depend on graph bindings. Use them for what genuinely comes from
+/// outside: configuration read from the environment, CLI arguments, an
+/// externally-owned client or event-loop group.
+///
+/// Forgetting one is a compile error at the `Wire.bootstrap(inputs:)`
+/// call site (a missing argument), not a runtime resolution failure.
+///
+/// `@GraphInputs` itself contributes no code — it's a marker the build
+/// plugin recognises during source scanning.
+@attached(peer)
+public macro GraphInputs() = #externalMacro(module: "WireMacrosImpl", type: "GraphInputsMacro")
+
 /// Declares the annotated binding as a *contributor* to a multibinding
 /// key — a `CollectedKey<Element>`, `MappedKey<Key, Value>`, or
 /// `BuilderKey<Builder>`. The contributor keeps its own binding identity

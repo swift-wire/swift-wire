@@ -124,12 +124,13 @@ final class BindingDiscovery: SyntaxVisitor {
     /// `@resultBuilder` types found in this file, with their fold result
     /// type — the producer-side result type a `BuilderKey` aggregate has.
     var resultBuilders: [DiscoveredResultBuilder] = []
-    private let sourcePath: String
-    private let converter: SourceLocationConverter
+    var graphInputs: [DiscoveredGraphInputs] = []
+    let sourcePath: String
+    let converter: SourceLocationConverter
     /// The module these sources belong to, stamped onto every discovered
     /// binding and key at construction. The build passes the consumer
     /// target name; tests pass a stand-in.
-    private let module: String
+    let module: String
     /// One frame per enclosing type the visitor has entered, in
     /// outermost-to-innermost order. `scopes.last` is the immediate
     /// enclosing declaration; an empty stack means module scope.
@@ -179,6 +180,7 @@ final class BindingDiscovery: SyntaxVisitor {
         )
         recordAdapterUseSites(name: node.name, attributes: node.attributes)
         recordTestScopable(name: node.name, attributes: node.attributes)
+        recordGraphInputs(name: node.name, attributes: node.attributes, members: node.memberBlock.members)
         warnings.append(
             contentsOf: containerWithScopeDiagnostics(
                 nameToken: node.name,
@@ -498,15 +500,6 @@ final class BindingDiscovery: SyntaxVisitor {
     /// empty unless `@Contributes` is present, so it's safe on every
     /// declaration. (`@Scoped` on a var/func is now a compiler error —
     /// the macro is member-only — so it needs no plugin check.)
-    private func producerlessMarkerDiagnostics(in attributes: AttributeListSyntax) -> [Diagnostic] {
-        strayContributesDiagnostics(
-            in: attributes,
-            producerMacros: ["Provides"],
-            sourcePath: sourcePath,
-            converter: converter
-        )
-    }
-
     // MARK: Typealiases — only module-scope captured.
 
     override func visit(_ node: TypeAliasDeclSyntax) -> SyntaxVisitorContinueKind {
@@ -577,24 +570,6 @@ extension BindingDiscovery {
 
     private func exitTypeDecl() {
         scopes.removeLast()
-    }
-
-    /// Capture a `@resultBuilder` type's fold result type. A no-op for
-    /// declarations that aren't result builders (including protocols).
-    private func recordResultBuilder(
-        name: TokenSyntax,
-        attributes: AttributeListSyntax,
-        members: MemberBlockItemListSyntax
-    ) {
-        if let builder = resultBuilder(
-            named: name,
-            attributes: attributes,
-            members: members,
-            sourcePath: sourcePath,
-            converter: converter
-        ) {
-            resultBuilders.append(builder)
-        }
     }
 
     /// Capture any adapter-annotation use-sites on a type declaration. Called

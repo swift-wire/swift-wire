@@ -97,6 +97,22 @@ jobs:
         # fixture in swift-wire's own tests would cycle.
         run: bash AdapterHarness/run-adapter-harness.sh
 
+  GraphInputsHarness:
+    name: Graph-inputs harness (@GraphInputs gate)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: SwiftyLab/setup-swift@v1
+        with:
+          swift-version: "6.3.3"
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+      - name: Run graph-inputs harness
+        # `@GraphInputs` changes `Wire.bootstrap`'s signature for its whole
+        # module, so its fixture needs a graph of its own rather than sharing
+        # IntegrationTests'.
+        run: bash GraphInputsHarness/run-graph-inputs-harness.sh
+
   SwiftSyntaxMatrix:
     name: swift-syntax ${{ matrix.swift-syntax-major }}.x / Swift ${{ matrix.swift-version }}
     strategy:

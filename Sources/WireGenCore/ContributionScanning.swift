@@ -51,3 +51,16 @@ private func contribution(
         location: makeSourceLocation(of: attribute, sourcePath: sourcePath, converter: converter)
     )
 }
+
+extension BindingDiscovery {
+    /// A `@Contributes` with no co-located producer macro. Beside its scanner, as the other per-concern
+    /// `record…`/diagnostic helpers are beside theirs.
+    func producerlessMarkerDiagnostics(in attributes: AttributeListSyntax) -> [Diagnostic] {
+        strayContributesDiagnostics(
+            in: attributes,
+            producerMacros: ["Provides"],
+            sourcePath: sourcePath,
+            converter: converter
+        )
+    }
+}

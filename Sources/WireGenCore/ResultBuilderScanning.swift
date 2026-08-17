@@ -46,3 +46,23 @@ private func returnType(
     }
     return nil
 }
+
+extension BindingDiscovery {
+    /// Capture a `@resultBuilder` type's fold result type. A no-op for declarations that aren't result
+    /// builders (including protocols). Beside its scanner, as `recordGraphInputs` is beside its own.
+    func recordResultBuilder(
+        name: TokenSyntax,
+        attributes: AttributeListSyntax,
+        members: MemberBlockItemListSyntax
+    ) {
+        if let builder = resultBuilder(
+            named: name,
+            attributes: attributes,
+            members: members,
+            sourcePath: sourcePath,
+            converter: converter
+        ) {
+            resultBuilders.append(builder)
+        }
+    }
+}
