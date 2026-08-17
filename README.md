@@ -676,7 +676,7 @@ Each scope has a teardown phase. `@Teardown`-annotated bindings within the scope
 
 If a teardown action throws, the error is collected and logged; teardown continues with the next binding, and `teardown()` returns the collected errors. **Init-failure partial teardown** — if an init throws partway through bootstrap, tearing down the already-initialized teardown-annotated bindings in reverse before the bootstrap rethrows — is **not yet implemented** (see the status note below); a bootstrap init-failure currently leaves them for process exit to reclaim.
 
-> **Status.** M1 shipped the `@Teardown` annotation (recognised and recorded, inert). **M4** emits the **app-scope** teardown walk: `teardown()` on the generated graph calls each action in reverse dependency order, run at shutdown via WireHummingbird's `teardownService` (prepended so it shuts down last), collecting teardown-action failures. **Request-/job-scope teardown** needs request scope and is **M5**. **Init-failure partial teardown** is deferred to **M6c** — its implementation is fixed by the construction scheduler that pass settles (a linear prefix today vs. resolved `AtomicState` cells under dynamic scheduling), so it lands there once rather than being rewritten, or earlier if a concrete adopter forces it; until then a bootstrap init-failure relies on process exit for cleanup.
+> **Status.** M1 shipped the `@Teardown` annotation (recognised and recorded, inert). **M4** emits the **app-scope** teardown walk: `teardown()` on the generated graph calls each action in reverse dependency order, run at shutdown via WireHummingbird's `teardownService` (prepended so it shuts down last), collecting teardown-action failures. **Request-/job-scope teardown** needs request scope and is **M5**. **Init-failure partial teardown** is deferred to **M7c** — its implementation is fixed by the construction scheduler that pass settles (a linear prefix today vs. resolved `AtomicState` cells under dynamic scheduling), so it lands there once rather than being rewritten, or earlier if a concrete adopter forces it; until then a bootstrap init-failure relies on process exit for cleanup.
 
 #### Service vs teardown
 
@@ -740,7 +740,7 @@ The build plugin running on the consuming target enumerates its direct dependenc
 
 For each activated Wire-aware dependency, the plugin reads the library's source files (M1: re-parse; M7a: a compile-time manifest the library emits) and aggregates `@Singleton`/`@Provides`/`@Contributes` declarations and adapter-annotated types into **one merged graph** for validation and codegen. There is no runtime graph composition — the generated `_WireGraph` is a single flat graph spanning the consumer and its activated libraries, and Wire's "runtime is just stored properties" invariant holds across module boundaries exactly as within one module. Non-activated libraries are skipped entirely.
 
-**Eager construction and the reachability optimization.** In M1 every binding in the merged graph is constructed at bootstrap — including a library binding nothing in the consumer reaches. That's correct but not free: a large library you depend on for a few bindings still constructs all its singletons. M6b adds compile-time **reachability pruning** — only bindings reachable from the home package's roots are constructed, the rest stripped before codegen — so depending on a library costs only what you use. Until then, an expensive library binding can opt into deferral with `Lazy<T>`.
+**Eager construction and the reachability optimization.** In M1 every binding in the merged graph is constructed at bootstrap — including a library binding nothing in the consumer reaches. That's correct but not free: a large library you depend on for a few bindings still constructs all its singletons. **M7b** adds compile-time **reachability pruning** — only bindings reachable from the home package's roots are constructed, the rest stripped before codegen — so depending on a library costs only what you use. Until then, an expensive library binding can opt into deferral with `Lazy<T>`.
 
 #### Test-only substitution
 
@@ -907,7 +907,7 @@ Beyond the DI category, swift-wire sits at a different layer from the libraries 
 
 ## Roadmap
 
-Milestones are tied to what task-cluster needs next, not a fixed calendar. The full roadmap — milestone-by-milestone (M0–M6 and post-1.0), plus pre-1.0 polish, deferred features, and post-M1 design previews — lives in [ROADMAP.md](ROADMAP.md). M0–M5 are complete, as is M6a (testing).
+Milestones are tied to what task-cluster needs next, not a fixed calendar. The full roadmap — milestone-by-milestone (M0–M7 and post-1.0), plus pre-1.0 polish, deferred features, and post-M1 design previews — lives in [ROADMAP.md](ROADMAP.md). M0–M5 are complete, as are M6a (testing) and M6b (the request-logger seam); M6d (advanced OpenAPI integration) is built out of order, leaving M6c (`@Configuration`).
 
 ---
 

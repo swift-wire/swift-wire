@@ -408,9 +408,11 @@ two designs down blind alleys.
 route and controller middleware already read it; the context only gets it across `handle`. So the generated
 register closure reads the registry, calls `takeBase()`, and builds the route's box over the **unwrapped**
 context. Nothing below routing meets the type: a context-transforming middleware wraps the app's real
-context, and the plugin's capability-forwarding conformances stay one layer shallower. If M6b later puts a
-per-request *logger* on it — something route code genuinely consumes — the unwrap comes out, and at that
-point the exposure is earned rather than incidental.
+context, and the plugin's capability-forwarding conformances stay one layer shallower. The anticipated
+pressure on that — M6b putting a per-request *logger* on the context, something route code genuinely
+consumes, which would have earned the exposure and taken the unwrap out — **did not arrive**: M6b's logger
+is an ordinary `@Scoped(seed: HTTPRequest.self)` binding that route code reaches by `@Inject`, so it never
+touched the context. The courier stays a courier and the unwrap stands.
 
 **Spiked before building** (wrapper, consuming unwrap, differing inner/outer conformances, a route
 end-to-end): all four compile. The unwrap is `WireDisconnected/take()`'s shape — `consume base` out of a
