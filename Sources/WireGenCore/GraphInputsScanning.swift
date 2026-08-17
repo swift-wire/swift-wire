@@ -168,3 +168,20 @@ package func graphInputBindings(
         )
     }
 }
+
+extension BindingDiscovery {
+    /// Record the `@GraphInputs` declaration on a type, if it carries one. Lives here rather than beside
+    /// the visitor's other `record…` helpers so the scanner's whole surface — model, parser, diagnostics,
+    /// and this one call — reads in one file.
+    func recordGraphInputs(name: TokenSyntax, attributes: AttributeListSyntax, members: MemberBlockItemListSyntax) {
+        if let inputs = graphInputsDeclaration(
+            named: name,
+            attributes: attributes,
+            members: members,
+            sourcePath: sourcePath,
+            converter: converter
+        ) {
+            graphInputs.append(inputs)
+        }
+    }
+}
