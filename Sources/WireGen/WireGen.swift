@@ -337,7 +337,7 @@ struct WireGen {
             across: aggregate.allBindings,
             resolvedByContainer: resolvedBindingsByContainer
         )
-        diagnostics += graphInputsDiagnostics(aggregate.graphInputs)
+        diagnostics += graphInputsDiagnostics(aggregate.graphInputs, externalModules: aggregate.externalModules)
         diagnostics += deadFactoryDiagnostics(
             templates: aggregate.factoryTemplates,
             useSites: aggregate.aliasUseSites,
@@ -583,7 +583,10 @@ extension WireGen {
             existentialPromotions: inputs.defaultGraph.existentialPromotions
                 + inputs.containerGraphs.flatMap { $0.result.existentialPromotions }
                 + testingVariants.flatMap { $0.existentialPromotions },
-            graphInputsType: inputs.aggregate.graphInputs.first?.typeName
+            graphInputsType: resolvedGraphInputs(
+                inputs.aggregate.graphInputs,
+                externalModules: inputs.aggregate.externalModules
+            )?.typeName
         )
         try generated.write(toFile: outputPath, atomically: true, encoding: .utf8)
         print("wrote \(outputPath)")
@@ -826,7 +829,8 @@ private func applyPreGraphBindingPasses(
 /// parameter, so from here on nothing else in the pipeline knows an input is any different from a
 /// hand-written `@Provides`. A module that declares none is untouched.
 private func appendGraphInputBindings(to aggregate: inout DiscoveryAggregate, consumerModule: String) {
-    guard let inputs = aggregate.graphInputs.first else { return }
+    guard let inputs = resolvedGraphInputs(aggregate.graphInputs, externalModules: aggregate.externalModules)
+    else { return }
     aggregate.allBindings[.default, default: []].append(
         contentsOf: graphInputBindings(inputs, inputsLocal: graphInputsParameterName, module: consumerModule)
     )

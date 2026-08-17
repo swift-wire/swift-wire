@@ -112,4 +112,57 @@ struct GraphInputsDiscoveryTests {
             ).isEmpty
         )
     }
+
+    // MARK: - Only the consumer's package supplies inputs
+
+    /// A declaration in a *dependency* package is not honoured. Inputs become parameters of the consumer's
+    /// `Wire.bootstrap`, and only the program assembling the graph knows where its `ConfigReader` or
+    /// event-loop group comes from — so a library cannot dictate what its consumers must pass in.
+    @Test func aDependencysInputsAreIgnoredAndDiagnosed() {
+        let library = DiscoveredGraphInputs(
+            typeName: "LibraryInputs",
+            properties: [
+                GraphInput(name: "a", type: "Int", keyIdentifier: nil, location: mockLocation("Lib.swift"))
+            ],
+            location: mockLocation("Lib.swift"),
+            originModule: "SomeLibrary"
+        )
+        #expect(resolvedGraphInputs([library], externalModules: ["SomeLibrary"]) == nil)
+
+        let diagnostics = graphInputsDiagnostics([library], externalModules: ["SomeLibrary"])
+        #expect(diagnostics.count == 1)
+        #expect(diagnostics.first?.severity == .warning)
+        // Names the dependency, since that is the one thing the consumer can act on.
+        #expect(diagnostics.first?.message.contains("SomeLibrary") == true)
+    }
+
+    /// A same-*package* module's declaration IS honoured — which is what lets a test target re-composing
+    /// an executable inherit the app's inputs instead of redeclaring them.
+    @Test func aSamePackageModulesInputsAreUsed() throws {
+        let declaration = try #require(
+            inputs(in: "@GraphInputs struct AppInputs: Sendable { let a: Int }").first
+        )
+        // `externalModules` names only genuine cross-package dependencies, so this module is not in it.
+        #expect(resolvedGraphInputs([declaration], externalModules: ["SomeLibrary"])?.typeName == "AppInputs")
+        #expect(graphInputsDiagnostics([declaration], externalModules: ["SomeLibrary"]).isEmpty)
+    }
+
+    /// An ignored dependency declaration must not make a home-package one ambiguous — only home-package
+    /// declarations compete for the single `inputs:` parameter.
+    @Test func aDependencysInputsDoNotCollideWithTheConsumersOwn() throws {
+        let home = try #require(inputs(in: "@GraphInputs struct AppInputs: Sendable { let a: Int }").first)
+        let library = DiscoveredGraphInputs(
+            typeName: "LibraryInputs",
+            properties: [
+                GraphInput(name: "b", type: "Int", keyIdentifier: nil, location: mockLocation("Lib.swift"))
+            ],
+            location: mockLocation("Lib.swift"),
+            originModule: "SomeLibrary"
+        )
+        let diagnostics = graphInputsDiagnostics([home, library], externalModules: ["SomeLibrary"])
+        // The ignored-dependency warning, and no "multiple @GraphInputs" error.
+        #expect(diagnostics.count == 1)
+        #expect(diagnostics.allSatisfy { $0.severity == .warning })
+        #expect(resolvedGraphInputs([home, library], externalModules: ["SomeLibrary"])?.typeName == "AppInputs")
+    }
 }

@@ -16,11 +16,20 @@ package struct DiscoveredGraphInputs: Sendable, Equatable {
     /// Its stored properties, in declaration order. Each becomes a binding.
     package let properties: [GraphInput]
     package let location: SourceLocation
+    /// The module that declared it. Inputs are the *consumer's* to supply, so only declarations from the
+    /// home package are honoured — see `resolvedGraphInputs`.
+    package let originModule: String
 
-    package init(typeName: String, properties: [GraphInput], location: SourceLocation) {
+    package init(
+        typeName: String,
+        properties: [GraphInput],
+        location: SourceLocation,
+        originModule: String
+    ) {
         self.typeName = typeName
         self.properties = properties
         self.location = location
+        self.originModule = originModule
     }
 }
 
@@ -52,7 +61,8 @@ func graphInputsDeclaration(
     attributes: AttributeListSyntax,
     members: MemberBlockItemListSyntax,
     sourcePath: String,
-    converter: SourceLocationConverter
+    converter: SourceLocationConverter,
+    module: String
 ) -> DiscoveredGraphInputs? {
     guard hasAttribute(attributes, named: "GraphInputs") else { return nil }
     var properties: [GraphInput] = []
@@ -76,7 +86,8 @@ func graphInputsDeclaration(
     return DiscoveredGraphInputs(
         typeName: name.text,
         properties: properties,
-        location: makeSourceLocation(of: name, sourcePath: sourcePath, converter: converter)
+        location: makeSourceLocation(of: name, sourcePath: sourcePath, converter: converter),
+        originModule: module
     )
 }
 
@@ -103,11 +114,41 @@ private func providesKeyIdentifier(in attributes: AttributeListSyntax) -> String
     return first.expression.trimmedDescription
 }
 
+/// The `@GraphInputs` declaration the graph is built from — the first one declared in the **home
+/// package**, or `nil`.
+///
+/// Inputs are the consumer's to supply: they become parameters of *its* `Wire.bootstrap`, and only the
+/// program assembling the graph knows where a `ConfigReader` or an event-loop group comes from. So a
+/// declaration in an external package (a library dependency) is not honoured — a library cannot dictate
+/// what its consumers must pass in. Same-*package* modules are honoured, which is what lets a test target
+/// re-composing an executable inherit the app's inputs rather than having to redeclare them.
+package func resolvedGraphInputs(
+    _ declarations: [DiscoveredGraphInputs],
+    externalModules: Set<String>
+) -> DiscoveredGraphInputs? {
+    declarations.first { !externalModules.contains($0.originModule) }
+}
+
 /// Diagnostics for the `@GraphInputs` declarations across a module: more than one is ambiguous (which
-/// would `Wire.bootstrap` take?), and a stored property Wire cannot type is silently absent from the
-/// graph unless it is reported.
-package func graphInputsDiagnostics(_ declarations: [DiscoveredGraphInputs]) -> [Diagnostic] {
+/// would `Wire.bootstrap` take?), a stored property Wire cannot type is silently absent from the graph
+/// unless it is reported, and one declared by a dependency is ignored — quietly enough to be baffling
+/// downstream, since its bindings then resolve against nothing.
+package func graphInputsDiagnostics(
+    _ declarations: [DiscoveredGraphInputs],
+    externalModules: Set<String> = []
+) -> [Diagnostic] {
     var diagnostics: [Diagnostic] = []
+    for external in declarations where externalModules.contains(external.originModule) {
+        diagnostics.append(
+            Diagnostic(
+                location: external.location,
+                message:
+                    "@GraphInputs '\(external.typeName)' is declared by dependency '\(external.originModule)' and is ignored — inputs are supplied by the consumer that bootstraps the graph, so a library cannot declare them. Any binding of its own that consumes one will not resolve.",
+                severity: .warning
+            )
+        )
+    }
+    let declarations = declarations.filter { !externalModules.contains($0.originModule) }
     if declarations.count > 1 {
         for extra in declarations.dropFirst() {
             diagnostics.append(
@@ -179,7 +220,8 @@ extension BindingDiscovery {
             attributes: attributes,
             members: members,
             sourcePath: sourcePath,
-            converter: converter
+            converter: converter,
+            module: module
         ) {
             graphInputs.append(inputs)
         }

@@ -130,7 +130,7 @@ final class BindingDiscovery: SyntaxVisitor {
     /// The module these sources belong to, stamped onto every discovered
     /// binding and key at construction. The build passes the consumer
     /// target name; tests pass a stand-in.
-    private let module: String
+    let module: String
     /// One frame per enclosing type the visitor has entered, in
     /// outermost-to-innermost order. `scopes.last` is the immediate
     /// enclosing declaration; an empty stack means module scope.
