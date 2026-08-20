@@ -7,7 +7,10 @@ import Testing
 /// everything it was not pointed at. What the annotation *means* is the adapter's, and is tested there.
 @Suite("Injection rewrites")
 struct InjectionRewriteTests {
-    private func annotation(_ name: String = "Configuration", provider: String = "ConfigReader")
+    private func annotation(
+        _ name: String = "Configuration",
+        provider: String = "ConfigReader"
+    )
         -> DiscoveredAdapterAnnotation
     {
         DiscoveredAdapterAnnotation(
