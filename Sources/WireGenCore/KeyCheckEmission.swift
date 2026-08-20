@@ -32,6 +32,10 @@
 /// The file is emitted even when there are no keyed bindings (just a
 /// header comment) so SPM's declared-output-file contract holds
 /// without conditional logic in the plugin.
+/// Keys with no user declaration to unify against — multibinding keys (their element type lives on the
+/// key) and generated ones (an injection rewrite's key exists only to make its synthesised producer
+/// addressable). Both are excluded: `_check` unifies a written `BindingKey<T>` with a consuming type, and
+/// neither has one.
 package func renderWireKeyChecks(
     imports: [String],
     allBindings: [DiscoveredBinding],

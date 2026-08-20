@@ -57,9 +57,9 @@ struct WireGen {
 
         appendGraphInputBindings(to: &aggregate, consumerModule: consumerModule)
 
-        // Pre-graph binding rewrites — contribution aliases (`@X` → `@Contributes`),
-        // adapter dependencies (`@X(T.self)`), and factory synthesis (`@X(key)`) — mutate
-        // the bindings before graphs build; synthesis also yields the factories to emit.
+        // Pre-graph binding rewrites — injection rewrites (`@X(...)` on an injection site), contribution
+        // aliases (`@X` → `@Contributes`), adapter dependencies (`@X(T.self)`), and factory synthesis
+        // (`@X(key)`) — mutate the bindings before graphs build; synthesis also yields what to emit.
         let preGraph = applyPreGraphBindingPasses(
             to: &aggregate.allBindings,
             adapterAnnotations: aggregate.adapterAnnotations,
@@ -83,7 +83,8 @@ struct WireGen {
         let crossFileDiagnostics = collectCrossFileDiagnostics(
             in: aggregate,
             containerNames: Set(containerGraphs.map { $0.name }),
-            resolvedBindingsByContainer: graphs.resolvedBindingsByContainer
+            resolvedBindingsByContainer: graphs.resolvedBindingsByContainer,
+            injectionRewriteKeys: preGraph.rewriteKeys
         )
         reportDiagnosticsAndValidate(
             aggregate: aggregate,
@@ -105,37 +106,31 @@ struct WireGen {
         // the generated file, which lives in the consumer module — so it
         // needs an `import <dependency>` for each foreign origin module.
         let allBindingsFlat = aggregate.allBindings.values.flatMap { $0 }
-        let imports =
-            aggregate.imports
-            + foreignImports(in: allBindingsFlat, consumerModule: consumerModule)
-            + conformanceOriginImports(aggregate.graphConformances, consumerModule: consumerModule)
-            + factoryProducedTypeImports(preGraph.factories, consumerModule: consumerModule)
+        let imports = generatedFileImports(
+            aggregate: aggregate,
+            allBindings: allBindingsFlat,
+            factories: preGraph.factories,
+            consumerModule: consumerModule
+        )
 
-        // Factory TYPES are owned by the `@Factory` template's module, so this graph consumer
-        // declares only its own-module factories; dependency-module factories are declared by
-        // those modules' own plugin runs and referenced here via import. Construction/injection
-        // (in `allBindings`) stays consumer-driven and spans every consumed factory.
-        try renderGraphFile(
+        try renderOutputs(
             GraphFileInputs(
                 imports: imports,
                 defaultOrder: defaultOrder,
                 containerOrders: containerOrders,
                 aggregate: aggregate,
                 factories: preGraph.factories,
+                injectionRewrites: preGraph.rewrites,
                 proxyIdentities: preGraph.proxyIdentities,
                 defaultGraph: defaultGraph,
                 containerGraphs: containerGraphs,
                 seedScopeOrchestrations: seedScopeOrchestrations,
                 testingVariantsEnabled: testingVariantsEnabled
             ),
-            outputPath: graphOutputPath
-        )
-
-        try renderKeyChecksFile(
-            imports: imports,
             allBindings: allBindingsFlat,
-            multibindingKeys: aggregate.multibindingKeys,
-            outputPath: keyChecksOutputPath
+            rewriteKeys: preGraph.rewriteKeys,
+            graphOutputPath: graphOutputPath,
+            keyChecksOutputPath: keyChecksOutputPath
         )
     }
 
@@ -311,7 +306,8 @@ struct WireGen {
     private static func collectCrossFileDiagnostics(
         in aggregate: DiscoveryAggregate,
         containerNames: Set<String>,
-        resolvedBindingsByContainer: [String?: [DiscoveredBinding]]
+        resolvedBindingsByContainer: [String?: [DiscoveredBinding]],
+        injectionRewriteKeys: Set<String>
     ) -> [Diagnostic] {
         var diagnostics: [Diagnostic] = []
         diagnostics += unannotatedExtensionContainerDiagnostics(
@@ -360,6 +356,10 @@ struct WireGen {
             bindingsByPartition: aggregate.allBindings,
             declaredKeyReferences: Set(aggregate.bindingKeys.map(\.keyReference))
                 .union(aggregate.multibindingKeys.map(\.keyReference))
+                // A rewrite's key is generated, not written: it exists so the synthesised producer is
+                // addressable and deduplicated without colliding with an ordinary binding of the same
+                // type. There is no declaration to find, so it is declared here.
+                .union(injectionRewriteKeys)
         )
         diagnostics += crossModuleVisibilityDiagnostics(
             bindings: aggregate.allBindings.values.flatMap { $0 },
@@ -518,6 +518,9 @@ extension WireGen {
         let containerOrders: [String: [DiscoveredBinding]]
         let aggregate: DiscoveryAggregate
         let factories: [SynthesizedFactory]
+        /// The `.rewritesInjection` producers synthesised for annotated sites — emitted alongside the
+        /// factory/proxy declarations, since like them they are code the consumer never wrote.
+        let injectionRewrites: [SynthesizedInjectionRewrite]
         let proxyIdentities: Set<String>
         let defaultGraph: GraphResult
         let containerGraphs: [(name: String, result: GraphResult)]
@@ -571,11 +574,12 @@ extension WireGen {
             seedScopeOrders: seedScopeOrders,
             graphConformances: inputs.aggregate.graphConformances,
             multibindingKeys: inputs.aggregate.multibindingKeys,
-            syntheticTypeDeclarations: consumerSyntheticTypes(
-                factories: inputs.factories,
-                proxyIdentities: inputs.proxyIdentities,
-                in: inputs.aggregate.allBindings
-            ) + testingVariants.map { $0.doublesStruct } + testingVariants.flatMap { $0.subjectDoublesStructs }
+            syntheticTypeDeclarations: inputs.injectionRewrites.map(\.declaration)
+                + consumerSyntheticTypes(
+                    factories: inputs.factories,
+                    proxyIdentities: inputs.proxyIdentities,
+                    in: inputs.aggregate.allBindings
+                ) + testingVariants.map { $0.doublesStruct } + testingVariants.flatMap { $0.subjectDoublesStructs }
                 + testingVariants.flatMap { $0.contributorFacades }
                 + testingVariants.flatMap { $0.variantFactoryDeclarations },
             // Rule 3 — the default graph's promotions plus every container's and every test variant's, so
@@ -599,12 +603,14 @@ extension WireGen {
         imports: [String],
         allBindings: [DiscoveredBinding],
         multibindingKeys: [DiscoveredMultibindingKey],
+        injectionRewriteKeys: Set<String>,
         outputPath: String
     ) throws {
         let keyChecks = renderWireKeyChecks(
             imports: imports,
             allBindings: allBindings,
             multibindingKeyReferences: Set(multibindingKeys.map(\.keyReference))
+                .union(injectionRewriteKeys)
         )
         try keyChecks.write(toFile: outputPath, atomically: true, encoding: .utf8)
         print("wrote \(outputPath)")
@@ -791,7 +797,15 @@ private func applyPreGraphBindingPasses(
     factoryTemplates: [DiscoveredFactoryTemplate],
     bindingKeys: [DiscoveredBindingKey],
     consumerModule: String
-) -> (factories: [SynthesizedFactory], proxyIdentities: Set<String>) {
+) -> PreGraphPasses {
+    // Injection rewrites first: after this the rewritten sites are ordinary keyed dependencies on
+    // ordinary synthesised producers, so nothing downstream knows a rewrite happened.
+    let rewrites = applyInjectionRewrites(
+        to: allBindings,
+        annotations: adapterAnnotations,
+        consumerModule: consumerModule
+    )
+    allBindings = rewrites.bindings
     allBindings = applyAliasContributions(
         to: allBindings,
         aliases: adapterAnnotations,
@@ -820,7 +834,11 @@ private func applyPreGraphBindingPasses(
         consumerModule: consumerModule
     )
     allBindings = synthesis.bindings
-    return (synthesis.factories, proxied.proxyIdentities)
+    return PreGraphPasses(
+        factories: synthesis.factories,
+        proxyIdentities: proxied.proxyIdentities,
+        rewrites: rewrites.synthesized
+    )
 }
 
 /// Fold a module's `@GraphInputs` declaration into its bindings, before every other pass.
@@ -853,4 +871,51 @@ private func partitionBindings(
         ].append(contentsOf: bindings)
     }
     return partitions
+}
+
+/// What the pre-graph passes produced: code to emit, and the identities later stages need.
+struct PreGraphPasses {
+    let factories: [SynthesizedFactory]
+    let proxyIdentities: Set<String>
+    let rewrites: [SynthesizedInjectionRewrite]
+    /// The generated keys the rewrites are addressed by — excluded from both the missing-key diagnostic
+    /// and `_WireKeyChecks`, since neither has a user declaration to check against.
+    var rewriteKeys: Set<String> { Set(rewrites.map(\.keyIdentifier)) }
+}
+
+/// The imports the generated file needs: the consumer's own, plus one per foreign origin module a
+/// composed binding, graph conformance, or factory-produced type is declared in.
+private func generatedFileImports(
+    aggregate: DiscoveryAggregate,
+    allBindings: [DiscoveredBinding],
+    factories: [SynthesizedFactory],
+    consumerModule: String
+) -> [String] {
+    aggregate.imports
+        + foreignImports(in: allBindings, consumerModule: consumerModule)
+        + conformanceOriginImports(aggregate.graphConformances, consumerModule: consumerModule)
+        + factoryProducedTypeImports(factories, consumerModule: consumerModule)
+}
+
+/// Write both generated files.
+///
+/// Factory TYPES are owned by the `@Factory` template's module, so this graph consumer declares only
+/// its own-module factories; dependency-module factories are declared by those modules' own plugin
+/// runs and referenced here via import. Construction/injection (in `allBindings`) stays
+/// consumer-driven and spans every consumed factory.
+private func renderOutputs(
+    _ inputs: WireGen.GraphFileInputs,
+    allBindings: [DiscoveredBinding],
+    rewriteKeys: Set<String>,
+    graphOutputPath: String,
+    keyChecksOutputPath: String
+) throws {
+    try WireGen.renderGraphFile(inputs, outputPath: graphOutputPath)
+    try WireGen.renderKeyChecksFile(
+        imports: inputs.imports,
+        allBindings: allBindings,
+        multibindingKeys: inputs.aggregate.multibindingKeys,
+        injectionRewriteKeys: rewriteKeys,
+        outputPath: keyChecksOutputPath
+    )
 }

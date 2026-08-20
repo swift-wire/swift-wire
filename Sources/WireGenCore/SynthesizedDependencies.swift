@@ -144,3 +144,66 @@ func syntheticDependencyName(forType type: String) -> String {
 func syntheticDependencyName(forKey keyReference: String) -> String {
     "_wire" + sanitizedKeyFragment(keyReference)
 }
+
+// MARK: - Replacing dependencies (injection rewrites)
+
+extension DiscoveredScopeBoundType {
+    /// A copy with its dependency and member-injection parameters mapped — how `applyInjectionRewrites`
+    /// re-points a rewritten site at the producer it synthesised.
+    func replacingDependencies(
+        _ replacement: [DependencyParameter],
+        memberInjections newMemberInjections: [MemberInjection]
+    ) -> DiscoveredScopeBoundType {
+        DiscoveredScopeBoundType(
+            typeName: typeName,
+            qualifiedTypeName: qualifiedTypeName,
+            typeKind: typeKind,
+            genericParameterNames: genericParameterNames,
+            genericParameterConstraints: genericParameterConstraints,
+            genericWhereClause: genericWhereClause,
+            explicitIdentity: explicitIdentity,
+            dependencies: replacement,
+            location: location,
+            scopeKey: scopeKey,
+            initIsAsync: initIsAsync,
+            initIsThrowing: initIsThrowing,
+            memberInjections: newMemberInjections,
+            accessLevel: accessLevel,
+            contributions: contributions,
+            allowUnused: allowUnused,
+            teardown: teardown,
+            originModule: originModule
+        )
+    }
+}
+
+extension MemberInjection {
+    func replacingParameters(_ replacement: [DependencyParameter]) -> MemberInjection {
+        MemberInjection(shape: shape, parameters: replacement, location: location)
+    }
+}
+
+extension DiscoveredProvider {
+    /// A copy with its dependencies mapped. See `DiscoveredScopeBoundType.replacingDependencies`.
+    func replacingDependencies(_ replacement: [DependencyParameter]) -> DiscoveredProvider {
+        DiscoveredProvider(
+            boundType: boundType,
+            accessPath: accessPath,
+            form: form,
+            dependencies: replacement,
+            genericParameterNames: genericParameterNames,
+            location: location,
+            keyIdentifier: keyIdentifier,
+            concreteGenericArguments: concreteGenericArguments,
+            isAsync: isAsync,
+            isThrowing: isThrowing,
+            accessLevel: accessLevel,
+            scopeKey: scopeKey,
+            contributions: contributions,
+            allowUnused: allowUnused,
+            teardown: teardown,
+            isReplacer: isReplacer,
+            originModule: originModule
+        )
+    }
+}

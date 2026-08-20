@@ -103,9 +103,20 @@ public enum WireAdapterCapability {
     /// lower-cameled). Producer-side, joined to the template by type identity.
     case mapsFactoryRoles(roles: [String])
 
-    /// `@X(...)` on a consumer's injection point rewrites how that dependency resolves
-    /// (e.g. `@Configuration("port")`). Reserved — no pass yet.
-    case rewritesInjection
+    /// `@X(...)` on a consumer's injection point rewrites how that dependency resolves — the annotated
+    /// site stops resolving by its own type and instead resolves to a binding Wire synthesises, which
+    /// reads the value out of a *provider* the graph supplies (e.g. `@Configuration(forKey: "PORT")`
+    /// reading a `ConfigReader`).
+    ///
+    /// The annotation type is a property wrapper conforming to ``WireInjectionRewrite``. Wire emits
+    ///
+    ///     try <Annotation><Value>(<the annotation's arguments, verbatim>).wireValue(from: <provider>)
+    ///
+    /// so it never learns what the value means, how it is read, or which method reads it — that is the
+    /// wrapper's own Swift, type-checked at the use site. `provider` is the one thing Wire cannot derive:
+    /// it resolves dependencies by canonical type text and so cannot see through the wrapper's
+    /// `Provider` associated type. Name the provider's type as written (`"ConfigReader"`).
+    case rewritesInjection(provider: String)
 }
 
 /// The scope at which a `.contributesProxy` proxy is emitted — the scope of the multibinding

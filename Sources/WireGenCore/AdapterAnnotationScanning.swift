@@ -51,7 +51,7 @@ package enum DiscoveredAdapterCapability: Sendable, Equatable {
     /// parameters; `roles` is the adapter's ordered vocabulary of canonical slot names (opaque to Wire).
     case mapsFactoryRoles(roles: [String])
     /// `@X(...)` rewrites a consumer's injection resolution. Reserved — no pass yet.
-    case rewritesInjection
+    case rewritesInjection(provider: String)
 }
 
 /// One adapter-annotation definition found in source — a `WireAdapterAnnotationV1`
@@ -163,6 +163,12 @@ func adapterCapability(from expression: ExprSyntax) -> DiscoveredAdapterCapabili
             // `proxyScope:` has a single value (`.singleton`) today, read as that regardless of source.
             return .liftsPeersToProxy(proxyTypePrefix: prefix, proxyScope: .singleton)
         }
+        if member.declName.baseName.text == "rewritesInjection",
+            let providerArgument = call.arguments.first(where: { $0.label?.text == "provider" }),
+            let provider = providerArgument.expression.as(StringLiteralExprSyntax.self)?.representedLiteralValue
+        {
+            return .rewritesInjection(provider: provider)
+        }
         if member.declName.baseName.text == "mapsFactoryRoles",
             let rolesArgument = call.arguments.first(where: { $0.label?.text == "roles" }),
             let array = rolesArgument.expression.as(ArrayExprSyntax.self)
@@ -176,7 +182,6 @@ func adapterCapability(from expression: ExprSyntax) -> DiscoveredAdapterCapabili
     if let member = expression.as(MemberAccessExprSyntax.self) {
         switch member.declName.baseName.text {
         case "injectsFromGraph": return .injectsFromGraph
-        case "rewritesInjection": return .rewritesInjection
         default: return nil
         }
     }

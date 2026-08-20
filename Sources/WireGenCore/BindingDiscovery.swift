@@ -912,7 +912,8 @@ extension BindingDiscovery {
                 type: parameter.type.trimmedDescription,
                 kind: .providerFunctionParameter,
                 location: location(of: parameter.firstName),
-                keyIdentifier: parameterKey
+                keyIdentifier: parameterKey,
+                injectionRewrite: parameterInjectionRewrite(from: parameter)
             )
         }
         let genericParameterNames =
