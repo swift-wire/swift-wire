@@ -230,8 +230,11 @@ private func record(
     let identity =
         "\(site.annotationName)|\(providerKey ?? "")|\(arguments)|\(canonicalTypeName(valueType))"
     if let existing = synthesized[identity] { return existing }
+    // The selector contributes a name segment only when written, so a site that does not select one keeps
+    // the name it had before selectors existed rather than gaining an empty `__` segment.
+    let selected = providerKey.map { "_\($0)" } ?? ""
     let suffix = sanitizeIdentifier(
-        "\(site.annotationName)_\(canonicalTypeName(valueType))_\(providerKey ?? "")_\(arguments)"
+        "\(site.annotationName)_\(canonicalTypeName(valueType))\(selected)_\(arguments)"
     )
     let functionName = "_wireRewrite_\(suffix)"
     // The wrapper is constructed exactly as written at the site and asked for the value. Wire supplies the
