@@ -11,7 +11,7 @@ M5.4 request-scope and M5.5 composition-root detail in
 [Documentation/Archive/M5_5_PLAN.md](Documentation/Archive/M5_5_PLAN.md)); M3's
 design lives in [WireOpenAPIDesign.md](Documentation/Notes/WireOpenAPIDesign.md).
 Within **M6 (surface completeness)**, **M6a (testing)** and **M6b (request-logger seam)** are complete and
-**M6d (advanced OpenAPI integration)** is built out of order, so **M6c (`@Configuration`)** is what remains
+**M6d (advanced OpenAPI integration)** is built out of order, so **M6c (`@ConfigProperty`)** is what remains
 (alongside M6d's outstanding migration and M5.6's doc debt). The detail sections after
 the milestones (pre-1.0 polish, deferred features, the WireConfiguration preview)
 expand on what lands when.
@@ -39,12 +39,13 @@ expand on what lands when.
     - **`WireMVCTaskLocalLogging` (the second target, and the reason the split exists).** Hummingbird wraps its responder chain in `withLogger(…)`, so a request already *has* a logger with an id on it and the default target mints a second — WireMVC's lines and the framework's own lines then correlate to different ids. This target *adopts* swift-log's task-local (`Logger.current`) instead, which is the only way to share one, and survives the `WireMVCServerTransport` bridge's unstructured `Task {}` including the streaming case where the handler outlives the register closure (spike-30). The two targets are deliberately interchangeable — same three bindings, same keys, same derived id, differing in exactly one expression (the request logger's base) — so an app switches by changing one import; the genuinely shared pieces live in the core as `WireMVCRequest.correlationID(from:)` and `WireMVCLogMetadata.applying(_:to:)`. Depending on both is a build error. **Not the default:** Vapor and the native proposal server bind no task-local, so on those runtimes it silently reads swift-log's empty-label process default. Gated by `WireMVCTaskLocalExample`, whose fixture binds *different* loggers at bootstrap and at serve so that seeing the serve marker proves the request logger re-reads rather than snapshotting.
     - **`@WireMVCBootstrap.prepare()` — a pre-graph step.** `LoggingSystem.bootstrap` must run before the first log call and traps on a second, and its metrics/tracing counterparts behave the same way; every existing Bootstrap hook (`createServer`, `createRouteBuilder`) is an *instance* method, so by construction it runs after `Wire.bootstrap` built the graph. `prepare()` is static and runs first — returning a value makes it the graph's `@GraphInputs`, returning `Void` is the side-effect-only form. Being pre-graph it can inject nothing; that is the trade for running first. The generated *test* entry routes through `WireMVCTesting.preparedOnce`, which memoises the `Task` under a mutex (not a has-run flag, which would race under parallel suites), so a multi-suite bundle doesn't trap on a second `LoggingSystem.bootstrap`.
     - **Four swift-wire changes fell out of it.** **`@GraphInputs`** (#266) gives the root graph the door a seeded scope already had — each stored property of the annotated struct becomes an app-scope binding and `Wire.bootstrap(inputs:)` is how the values arrive, emitted as ordinary property-form providers (so resolution, keying, `@Bind`, dead-binding analysis and emission needed no special case), `allowUnused` and necessarily leaves. A **`@Bind` parameter can now name a multibinding key** (#263) — the forcing case being the request logger folding a `MappedKey` inside a `@Provides`, which previously had no parameter spelling and forced restructuring the consumer. And two **dead-binding-warning** fixes surfaced by wire-mvc's fixtures: a scope-bound subject is now counted as consumed by its proxy's scope-entry thunk (#264 — every `@Scoped(seed:) @Controller` warned as dead), and synthesised contributor proxies are `allowUnused` outright (#265 — M5.5's global-middleware proxy warned in every `@WireMVCBootstrap` app, anchored at the user's Bootstrap).
-  - **M6c — `@Configuration` / WireConfiguration — built.** The swift-configuration adapter, in a new [`wire-configuration`](https://github.com/tachyonics/wire-configuration) package. `@Configuration(forKey:default:)` at all three sites — `@Inject` property, `@Inject init` parameter, `@Provides func` parameter — makes the *value* the binding rather than the reader: a consumer depends on `Int`/`String` instead of on a collaborator it has to call, the key is visible in the signature, and a test substitutes a value rather than a configured reader. (Note the justification this milestone was scheduled under — *every example hand-rolls config* — was already spent by M6b, which put one shared `ConfigReader` behind a `@GraphInputs` value in all three runtimes. The narrower win above is what it was built for.)
-    - **The domain logic lives in the adapter, not in Wire — and that is the whole design.** The capability `.rewritesInjection` had been reserved since iteration 8, naming `@Configuration` in its doc comment and carrying no payload; it gained exactly one, `provider:`. The annotation is a property wrapper conforming to a new single-requirement protocol, `WireInjectionRewrite`, and Wire emits `try <Annotation><Value>(<the annotation's arguments, verbatim>).wireValue(from: <provider>)`. It copies the argument list without reading it, so it never learns what a value means, which method reads it, or that a "default" or a "secret" is a thing. Which `ConfigReader` method each type uses is chosen by *constrained initialisers* (`init(…) where Value == Int`) — ordinary Swift overload resolution, so an unsupported type fails at the user's own annotation rather than inside generated code, and adding a type is adding an initialiser. `provider:` is the one thing Wire cannot derive: it matches dependencies by canonical type text and so cannot see through the wrapper's `Provider` associated type.
+  - **M6c — `@ConfigProperty` / WireConfiguration — built.** The swift-configuration adapter, in a new [`wire-configuration`](https://github.com/tachyonics/wire-configuration) package. `@ConfigProperty(forKey:default:)` at all three sites — `@Inject` property, `@Inject init` parameter, `@Provides func` parameter — makes the *value* the binding rather than the reader: a consumer depends on `Int`/`String` instead of on a collaborator it has to call, the key is visible in the signature, and a test substitutes a value rather than a configured reader. (Note the justification this milestone was scheduled under — *every example hand-rolls config* — was already spent by M6b, which put one shared `ConfigReader` behind a `@GraphInputs` value in all three runtimes. The narrower win above is what it was built for.)
+    - **The domain logic lives in the adapter, not in Wire — and that is the whole design.** The capability `.rewritesInjection` had been reserved since iteration 8, naming `@ConfigProperty` in its doc comment and carrying no payload; it gained exactly one, `provider:`. Wire emits `try <Annotation><Value>.wireValue(from: <provider>, <the annotation's arguments, verbatim>)`, copying the argument list without reading it — so it never learns what a value means, which method reads it, or that a "default" or a "secret" is a thing. The call is **static**, which keeps the annotation's two roles apart: its initialisers carry the value the compiler passes at a use site, and resolution is a static method given a provider, so Wire builds no instance to resolve. Which `ConfigReader` method each type uses is chosen by *constrained overloads* (`where Value == Int`) — ordinary Swift overload resolution, so an unsupported type fails at the user's own annotation rather than inside generated code, and adding a type is adding overloads. **There is no protocol to conform to.** An earlier cut had one, but it ended up requiring only an associated `Provider` type — a second source for something `provider:` already states, which generated code would then have had to agree with; everything else in the contract has a signature determined by the annotation's own arguments, which no protocol can express. `provider:` is the one thing Wire cannot derive: it matches dependencies by canonical type text.
     - **What that buys beyond configuration.** A third-party `@Secret`, `@FeatureFlag` or `@Clock` conforms its wrapper and declares `.rewritesInjection(provider:)` — no swift-wire change, no table to extend. The pass is generic; the earlier plan (a Configuration-aware pass with a hard-coded type→method table in swift-wire) was **abandoned during the build** as strictly worse: more code in the core, a worse diagnostic, and no extensibility.
     - **Dedup is by (annotation, arguments, type)**, so the same annotation written at three sites is one binding read once, while a different key — or the same key at another type — is distinct. The synthesised producer is keyed by a generated identifier, so it can neither capture nor be captured by an ordinary binding of the same type; those generated keys are exempted from both the missing-key diagnostic and `_WireKeyChecks`, since neither has a user declaration to check against.
     - **Gate:** `InjectionRewriteHarness/`, an adapter + consumer pair, separate for the same reason `AdapterHarness` is — a fixture adapter depends on swift-wire, so a package inside its tests would cycle. Its adapter is **synthetic** (`@FromSettings` over a dictionary), not WireConfiguration: swift-wire must not depend on one of its own adapters, and a fixture with nothing to do with configuration is better evidence that the pass learned nothing domain-specific. It exercises all three sites, dedup, the no-default form, and that an unannotated binding of the same type is untouched. CI runs it, as it does the other three.
-    - **Outstanding.** The **keyed-reader selector is designed but not built**: `@Configuration(ConfigKeys.testReader, forKey:…)`, for an app binding more than one `ConfigReader`. It is not a wrapper-only change — the synthesised producer's dependency on the provider is currently unkeyed, so supporting it means the pass reading the annotation's *first* argument to key that dependency, which is the one place it would stop copying verbatim (expressible generically — "a leading `BindingKey` reference keys the provider" — but it is a real design decision, not an oversight). Also unbuilt: the migration of wire-mvc-examples' providers, which is the validation gate this milestone was justified by, and which needs both packages published first. See the [WireConfiguration preview](#wireconfiguration-scheduled-as-m6c) below for the design; its *Disambiguating the underlying ConfigReader* section describes the selector that is not yet built.
+    - **Outstanding.** The **keyed-reader selector is designed but not built**: `@ConfigProperty(ConfigKeys.testReader, forKey:…)`, for an app binding more than one `ConfigReader`. It is not a wrapper-only change — the synthesised producer's dependency on the provider is currently unkeyed, so supporting it means the pass reading the annotation's *first* argument to key that dependency, which is the one place it would stop copying verbatim (expressible generically — "a leading `BindingKey` reference keys the provider" — but it is a real design decision, not an oversight). See the [WireConfiguration preview](#wireconfiguration-scheduled-as-m6c) below for the design; its *Disambiguating the underlying ConfigReader* section describes the selector that is not yet built.
+    - **Validated in wire-mvc-examples.** All three runtimes' backend providers now declare what they need rather than taking a reader and calling it — CouchDB and the server bind address on the proposal runtime, Valkey on Hummingbird, MongoDB on Vapor, with the CouchDB password carrying `isSecret:`. The env-var contract is unchanged, and the `@GraphInputs` reader stays, since that is what the synthesised producers resolve against. Two things surfaced there: a test target needs the adapter as its *own* dependency (depend-to-activate does not inherit through the app it re-composes, and without it an annotated site quietly falls back to resolving by type — the error names the parameter, not the missing dependency); and a **swift-wire bug**, where the seedless reconstruction thunk a keyed variant graph builds picked its subject positionally (`topologicalOrder.last`) and so returned a config string where a controller belonged, once these rewrites put new bindings in the app scope. Fixed to read the subject from the thunk's own return type.
   - **M6d — advanced OpenAPI integration — built.** WireMVC's request-scope + typed-param/response DX brought onto OpenAPI operations. The objective was **one routing model, not two**: an app expresses middleware, error mapping, request scope, encoding and its composition root the same way whether a route came from an OpenAPI document or from `@Get`. What that selected is operations becoming **WireMVC routes** — `@OpenAPIController` contributes to `WireMVCKeys.routeContributors` and `TransportKeys.handlers` retires as a collated key, so there is one collation surface rather than two. Shipped across M6d.0–M6d.6: **direct dispatch** on a per-request copy of a `UniversalServer` (adopted on measurement, replacing the designed task-local, and needing a generator access widening carried on a fork); many controllers per spec and many specs per app (per-spec namespaces resolve the identically-spelled generated types); the **typed shim** (`@Operation`, parameter binding through WireMVC's own property wrappers, responses selected from the document) with two pieces of generator naming **transcribed** and held by goldens the real generator produces; **spec-read validation** via OpenAPIKit, fully dereferenced — reading the document as a dictionary silently dropped `$ref` parameters; and `@ErrorResponse` across both sites. Coding landed in **wire-mvc** rather than here (`WireMVCCoding` + `@Coding`), because a `@Get` route returning a `Date` asks the same question and was answering it differently — closing a live inconsistency between the two kinds of route. Deferred by decision: `@OpenAPIConfiguration` (what remains of it has nothing to act on until non-JSON bodies are supported at the terminal), the decomposition-transformer registry (it belongs in wire-mvc first), and non-JSON bodies themselves. **Outstanding:** task-cluster is not yet migrated, so the forcing case still runs M3's adapter; and the generator fork wants upstreaming, or at least pinning to a revision. Decision record: [WireOpenAPIAdvanced.md](Documentation/Notes/WireOpenAPIAdvanced.md).
 - **M7: performance optimizations.** A cluster of perf passes, each landing when its cost is felt — the multi-module discovery/pruning optimizations (M7a/M7b; multi-module composition itself ships in M1) plus construction scheduling (M7c). All keep the surface contract unchanged and are invisible to users. When M7 starts, the ordering among them is decided then.
   - **M7a — manifest-based discovery.** Lands when re-parsing dependency sources at build time becomes a build-time performance problem (a large dependency graph). Each library's build plugin emits a per-library compile-time manifest of its bindings; the consumer reads manifests instead of re-parsing source. The `_WireExports.swift` marker (a hand-written stub in M1) becomes the generated manifest.
@@ -142,7 +143,7 @@ candidates:
 
 ### Shaping the graph: config vs `@Container` vs `@Replaces` (three tools, three intents)
 
-Three of the deferred features below (`@Configuration`/config, `@Container(includes:)`,
+Three of the deferred features below (`@ConfigProperty`/config, `@Container(includes:)`,
 `@Replaces`) all "make the graph different," which invites treating them as
 alternatives — especially when reaching for a **testing** story. They aren't
 alternatives; they sit at three points on a granularity axis and answer three
@@ -152,7 +153,7 @@ different questions, and every mature DI system ships all three (Spring
 
 | Tool | Granularity | Intent | Prior-art twin |
 |---|---|---|---|
-| **config / `@Configuration`** | a *value* | 12-factor: same graph, different inputs (port, URL, pool size) | Spring `@ConfigurationProperties` / `@DynamicPropertySource` |
+| **config / `@ConfigProperty`** | a *value* | 12-factor: same graph, different inputs (port, URL, pool size) | Spring `@ConfigurationProperties` / `@DynamicPropertySource` |
 | **`@Container` / `@Container(includes:)`** | a *coherent, named set of bindings* | select one of several **structural** variants wholesale | Spring `@Profile` / Dagger `@Module`+`@Component` |
 | **`@Replaces`** | a *single binding* | surgically swap one thing in an otherwise-intact graph | Spring `@MockBean` / Hilt `@BindValue` |
 
@@ -190,7 +191,7 @@ Consequences for how these get built and sequenced:
    justified by *production environment selection*, not testing, and it's the seam any
    `@Container`-based path (test or prod) would need.
 
-Each has its own forcing case (below): config/`@Configuration` is **M6c**; **`@Replaces`
+Each has its own forcing case (below): config/`@ConfigProperty` is **M6c**; **`@Replaces`
 shipped in M6a** (its surgical-test trigger arrived — the `SwiftHttpServerExample`
 fake-dependency test); `@Container(includes:)` stays deferred behind a structural-variation
 trigger that hasn't appeared. So M6a builds `@Replaces`, while the coarse container band
@@ -413,19 +414,19 @@ Decision point: when an external adopter has a concrete cross-scope-read pattern
 
 ## WireConfiguration (scheduled as M6c)
 
-> **Status: built** — see the M6c entry in Milestones above for what shipped and what did not. The design below is the record it was built from; two things diverged, both noted in that entry: the type→method dispatch moved into the adapter's constrained initialisers rather than a table in swift-wire, and the keyed-reader selector in *Disambiguating the underlying ConfigReader* is designed but not yet built. The milestone-ordering speculation in this section is historical — it predates M2–M5 and its "suggested reorder" did not happen (WireHummingbird shipped as M2, WireOpenAPI as M3). The **design** below (desugaring model, recognized sites, key-based dedup, `ConfigReader`-method dispatch, validation) is current and is what M6c builds, with two sections revised after M6b: *Disambiguating the underlying ConfigReader* replaces a composed-annotation design that turned out not to compile, and *Validation* now leads with the graph-input idiom `@GraphInputs` made available. References to "iteration 3/8" are M1-internal iteration numbers.
+> **Status: built** — see the M6c entry in Milestones above for what shipped and what did not. The design below is the record it was built from; two things diverged, both noted in that entry: the type→method dispatch moved into the adapter's constrained overloads rather than a table in swift-wire, and the annotation shipped as `@ConfigProperty` rather than `@Configuration`, and the keyed-reader selector in *Disambiguating the underlying ConfigReader* is designed but not yet built. The milestone-ordering speculation in this section is historical — it predates M2–M5 and its "suggested reorder" did not happen (WireHummingbird shipped as M2, WireOpenAPI as M3). The **design** below (desugaring model, recognized sites, key-based dedup, `ConfigReader`-method dispatch, validation) is current and is what M6c builds, with two sections revised after M6b: *Disambiguating the underlying ConfigReader* replaces a composed-annotation design that turned out not to compile, and *Validation* now leads with the graph-input idiom `@GraphInputs` made available. References to "iteration 3/8" are M1-internal iteration numbers.
 
-The README names `WireHummingbird` as M2 — the first framework adapter, the integration target task-cluster is built around. Working through the M1 design surface (specifically iteration 8's adapter-annotation contract) surfaced a smaller adapter that's a better first real-world test: **WireConfiguration**, a swift-configuration adapter exposing `@Configuration(forKey:default:)`. This section captures the design so the eventual milestone-ordering decision has the work to point at.
+The README names `WireHummingbird` as M2 — the first framework adapter, the integration target task-cluster is built around. Working through the M1 design surface (specifically iteration 8's adapter-annotation contract) surfaced a smaller adapter that's a better first real-world test: **WireConfiguration**, a swift-configuration adapter exposing `@ConfigProperty(forKey:default:)`. This section captures the design so the eventual milestone-ordering decision has the work to point at.
 
 ### Why ahead of WireHummingbird
 
 1. **Smaller adapter surface, simpler first contract validation.** Hummingbird is the canonical "framework adapter" — type-level + member-level annotations (`@Controller`, `@Get`, `@Post`, `@RoutedBy`) with deeper integration patterns. swift-configuration is comparatively narrow (read a value, pass it through). Validating M1's iteration-8 adapter contract on a smaller surface first surfaces issues before they're tangled up with framework complexity. Same "highest-risk integration first" philosophy the M1 plan applies at the iteration level, applied at the milestone level.
 2. **Universal applicability.** Configuration is a fundamental need in any real app; configuration wiring through DI is high-leverage. WireHummingbird benefits HTTP apps; WireConfiguration benefits everything.
-3. **Concrete migration target in task-cluster.** The current `let port = config.int(forKey: "HTTP_PORT", default: 8080)` line in `TaskCluster.swift` becomes `@Configuration(forKey: "HTTP_PORT", default: 8080) port: Int` at the @Inject site. Another step on the incremental task-cluster migration path the M1 plan calls out.
+3. **Concrete migration target in task-cluster.** The current `let port = config.int(forKey: "HTTP_PORT", default: 8080)` line in `TaskCluster.swift` becomes `@ConfigProperty(forKey: "HTTP_PORT", default: 8080) port: Int` at the @Inject site. Another step on the incremental task-cluster migration path the M1 plan calls out.
 
 ### Desugaring model
 
-`@Configuration` is **sugar over the existing graph machinery** — not a new adapter-contract form. The build plugin sees the annotation and synthesizes a binding equivalent to:
+`@ConfigProperty` is **sugar over the existing graph machinery** — not a new adapter-contract form. The build plugin sees the annotation and synthesizes a binding equivalent to:
 
 ```swift
 static func _wire_<configKey>(config: ConfigReader) -> <Type> {
@@ -433,17 +434,22 @@ static func _wire_<configKey>(config: ConfigReader) -> <Type> {
 }
 ```
 
-The original consumer parameter/property resolves to that synthesized binding via the graph's normal mechanics. **No new adapter form, no contract extension.** The README's three adapter forms (type-level, type-level-with-members, member-level) stay intact — `@Configuration` is purely a build-plugin source transformation that produces existing graph constructs.
+The original consumer parameter/property resolves to that synthesized binding via the graph's normal mechanics. **No new adapter form, no contract extension.** The README's three adapter forms (type-level, type-level-with-members, member-level) stay intact — `@ConfigProperty` is purely a build-plugin source transformation that produces existing graph constructs.
 
 ### Recognized sites
 
-`@Configuration` is recognized at three sites, all desugaring identically:
+`@ConfigProperty` is recognized at three sites, all desugaring identically. The property form takes `var`
+**or `let`**: the annotation ships as two declarations sharing one name — a property wrapper, the only
+mechanism that can attach to a *parameter*, and a peer macro, the only one that can attach to a `let`
+*property* (`property wrapper can only be applied to a 'var'`). Swift resolves each use site to whichever
+applies, and Wire reads the attribute syntactically before expansion, so the two are indistinguishable to
+it and deduplicate to the same binding:
 
 ```swift
 // 1. @Inject property site (most common — Controller-style consumers)
 @Singleton
 struct TaskController {
-    @Inject @Configuration(forKey: "REQUEST_TIMEOUT", default: 30) var timeout: Int
+    @Inject @ConfigProperty(forKey: "REQUEST_TIMEOUT", default: 30) var timeout: Int
     @Inject var repository: any TaskRepository
 }
 
@@ -452,7 +458,7 @@ struct TaskController {
 struct TaskController {
     @Inject
     init(
-        @Configuration(forKey: "REQUEST_TIMEOUT", default: 30) timeout: Int,
+        @ConfigProperty(forKey: "REQUEST_TIMEOUT", default: 30) timeout: Int,
         repository: any TaskRepository
     ) { ... }
 }
@@ -460,38 +466,51 @@ struct TaskController {
 // 3. @Provides func parameter site (multi-field config aggregation)
 @Provides
 static func appConfig(
-    @Configuration(forKey: "HTTP_PORT", default: 8080) port: Int,
-    @Configuration(forKey: "HTTP_HOST", default: "0.0.0.0") host: String
+    @ConfigProperty(forKey: "HTTP_PORT", default: 8080) port: Int,
+    @ConfigProperty(forKey: "HTTP_HOST", default: "0.0.0.0") host: String
 ) -> ApplicationConfiguration {
     .init(address: .hostname(host, port: port))
 }
 ```
 
-A standalone `@Provides @Configuration static let httpPort: Int` form was considered but **deliberately not supported** — Swift's `let`-must-be-initialised rule plus the absence of a "synthesise initializer expression for a stored let" macro role means there's no clean way to ship that syntax without sentinel-value workarounds. The three @Inject/@Provides parameter sites cover the realistic consumer patterns; the standalone form is mostly redundant once those work. Worth revisiting if Swift's macro system grows the capability later.
+A standalone `@Provides @ConfigProperty static let httpPort: Int` form was considered but **deliberately not supported** — Swift's `let`-must-be-initialised rule plus the absence of a "synthesise initializer expression for a stored let" macro role means there's no clean way to ship that syntax without sentinel-value workarounds. The three @Inject/@Provides parameter sites cover the realistic consumer patterns; the standalone form is mostly redundant once those work. Worth revisiting if Swift's macro system grows the capability later.
 
 ### Synthesized-binding identity (key-based dedup)
 
-Two `@Configuration` annotations of the same parameter type with the *same* config key resolve to the *same* synthesized binding (natural deduplication). Two with *different* config keys resolve to *different* synthesized bindings — keyed by the config key string (e.g., `BindingKey<Int>(identifier: "HTTP_PORT")` and `BindingKey<Int>(identifier: "TIMEOUT")` are distinct).
+Two `@ConfigProperty` annotations of the same parameter type with the *same* config key resolve to the *same* synthesized binding (natural deduplication). Two with *different* config keys resolve to *different* synthesized bindings — keyed by the config key string (e.g., `BindingKey<Int>(identifier: "HTTP_PORT")` and `BindingKey<Int>(identifier: "TIMEOUT")` are distinct).
 
-This integrates cleanly with iteration 3's explicit-key disambiguation work — `@Configuration` essentially uses iteration 3's machinery internally, just with auto-derived keys instead of user-written ones.
+This integrates cleanly with iteration 3's explicit-key disambiguation work — `@ConfigProperty` essentially uses iteration 3's machinery internally, just with auto-derived keys instead of user-written ones.
 
 ### Disambiguating the underlying ConfigReader
 
-**The reader selector is `@Configuration`\'s own first argument.** Two spellings:
+**The name.** This shipped as `@ConfigProperty`, not the `@Configuration` written throughout this section —
+because `@Configuration` collides with the module it adapts. swift-configuration's library product is named
+`Configuration`, so any file importing it to name `ConfigReader` (the composition root of every app, at
+least) cannot use the annotation: `error: cannot use module 'Configuration' as a type`. The alternative was
+splitting such files so none both imports the module and annotates a parameter — ceremony imposed on every
+consumer. `@ConfigProperty` is [MicroProfile Config's](https://download.eclipse.org/microprofile/microprofile-config-2.0/microprofile-config-spec-2.0.html)
+name for the same thing in the same shape (a qualifier beside the inject marker, naming a key and a
+default), and that spec splits the same three ways this one does. The other widely-known spellings do not
+survive Swift: Spring's and Micronaut's `@Value` is the generic parameter name in the wrapper itself, and
+Micronaut's `@Property` collides with the language's vocabulary; `@ConfigValue` and `@ConfigKey` are types
+swift-configuration already declares. The argument labels stay `forKey:`/`default:` rather than
+MicroProfile's `name:`/`defaultValue:`, matching swift-configuration's own reader methods.
+
+**The reader selector is `@ConfigProperty`\'s own first argument.** Two spellings:
 
 ```swift
 @Provides
 static func appConfig(
-    // Implicit — reads as `@Configuration(ConfigReader.self, …)`: the unkeyed reader, resolved by type.
-    @Configuration(forKey: "HTTP_PORT", default: 8080) port: Int,
+    // Implicit — reads as `@ConfigProperty(ConfigReader.self, …)`: the unkeyed reader, resolved by type.
+    @ConfigProperty(forKey: "HTTP_PORT", default: 8080) port: Int,
     // Explicit — names which reader binding to resolve, for an app that binds more than one.
-    @Configuration(ConfigKeys.testReader, forKey: "TIMEOUT", default: 30) timeout: Int
+    @ConfigProperty(ConfigKeys.testReader, forKey: "TIMEOUT", default: 30) timeout: Int
 ) -> ApplicationConfiguration { ... }
 ```
 
 Two `init` overloads on the wrapper (`init(wrappedValue:forKey:default:)` and `init(wrappedValue:_:forKey:default:)`), so no common parameter type is needed to admit both — which sidesteps the metatype-vs-key-reference mixing wrinkle [`ScopeAndKeyModelEvolution.md`](Documentation/Notes/ScopeAndKeyModelEvolution.md) lists as open. The metatype form is **not** writable syntax: it is exactly redundant with the bare form, and exists here only to explain what bare means. The selector is typed `BindingKey<ConfigReader>`, so naming a key of the wrong type fails at the annotation.
 
-**This replaces an earlier design that cannot compile.** It had `@Configuration` take no selector — on the grounds that doing so would special-case it when iteration 3 was already shipping general explicit-key disambiguation — and composed the general annotation instead: `@Inject(ConfigReader.testKey) @Configuration(forKey:default:) port: Int`. That is wrong twice over. `@Inject` is a peer macro and cannot attach to a parameter at all, which is why `@Bind` exists. And `@Bind` cannot express it either: **property-wrapper composition rewrites the outer wrapper\'s generic parameter to the inner wrapper\'s type**, so `@Bind(ConfigReader.testKey) @Configuration(…) port: Int` asks for a `BindingKey<Configuration<Int>>` and is rejected —
+**This replaces an earlier design that cannot compile.** It had `@ConfigProperty` take no selector — on the grounds that doing so would special-case it when iteration 3 was already shipping general explicit-key disambiguation — and composed the general annotation instead: `@Inject(ConfigReader.testKey) @ConfigProperty(forKey:default:) port: Int`. That is wrong twice over. `@Inject` is a peer macro and cannot attach to a parameter at all, which is why `@Bind` exists. And `@Bind` cannot express it either: **property-wrapper composition rewrites the outer wrapper\'s generic parameter to the inner wrapper\'s type**, so `@Bind(ConfigReader.testKey) @ConfigProperty(…) port: Int` asks for a `BindingKey<Configuration<Int>>` and is rejected —
 
 ```
 error: cannot convert value of type 'BindingKey<ConfigReader>'
@@ -504,12 +523,12 @@ error: cannot convert value of type 'BindingKey<ConfigReader>'
 
 ### Type → ConfigReader-method dispatch
 
-`@Configuration` calls the typed method matching the annotated parameter's type — `Int` → `config.int(forKey:default:)`, `String` → `config.string(…)`. The mapping is hard-coded; swift-configuration's surface is small and closed enough that this is the right shape, not a stopgap. Read off the shipped reader rather than guessed, the sync surface is `bool`, `int`, `double`, `string`, `bytes` **and their array forms** (`intArray`, `stringArray`, `boolArray`, `doubleArray`, `byteChunkArray`) — so arrays come free on day one rather than as a later extension. `Codable`-conforming structured config stays a later hook.
+`@ConfigProperty` calls the typed method matching the annotated parameter's type — `Int` → `config.int(forKey:default:)`, `String` → `config.string(…)`. The mapping is hard-coded; swift-configuration's surface is small and closed enough that this is the right shape, not a stopgap. Read off the shipped reader rather than guessed, the sync surface is `bool`, `int`, `double`, `string`, `bytes` **and their array forms** (`intArray`, `stringArray`, `boolArray`, `doubleArray`, `byteChunkArray`) — so arrays come free on day one rather than as a later extension. `Codable`-conforming structured config stays a later hook.
 
 Three properties of that surface the earlier sketch did not account for, each a small decision to settle when M6c starts:
 
-- **Required vs defaulted.** Every method has a `requiredInt`/`requiredString`/… counterpart that throws when the key is absent. `@Configuration(forKey:)` with no `default:` should map to those, giving a missing required value a clean startup failure instead of a silent fallback. The synthesized binding is then `throws`, which the graph already supports.
-- **Secrets.** Every method takes `isSecret:`, which governs redaction in logging and debugging. Redaction is a property of the *value*, and the annotation is the only place that knows — so `@Configuration(forKey:default:isSecret:)` is where it belongs. Worth shipping with the first cut given M6b just made per-request logging idiomatic.
+- **Required vs defaulted.** Every method has a `requiredInt`/`requiredString`/… counterpart that throws when the key is absent. `@ConfigProperty(forKey:)` with no `default:` should map to those, giving a missing required value a clean startup failure instead of a silent fallback. The synthesized binding is then `throws`, which the graph already supports.
+- **Secrets.** Every method takes `isSecret:`, which governs redaction in logging and debugging. Redaction is a property of the *value*, and the annotation is the only place that knows — so `@ConfigProperty(forKey:default:isSecret:)` is where it belongs. Worth shipping with the first cut given M6b just made per-request logging idiomatic.
 - **Sync vs async.** There is a parallel `fetchInt`/`fetchString`/… family that is `async`, for providers doing I/O. Wire supports async providers, so either desugaring is expressible. Start sync-only; the async form is additive.
 
 ### Validation

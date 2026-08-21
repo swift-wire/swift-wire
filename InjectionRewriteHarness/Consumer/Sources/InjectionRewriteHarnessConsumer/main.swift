@@ -56,9 +56,10 @@ struct LogSettings: Sendable {
 }
 
 // The two forms of the same thing, which must be equivalent and both expressible. Site 3 is the property
-// form; site 2 above is the initialiser-parameter form. The one asymmetry Swift forces: a property wrapper
-// "can only be applied to a 'var'", so the property form cannot say `let` — while the parameter form can,
-// because there the wrapper is on the *parameter* and the stored property is an ordinary `let`.
+// form; site 2 above is the initialiser-parameter form. A property wrapper "can only be applied to a 'var'",
+// so an adapter that were *only* a wrapper would force the property form to give up immutability. The way
+// out is to ship two declarations under one name — the wrapper, plus a peer macro — and let Swift resolve
+// each use site to whichever applies. The three below must therefore agree.
 @Singleton
 struct PropertyFormVar: Sendable {
     // Resolves to the property *wrapper* — legal on a `var`.
