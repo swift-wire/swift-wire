@@ -1,3 +1,5 @@
+import SwiftParser
+import SwiftSyntax
 import Testing
 
 @testable import WireGenCore
@@ -9,13 +11,14 @@ import Testing
 struct InjectionRewriteTests {
     private func annotation(
         _ name: String = "Configuration",
-        provider: String = "ConfigReader"
+        provider: String = "ConfigReader",
+        selectorLabel: String? = nil
     )
         -> DiscoveredAdapterAnnotation
     {
         DiscoveredAdapterAnnotation(
             annotationName: name,
-            capability: .rewritesInjection(provider: provider),
+            capability: .rewritesInjection(provider: provider, selectorLabel: selectorLabel),
             location: mockLocation("Adapter.swift"),
             originModule: testModule
         )
@@ -47,8 +50,12 @@ struct InjectionRewriteTests {
         )
     }
 
-    private func site(_ arguments: String) -> InjectionRewriteSite {
-        InjectionRewriteSite(annotationName: "Configuration", arguments: arguments)
+    /// A site built by parsing the attribute as written and running discovery's own scanner, so these
+    /// pin the real path from source text to structured arguments rather than a hand-built stand-in.
+    private func site(_ arguments: String, annotation: String = "Configuration") -> InjectionRewriteSite {
+        let source = "@\(annotation)(\(arguments)) var x: Int"
+        let variable = Parser.parse(source: source).statements.first?.item.as(VariableDeclSyntax.self)
+        return injectionRewriteCandidate(in: variable!.attributes)!
     }
 
     // MARK: - What gets synthesised
@@ -123,6 +130,97 @@ struct InjectionRewriteTests {
             consumerModule: testModule
         )
         #expect(result.synthesized.count == 3)
+    }
+
+    // MARK: - Selecting which provider to read from
+
+    /// The declared selector argument leaves the spliced list and keys the provider dependency instead.
+    /// By resolution time the provider is already resolved, so passing it on would be meaningless.
+    @Test func aDeclaredSelectorKeysTheProviderAndLeavesTheArgumentList() throws {
+        let result = applyInjectionRewrites(
+            to: [
+                .default: [
+                    provider(
+                        "one",
+                        parameters: [("String", site(#"reader: Keys.testReader, forKey: "a", default: "x""#))]
+                    )
+                ]
+            ],
+            annotations: [annotation(selectorLabel: "reader")],
+            consumerModule: testModule
+        )
+        let synthesized = try #require(result.synthesized.first)
+        #expect(synthesized.providerKey == "Keys.testReader")
+        // Spliced verbatim, minus the selector.
+        #expect(synthesized.declaration.contains(#"wireValue(from: _wireProvider, forKey: "a", default: "x")"#))
+        #expect(!synthesized.declaration.contains("Keys.testReader"))
+    }
+
+    /// The same label without the adapter declaring a selector is an ordinary argument, spliced like any
+    /// other: recognition is driven by what the adapter declared, never by the spelling.
+    @Test func anUndeclaredSelectorLabelIsJustAnArgument() throws {
+        let result = applyInjectionRewrites(
+            to: [
+                .default: [provider("one", parameters: [("String", site(#"reader: Keys.testReader, forKey: "a""#))])]
+            ],
+            annotations: [annotation()],
+            consumerModule: testModule
+        )
+        let synthesized = try #require(result.synthesized.first)
+        #expect(synthesized.providerKey == nil)
+        #expect(synthesized.declaration.contains("reader: Keys.testReader"))
+    }
+
+    /// Omitting the selector at a site whose adapter declares one resolves the provider by type, which is
+    /// what every pre-selector site does.
+    @Test func omittingTheSelectorLeavesTheProviderUnkeyed() throws {
+        let result = applyInjectionRewrites(
+            to: [.default: [provider("one", parameters: [("String", site(#"forKey: "a", default: "x""#))])]],
+            annotations: [annotation(selectorLabel: "reader")],
+            consumerModule: testModule
+        )
+        #expect(try #require(result.synthesized.first).providerKey == nil)
+    }
+
+    /// The failure this change could most easily introduce, and the quietest: the selector leaves the
+    /// argument list, so if it also left the dedup identity these two sites would collapse into one
+    /// binding and both would read from whichever provider won.
+    @Test func sameArgumentsFromDifferentProvidersAreDistinctBindings() {
+        let result = applyInjectionRewrites(
+            to: [
+                .default: [
+                    provider(
+                        "one",
+                        parameters: [
+                            ("String", site(#"reader: Keys.primary, forKey: "a", default: "x""#)),
+                            ("String", site(#"reader: Keys.secondary, forKey: "a", default: "x""#)),
+                        ]
+                    )
+                ]
+            ],
+            annotations: [annotation(selectorLabel: "reader")],
+            consumerModule: testModule
+        )
+        #expect(result.synthesized.count == 2)
+        #expect(Set(result.synthesized.map(\.providerKey)) == ["Keys.primary", "Keys.secondary"])
+        // Distinct binding keys too, or the two producers collide on one name.
+        #expect(Set(result.synthesized.map(\.keyIdentifier)).count == 2)
+    }
+
+    /// A rewritten site's synthesised provider dependency is anchored at the annotation the user wrote.
+    /// Without this, an undeclared selector key reports against `<synthetic>:0:0` — an error with no
+    /// file and no line.
+    @Test func theSynthesisedProviderIsAnchoredAtARealSite() throws {
+        let result = applyInjectionRewrites(
+            to: [
+                .default: [
+                    provider("one", parameters: [("String", site(#"reader: Keys.testReader, forKey: "a""#))])
+                ]
+            ],
+            annotations: [annotation(selectorLabel: "reader")],
+            consumerModule: testModule
+        )
+        #expect(try #require(result.synthesized.first).location.file == "one.swift")
     }
 
     // MARK: - Staying out of the way

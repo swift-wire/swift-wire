@@ -25,18 +25,32 @@ public struct FromSettings<Value> {
 
     // MARK: Attachment — String
 
-    public init(wrappedValue: Value, named name: String, default value: Value) where Value == String {
+    /// `source:` names *which* `SettingsSource` to read from, for a graph binding more than one. It is
+    /// defaulted, so one initialiser admits both spellings, and it is only ever read by Wire — the
+    /// wrapper discards it, because by resolution time the provider is already resolved.
+    public init(
+        wrappedValue: Value,
+        source: BindingKey<SettingsSource>? = nil,
+        named name: String,
+        default value: Value
+    ) where Value == String {
         self.wrappedValue = wrappedValue
     }
     /// No default: the value is optional, and an absent setting is `nil`. Absence is what `Optional`
     /// means, so there is nothing to invent an error for — the site declares `String?` and decides.
-    public init(wrappedValue: Value, named name: String) where Value == String? {
+    public init(wrappedValue: Value, source: BindingKey<SettingsSource>? = nil, named name: String)
+    where Value == String? {
         self.wrappedValue = wrappedValue
     }
 
     // MARK: Attachment — Int
 
-    public init(wrappedValue: Value, named name: String, default value: Value) where Value == Int {
+    public init(
+        wrappedValue: Value,
+        source: BindingKey<SettingsSource>? = nil,
+        named name: String,
+        default value: Value
+    ) where Value == Int {
         self.wrappedValue = wrappedValue
     }
 
@@ -72,7 +86,7 @@ extension FromSettings: Sendable where Value: Sendable {}
 /// dependencies by canonical type text, so it cannot see through `FromSettings<Value>.Provider`.
 public let wireHarnessSettingsAnnotation = WireAdapterAnnotationV1(
     annotation: "FromSettings",
-    capability: .rewritesInjection(provider: "SettingsSource")
+    capability: .rewritesInjection(provider: "SettingsSource", selector: .labelled("source"))
 )
 
 /// The *macro* half of `@FromSettings`, sharing the wrapper's name. Swift resolves each use site to
@@ -85,9 +99,12 @@ public let wireHarnessSettingsAnnotation = WireAdapterAnnotationV1(
 ///     @Inject @FromSettings(named: "host", default: "127.0.0.1") let host: String
 ///     @Inject init(@FromSettings(named: "host", default: "127.0.0.1") host: String) { … }
 @attached(peer)
-public macro FromSettings<Value>(named: String, default: Value) =
-    #externalMacro(module: "WireHarnessSettingsMacros", type: "FromSettingsMacro")
+public macro FromSettings<Value>(
+    source: BindingKey<SettingsSource>? = nil,
+    named: String,
+    default: Value
+) = #externalMacro(module: "WireHarnessSettingsMacros", type: "FromSettingsMacro")
 
 @attached(peer)
-public macro FromSettings(named: String) =
+public macro FromSettings(source: BindingKey<SettingsSource>? = nil, named: String) =
     #externalMacro(module: "WireHarnessSettingsMacros", type: "FromSettingsMacro")

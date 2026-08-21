@@ -21,48 +21,74 @@ import SwiftSyntax
 
 /// A `.rewritesInjection` annotation as written at an injection site.
 package struct InjectionRewriteSite: Sendable, Equatable {
-    /// The annotation (and so the property wrapper) name — `Configuration`.
-    package let annotationName: String
-    /// The argument list verbatim, without the enclosing parentheses — `forKey: "PORT", default: 8080`.
-    /// Never parsed: it is spliced straight into the wrapper's initialiser call, so whatever the wrapper
-    /// accepts, the annotation accepts.
-    package let arguments: String
+    /// One argument as written — `forKey: "PORT"` is `(label: "forKey", text: "\"PORT\"")`.
+    ///
+    /// Kept split by label only so a declared *selector* can be lifted out by name; the text itself is
+    /// never interpreted. Everything else about the list is still verbatim.
+    package struct Argument: Sendable, Equatable {
+        package let label: String?
+        package let text: String
 
-    package init(annotationName: String, arguments: String) {
+        package init(label: String?, text: String) {
+            self.label = label
+            self.text = text
+        }
+    }
+
+    /// The annotation (and so the property wrapper) name — `ConfigProperty`.
+    package let annotationName: String
+    /// The argument list, without the enclosing parentheses. Spliced back into the wrapper's `wireValue`
+    /// call as written, so whatever the wrapper accepts, the annotation accepts.
+    package let arguments: [Argument]
+
+    package init(annotationName: String, arguments: [Argument]) {
         self.annotationName = annotationName
         self.arguments = arguments
     }
-}
 
-/// The `.rewritesInjection` annotation on a parameter or property, or `nil`.
-///
-/// `annotationNames` are the declared rewriting annotations, so an attribute is only treated as one when an
-/// adapter said it is — an unknown attribute stays an ordinary attribute.
-func injectionRewriteSite(
-    in attributes: AttributeListSyntax,
-    annotationNames: Set<String>
-) -> InjectionRewriteSite? {
-    for case let .attribute(attribute) in attributes {
-        let name = attribute.attributeName.trimmedDescription
-        guard annotationNames.contains(name) else { continue }
-        guard case let .argumentList(list) = attribute.arguments else {
-            // A bare `@X` carries nothing to construct the wrapper from; the wrapper decides whether an
-            // empty argument list is valid by whether it has a matching initialiser.
-            return InjectionRewriteSite(annotationName: name, arguments: "")
+    /// The arguments rendered back to source, minus the one labelled `selectorLabel` if the adapter
+    /// declared one — what gets spliced after `from:`.
+    ///
+    /// Returns the selector's own text separately: it keys the synthesised producer's dependency on the
+    /// provider instead of being passed along, since by resolution time the provider is already resolved.
+    func splittingSelector(labelled selectorLabel: String?) -> (providerKey: String?, rendered: String) {
+        guard let selectorLabel else { return (nil, render(arguments)) }
+        guard let index = arguments.firstIndex(where: { $0.label == selectorLabel }) else {
+            return (nil, render(arguments))
         }
-        return InjectionRewriteSite(annotationName: name, arguments: list.trimmedDescription)
+        var remaining = arguments
+        let selector = remaining.remove(at: index)
+        return (selector.text, render(remaining))
     }
-    return nil
+
+    private func render(_ arguments: [Argument]) -> String {
+        arguments.map { argument in
+            argument.label.map { "\($0): \(argument.text)" } ?? argument.text
+        }
+        .joined(separator: ", ")
+    }
 }
 
-/// The names of every declared `.rewritesInjection` annotation, mapped to the provider type it reads from.
+/// What a declared `.rewritesInjection` annotation reads from.
+package struct InjectionRewriteProvider: Sendable, Equatable {
+    /// The provider type as the adapter named it — `"ConfigReader"`.
+    package let type: String
+    /// The argument label naming which provider binding to read from, or `nil` if the adapter did not
+    /// opt into selection.
+    package let selectorLabel: String?
+}
+
+/// Every declared `.rewritesInjection` annotation, mapped to what it reads from.
 package func injectionRewriteProviders(
     _ annotations: [DiscoveredAdapterAnnotation]
-) -> [String: String] {
-    var providers: [String: String] = [:]
+) -> [String: InjectionRewriteProvider] {
+    var providers: [String: InjectionRewriteProvider] = [:]
     for annotation in annotations {
-        if case .rewritesInjection(let provider) = annotation.capability {
-            providers[annotation.annotationName] = provider
+        if case .rewritesInjection(let provider, let selectorLabel) = annotation.capability {
+            providers[annotation.annotationName] = InjectionRewriteProvider(
+                type: provider,
+                selectorLabel: selectorLabel
+            )
         }
     }
     return providers
@@ -79,6 +105,12 @@ package struct SynthesizedInjectionRewrite: Sendable {
     /// The key the binding is registered under, so two sites with the same annotation arguments and type
     /// share one binding and different ones stay distinct.
     package let keyIdentifier: String
+    /// The key naming *which* provider binding to read from, or `nil` to resolve it by type.
+    package let providerKey: String?
+    /// A real annotated site this producer was synthesised for — the first one, since the rest
+    /// deduplicated into it. Carried so a diagnostic about the provider (an undeclared selector key, an
+    /// unbound provider) anchors at source a user wrote rather than at the synthesised dependency.
+    package let location: SourceLocation
     /// The whole declaration, ready to emit.
     package let declaration: String
 }
@@ -119,11 +151,12 @@ package func applyInjectionRewrites(
                             name: "_wireProvider",
                             type: rewrite.providerType,
                             kind: .injectInitParameter,
-                            location: SourceLocation(file: "<synthetic>", line: 0, column: 0)
+                            location: rewrite.location,
+                            keyIdentifier: rewrite.providerKey
                         )
                     ],
                     genericParameterNames: [],
-                    location: SourceLocation(file: "<synthetic>", line: 0, column: 0),
+                    location: rewrite.location,
                     keyIdentifier: rewrite.keyIdentifier,
                     isThrowing: true,
                     originModule: consumerModule
@@ -137,7 +170,7 @@ package func applyInjectionRewrites(
 /// Re-point one binding's rewritten dependencies, recording the producers they need.
 private func rewriting(
     _ binding: DiscoveredBinding,
-    providers: [String: String],
+    providers: [String: InjectionRewriteProvider],
     into synthesized: inout [String: SynthesizedInjectionRewrite],
     module: String
 ) -> DiscoveredBinding {
@@ -145,7 +178,13 @@ private func rewriting(
         guard let site = dependency.injectionRewrite,
             let provider = providers[site.annotationName]
         else { return dependency }
-        let rewrite = record(site, valueType: dependency.type, provider: provider, into: &synthesized)
+        let rewrite = record(
+            site,
+            valueType: dependency.type,
+            provider: provider,
+            location: dependency.location,
+            into: &synthesized
+        )
         // The site now resolves to the synthesised producer: same type, but keyed to it, so it cannot
         // collide with an ordinary binding of that type (a plain `String` binding stays reachable).
         return DependencyParameter(
@@ -182,31 +221,41 @@ private func rewriting(
 private func record(
     _ site: InjectionRewriteSite,
     valueType: String,
-    provider: String,
+    provider: InjectionRewriteProvider,
+    location: SourceLocation,
     into synthesized: inout [String: SynthesizedInjectionRewrite]
 ) -> SynthesizedInjectionRewrite {
-    let identity = "\(site.annotationName)|\(site.arguments)|\(canonicalTypeName(valueType))"
+    // The selector leaves the argument list here and becomes the provider dependency's key. It stays in
+    // the identity: two sites reading the *same* key at the same type from *different* providers are
+    // different bindings, and collapsing them would silently read one value for both.
+    let (providerKey, arguments) = site.splittingSelector(labelled: provider.selectorLabel)
+    let identity =
+        "\(site.annotationName)|\(providerKey ?? "")|\(arguments)|\(canonicalTypeName(valueType))"
     if let existing = synthesized[identity] { return existing }
-    let suffix = sanitizeIdentifier("\(site.annotationName)_\(canonicalTypeName(valueType))_\(site.arguments)")
+    let suffix = sanitizeIdentifier(
+        "\(site.annotationName)_\(canonicalTypeName(valueType))_\(providerKey ?? "")_\(arguments)"
+    )
     let functionName = "_wireRewrite_\(suffix)"
     // The wrapper is constructed exactly as written at the site and asked for the value. Wire supplies the
     // wrapper name, the site's type, and the provider parameter; the argument list is the user's, verbatim.
     let wrapper = "\(site.annotationName)<\(valueType)>"
     // A *static* call: the wrapper's initialisers are its attachment role and play no part here, so no
     // instance is constructed to resolve. `from:` leads; the annotation's own arguments follow verbatim.
-    let arguments = site.arguments.isEmpty ? "" : ", \(site.arguments)"
+    let spliced = arguments.isEmpty ? "" : ", \(arguments)"
     let declaration = """
-        private func \(functionName)(_wireProvider: \(provider)) throws -> \(valueType) {
-            try \(wrapper).wireValue(from: _wireProvider\(arguments))
+        private func \(functionName)(_wireProvider: \(provider.type)) throws -> \(valueType) {
+            try \(wrapper).wireValue(from: _wireProvider\(spliced))
         }
         """
     let rewrite = SynthesizedInjectionRewrite(
         functionName: functionName,
         valueType: valueType,
-        providerType: provider,
+        providerType: provider.type,
         // A generated key, so the binding is addressable and deduplicated without colliding with any
         // user key: keys are matched by canonical text, and no user writes this one.
         keyIdentifier: "_wireRewriteKey_\(suffix)",
+        providerKey: providerKey,
+        location: location,
         declaration: declaration
     )
     synthesized[identity] = rewrite
