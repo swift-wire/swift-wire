@@ -1,7 +1,7 @@
 // Public carrier for an adapter-annotation definition.
 //
 // An adapter package declares one per annotation it publishes (e.g. `@RoutedBy`,
-// `@Middleware`, `@Configuration`), stating what the attribute *does* to the declaration
+// `@Middleware`, `@ConfigProperty`), stating what the attribute *does* to the declaration
 // it sits on via a `WireAdapterCapability`. Wire discovers the declaration syntactically
 // (like a `BindingKey` declaration) and never executes it — the capability and any key
 // are read from the written syntax, not a runtime value.
@@ -105,7 +105,7 @@ public enum WireAdapterCapability {
 
     /// `@X(...)` on a consumer's injection point rewrites how that dependency resolves — the annotated
     /// site stops resolving by its own type and instead resolves to a binding Wire synthesises, which
-    /// reads the value out of a *provider* the graph supplies (e.g. `@Configuration(forKey: "PORT")`
+    /// reads the value out of a *provider* the graph supplies (e.g. `@ConfigProperty(forKey: "PORT")`
     /// reading a `ConfigReader`).
     ///
     /// Wire emits, for a site of type `T` annotated `@X(a, b)`:

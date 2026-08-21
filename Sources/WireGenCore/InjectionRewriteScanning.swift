@@ -1,6 +1,6 @@
 import SwiftSyntax
 
-// Recognition and synthesis for `.rewritesInjection` annotations — the pass behind `@Configuration` and
+// Recognition and synthesis for `.rewritesInjection` annotations — the pass behind `@ConfigProperty` and
 // anything shaped like it (`@Secret`, `@FeatureFlag`, `@Clock`).
 //
 // The annotated site stops resolving by its own type. Instead Wire synthesises a producer that asks the
@@ -86,7 +86,7 @@ package struct SynthesizedInjectionRewrite: Sendable {
 /// Rewrite every annotated injection site: synthesise one producer per distinct
 /// (annotation, arguments, type) and re-point the site's dependency at it.
 ///
-/// Deduplication is by that triple, so the same `@Configuration(forKey: "PORT", default: 8080) port: Int`
+/// Deduplication is by that triple, so the same `@ConfigProperty(forKey: "PORT", default: 8080) port: Int`
 /// written at three sites yields one binding read once, while a different key — or the same key at a
 /// different type — is a different binding.
 package func applyInjectionRewrites(
