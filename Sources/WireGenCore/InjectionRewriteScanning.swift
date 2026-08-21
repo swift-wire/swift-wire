@@ -1,5 +1,3 @@
-import SwiftSyntax
-
 // Recognition and synthesis for `.rewritesInjection` annotations — the pass behind `@ConfigProperty` and
 // anything shaped like it (`@Secret`, `@FeatureFlag`, `@Clock`).
 //
