@@ -75,7 +75,7 @@ func strayInjectMemberDiagnostics(
                         converter: converter
                     ),
                     message:
-                        "@Inject on this initialiser has no effect — '\(nameToken.text)' has no scope macro. Add a scope macro to the type (@Singleton, @RequestScope, or @JobScope) to enable wiring."
+                        "@Inject on this initialiser has no effect — '\(nameToken.text)' has no scope macro. Add a scope macro to the type (@Singleton, or @Scoped(seed:) for a seeded scope) to enable wiring."
                 )
             )
             continue
@@ -93,7 +93,7 @@ func strayInjectMemberDiagnostics(
                         converter: converter
                     ),
                     message:
-                        "@Inject on '\(pattern.identifier.text)' has no effect — '\(nameToken.text)' has no scope macro. Add a scope macro to the type (@Singleton, @RequestScope, or @JobScope) to enable wiring."
+                        "@Inject on '\(pattern.identifier.text)' has no effect — '\(nameToken.text)' has no scope macro. Add a scope macro to the type (@Singleton, or @Scoped(seed:) for a seeded scope) to enable wiring."
                 )
             )
         }

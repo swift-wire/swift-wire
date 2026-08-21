@@ -2484,10 +2484,13 @@ struct DiscoveryTests {
     }
 
     @Test func strayInjectOnNonScopeAnnotatedTypePropertyEmitsWarning() {
-        // `Plain` isn't @Singleton/@RequestScope/@JobScope, so the
-        // @Inject on a stored property is a silent no-op without the
-        // warning. Surfacing it lets the user understand they need a
-        // scope macro to get wiring.
+        // `Plain` carries no scope macro, so the @Inject on a stored property is a silent no-op without
+        // the warning. Surfacing it lets the user understand they need one to get wiring.
+        //
+        // The warning must name macros that **exist**. It used to offer `@RequestScope` and `@JobScope`,
+        // which M1 replaced with the seed-typed `@Scoped(seed:)` — the README pass did the rename and four
+        // references survived in Sources, two of them in this live diagnostic. A user following it reached
+        // for something they could not write.
         let source = """
             struct Plain {
                 @Inject var logger: Logger
@@ -2497,6 +2500,10 @@ struct DiscoveryTests {
         #expect(result.warnings.count == 1)
         #expect(result.warnings[0].message.contains("@Inject on 'logger' has no effect"))
         #expect(result.warnings[0].message.contains("'Plain'"))
+        // The remedy names only macros that exist.
+        #expect(result.warnings[0].message.contains("@Scoped(seed:)"))
+        #expect(!result.warnings[0].message.contains("@RequestScope"))
+        #expect(!result.warnings[0].message.contains("@JobScope"))
     }
 
     @Test func strayInjectOnNonScopeAnnotatedTypeInitEmitsWarning() {

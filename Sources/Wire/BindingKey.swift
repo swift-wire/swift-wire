@@ -8,7 +8,7 @@
 /// the key expression — e.g. `Database.primary` — so what the user
 /// writes IS the key.
 ///
-/// Every `@Singleton`/`@RequestScope`/`@JobScope` macro auto-generates
+/// Every `@Singleton`/`@Scoped(seed:)` macro auto-generates
 /// a `static let key: BindingKey<Self>` on the type. Users add named
 /// keys via additional static members:
 ///
