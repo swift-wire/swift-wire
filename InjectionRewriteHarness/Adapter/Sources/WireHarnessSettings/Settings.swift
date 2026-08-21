@@ -9,7 +9,7 @@ public struct SettingsSource: Sendable {
     public func string(named name: String) -> String? { values[name] }
 }
 
-/// The harness's rewriting annotation. Stands in for `@Configuration` without being it: same shape, no
+/// The harness's rewriting annotation. Stands in for `@ConfigProperty` without being it: same shape, no
 /// swift-configuration anywhere, so what this proves is that the pass is domain-free.
 ///
 /// Dispatch is by constrained initialiser, as the real adapter's is — `String` reads directly, `Int`

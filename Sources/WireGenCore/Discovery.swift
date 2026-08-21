@@ -494,7 +494,7 @@ package struct DependencyParameter: Sendable {
     /// `@Inject` site (or `@Provides func` parameter) the diagnostic
     /// should point at when this dependency can't be resolved.
     package let location: SourceLocation
-    /// A `.rewritesInjection` annotation on this site (`@Configuration(forKey:…)`), or `nil` for an
+    /// A `.rewritesInjection` annotation on this site (`@ConfigProperty(forKey:…)`), or `nil` for an
     /// ordinary dependency. Present ⇒ the site does not resolve by its own type: `applyInjectionRewrites`
     /// synthesises a producer from it and re-points this dependency at that.
     package let injectionRewrite: InjectionRewriteSite?

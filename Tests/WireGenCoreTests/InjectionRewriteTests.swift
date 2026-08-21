@@ -2,7 +2,7 @@ import Testing
 
 @testable import WireGenCore
 
-/// `.rewritesInjection` — the pass behind `@Configuration` and anything shaped like it. These pin the
+/// `.rewritesInjection` — the pass behind `@ConfigProperty` and anything shaped like it. These pin the
 /// generic half: what Wire synthesises, how it deduplicates, and that it stays out of the way of
 /// everything it was not pointed at. What the annotation *means* is the adapter's, and is tested there.
 @Suite("Injection rewrites")
