@@ -9,7 +9,7 @@ import WireHarnessSettings
 //   • two sites with the *same* annotation arguments and type share one binding, and different ones stay distinct;
 //   • an ordinary unannotated binding of the same type is untouched — the rewrite is keyed, so it cannot
 //     capture a plain dependency;
-//   • the no-default form reaches the wrapper's throwing read.
+//   • the no-default form yields an optional — the present key gives the value, the absent one nil.
 //
 // The adapter here is synthetic and has nothing to do with configuration, which is the point: if Wire can
 // wire this, it never learned anything domain-specific.
@@ -32,10 +32,11 @@ struct Endpoint: Sendable {
 func endpoint(
     @FromSettings(named: "host", default: "127.0.0.1") host: String,
     @FromSettings(named: "port", default: 8080) port: Int,
-    @FromSettings(named: "dsn") dsn: String,
+    @FromSettings(named: "dsn") dsn: String?,  // no default, present → the value
+    @FromSettings(named: "absent") missing: String?,  // no default, absent → nil
     name: String  // ordinary, unannotated — resolves to `serviceName()`
 ) -> Endpoint {
-    Endpoint(description: "\(name)@\(host):\(port) -> \(dsn)")
+    Endpoint(description: "\(name)@\(host):\(port) -> \(dsn ?? "<none>")/\(missing ?? "<none>")")
 }
 
 /// Site 2 — `@Inject init` parameter. Its annotation is *identical* to `endpoint`'s `host`, so both must
@@ -64,7 +65,7 @@ struct Report: Sendable {
 
 let graph = try await Wire.bootstrap()
 
-let expected = "harness@0.0.0.0:9090 -> postgres://db | advertised=0.0.0.0 | level=debug"
+let expected = "harness@0.0.0.0:9090 -> postgres://db/<none> | advertised=0.0.0.0 | level=debug"
 precondition(
     graph.report.text == expected,
     "rewritten sites did not resolve:\n  expected \(expected)\n  actual   \(graph.report.text)"

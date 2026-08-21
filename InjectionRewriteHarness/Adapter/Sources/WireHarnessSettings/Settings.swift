@@ -46,26 +46,13 @@ public struct FromSettings<Value>: WireInjectionRewrite {
     public init(named name: String, default value: Value) where Value == String {
         self.init(storage: nil, read: { $0.string(named: name) ?? value })
     }
-    /// No default: absent is a startup failure, the shape the real adapter's `required*` forms take.
-    /// Needs an attachment overload too — a property wrapper on a parameter requires a matching
-    /// `init(wrappedValue:…)`, which is what the compiler calls at the use site.
-    public init(wrappedValue: Value, named name: String) where Value == String {
-        self.init(
-            storage: wrappedValue,
-            read: {
-                guard let found = $0.string(named: name) else { throw MissingSetting(name: name) }
-                return found
-            }
-        )
+    /// No default: the value is optional, and an absent setting is `nil`. Absence is what `Optional`
+    /// means, so there is nothing to invent an error for — the site declares `String?` and decides.
+    public init(wrappedValue: Value, named name: String) where Value == String? {
+        self.init(storage: wrappedValue, read: { $0.string(named: name) })
     }
-    public init(named name: String) where Value == String {
-        self.init(
-            storage: nil,
-            read: {
-                guard let found = $0.string(named: name) else { throw MissingSetting(name: name) }
-                return found
-            }
-        )
+    public init(named name: String) where Value == String? {
+        self.init(storage: nil, read: { $0.string(named: name) })
     }
 
     // MARK: Int
@@ -79,10 +66,6 @@ public struct FromSettings<Value>: WireInjectionRewrite {
 }
 
 extension FromSettings: Sendable where Value: Sendable {}
-
-public struct MissingSetting: Error {
-    public let name: String
-}
 
 /// The declaration Wire discovers. `provider:` is the one thing it cannot derive — it matches
 /// dependencies by canonical type text, so it cannot see through `FromSettings<Value>.Provider`.
