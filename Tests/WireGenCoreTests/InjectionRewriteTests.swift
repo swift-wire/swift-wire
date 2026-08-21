@@ -62,10 +62,13 @@ struct InjectionRewriteTests {
         let rewrite = try #require(result.synthesized.first)
         #expect(rewrite.valueType == "String")
         #expect(rewrite.providerType == "ConfigReader")
-        // The wrapper is constructed with the site's arguments *verbatim* — Wire never reads the labels —
-        // and asked for the value through the protocol's single requirement.
-        #expect(rewrite.declaration.contains(#"Configuration<String>(forKey: "a", default: "x")"#))
-        #expect(rewrite.declaration.contains(".wireValue(from: _wireProvider)"))
+        // A *static* call, with the site's arguments copied verbatim after `from:` — Wire never reads the
+        // labels, and builds no instance to resolve.
+        #expect(
+            rewrite.declaration.contains(
+                #"Configuration<String>.wireValue(from: _wireProvider, forKey: "a", default: "x")"#
+            )
+        )
         #expect(rewrite.declaration.contains("_wireProvider: Configuration<String>.Provider"))
     }
 

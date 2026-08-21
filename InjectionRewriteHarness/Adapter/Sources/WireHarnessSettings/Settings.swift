@@ -18,50 +18,50 @@ public struct SettingsSource: Sendable {
 public struct FromSettings<Value>: WireInjectionRewrite {
     public typealias Provider = SettingsSource
 
+    // The *attachment* role. Optional-backed because the property-site declaration constructs the wrapper
+    // with no value to carry yet — the generated initialiser assigns through the setter afterwards.
     private var storage: Value?
-    private let read: @Sendable (SettingsSource) throws -> Value
-
     public var wrappedValue: Value {
-        get {
-            guard let storage else {
-                preconditionFailure("wrappedValue read on a Wire-synthesised instance")
-            }
-            return storage
-        }
+        get { storage! }
         set { storage = newValue }
     }
 
-    public func wireValue(from provider: SettingsSource) throws -> Value { try read(provider) }
+    private init(_ storage: Value?) { self.storage = storage }
 
-    private init(storage: Value?, read: @escaping @Sendable (SettingsSource) throws -> Value) {
-        self.storage = storage
-        self.read = read
-    }
-
-    // MARK: String
+    // MARK: Attachment — String
 
     public init(wrappedValue: Value, named name: String, default value: Value) where Value == String {
-        self.init(storage: wrappedValue, read: { $0.string(named: name) ?? value })
+        self.init(wrappedValue)
     }
-    public init(named name: String, default value: Value) where Value == String {
-        self.init(storage: nil, read: { $0.string(named: name) ?? value })
-    }
+    public init(named name: String, default value: Value) where Value == String { self.init(nil) }
+
     /// No default: the value is optional, and an absent setting is `nil`. Absence is what `Optional`
     /// means, so there is nothing to invent an error for — the site declares `String?` and decides.
-    public init(wrappedValue: Value, named name: String) where Value == String? {
-        self.init(storage: wrappedValue, read: { $0.string(named: name) })
-    }
-    public init(named name: String) where Value == String? {
-        self.init(storage: nil, read: { $0.string(named: name) })
-    }
+    public init(wrappedValue: Value, named name: String) where Value == String? { self.init(wrappedValue) }
+    public init(named name: String) where Value == String? { self.init(nil) }
 
-    // MARK: Int
+    // MARK: Attachment — Int
 
     public init(wrappedValue: Value, named name: String, default value: Value) where Value == Int {
-        self.init(storage: wrappedValue, read: { $0.string(named: name).flatMap(Int.init) ?? value })
+        self.init(wrappedValue)
     }
-    public init(named name: String, default value: Value) where Value == Int {
-        self.init(storage: nil, read: { $0.string(named: name).flatMap(Int.init) ?? value })
+    public init(named name: String, default value: Value) where Value == Int { self.init(nil) }
+
+    // MARK: Resolution — static, so no instance is built to resolve
+
+    public static func wireValue(from provider: SettingsSource, named name: String, default value: Value)
+        -> Value
+    where Value == String {
+        provider.string(named: name) ?? value
+    }
+    public static func wireValue(from provider: SettingsSource, named name: String) -> Value
+    where Value == String? {
+        provider.string(named: name)
+    }
+    public static func wireValue(from provider: SettingsSource, named name: String, default value: Value)
+        -> Value
+    where Value == Int {
+        provider.string(named: name).flatMap(Int.init) ?? value
     }
 }
 

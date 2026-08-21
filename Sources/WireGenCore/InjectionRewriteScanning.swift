@@ -3,16 +3,17 @@ import SwiftSyntax
 // Recognition and synthesis for `.rewritesInjection` annotations — the pass behind `@Configuration` and
 // anything shaped like it (`@Secret`, `@FeatureFlag`, `@Clock`).
 //
-// The annotated site stops resolving by its own type. Instead Wire synthesises a producer that constructs
-// the annotation's own property wrapper and asks it for the value:
+// The annotated site stops resolving by its own type. Instead Wire synthesises a producer that asks the
+// annotation's own property wrapper for the value:
 //
 //     private func _wireRewrite_…(_wireProvider: Configuration<String>.Provider) throws -> String {
-//         try Configuration<String>(forKey: "couchdb.host", default: "localhost").wireValue(from: _wireProvider)
+//         try Configuration<String>.wireValue(from: _wireProvider, forKey: "couchdb.host", default: "localhost")
 //     }
 //
 // Every part of that is derivable without knowing what the annotation *means*: the wrapper's name is the
-// annotation's, the generic argument is the site's own type, the argument list is copied **verbatim**, and
-// `wireValue(from:)` is `WireInjectionRewrite`'s single requirement. The provider's type is the one thing
+// annotation's, the generic argument is the site's own type, and the argument list is copied **verbatim**
+// after `from:`. The call is static, so the wrapper's initialisers — its *attachment* role — play no part
+// in resolution, and no instance is built to hold a value it does not have. The provider's type is the one thing
 // Wire cannot derive — it matches dependencies by canonical type text and cannot see through the wrapper's
 // `Provider` associated type — so the adapter names it in `.rewritesInjection(provider:)`.
 //
@@ -191,9 +192,12 @@ private func record(
     // The wrapper is constructed exactly as written at the site and asked for the value. Wire supplies the
     // wrapper name, the site's type, and the provider parameter; the argument list is the user's, verbatim.
     let wrapper = "\(site.annotationName)<\(valueType)>"
+    // A *static* call: the wrapper's initialisers are its attachment role and play no part here, so no
+    // instance is constructed to resolve. `from:` leads; the annotation's own arguments follow verbatim.
+    let arguments = site.arguments.isEmpty ? "" : ", \(site.arguments)"
     let declaration = """
         private func \(functionName)(_wireProvider: \(wrapper).Provider) throws -> \(valueType) {
-            try \(wrapper)(\(site.arguments)).wireValue(from: _wireProvider)
+            try \(wrapper).wireValue(from: _wireProvider\(arguments))
         }
         """
     let rewrite = SynthesizedInjectionRewrite(
