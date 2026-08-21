@@ -3,7 +3,7 @@
 Outstanding gaps, unverified cases and deliberate deferrals, recorded so none stays silently deferred.
 Most of the list came from building the variant-app-graph testing story (M6a,
 `Documentation/Archive/ScopableRouteContributorsPlan.md`), where each was a scoping decision taken during
-Phase 1/A/B; #12–#14 came from later work and are noted below. Resolved ones have moved to
+Phase 1/A/B; #12–#15 came from later work and are noted below. Resolved ones have moved to
 [../CompletedIssues/](../CompletedIssues/README.md). States:
 
 - 🔴 **Known broken** — reproduced or provably unhandled in the current code.
@@ -22,6 +22,7 @@ Phase 1/A/B; #12–#14 came from later work and are noted below. Resolved ones h
 | [12](12-typed-route-error-tiers.md) | A typed route's declared `@ErrorResponse` failures aren't typed | wire-mvc | 🟡 |
 | [13](13-typed-header-client-coverage.md) | Typed client `@Header` binding + merge has no running fixture | wire-mvc | ⚪ |
 | [14](14-typed-tier-duplex-routes.md) | Typed-tier duplex routes, paused on an upstream bug | wire-mvc | 🟡 |
+| [15](15-cancelled-request-reports-500.md) | A cancelled request is reported as a 500 | wire-mvc | 🟡 |
 
 These are all **latent** — real, but none is on a shipped example's path (Phase C didn't force them). **#02**
 is the one known-broken *functional* gap (a global `@Middleware` that injects a mocked slot never threads
@@ -31,5 +32,7 @@ than left latent. **#12** and **#13** come from the per-controller testing surfa
 graph: #12 is a deferred design call on the typed client's failure path, #13 a gap where codegen output is
 asserted as text but never served. **#14** is different again — a designed, ownership-verified route shape
 held back for surface consistency until an upstream compiler bug is fixed, with `@RawRoute` serving the
-case meanwhile. Resolved items (#01, #04, #08, #09, #10) are in
-[../CompletedIssues/](../CompletedIssues/README.md).
+case meanwhile. **#15** is the residue of a fix rather than an untested corner: the `ServerTransport`
+bridge's handler now cancels with its request, and what is left is that the cancelled request is *reported*
+as a 500, which is an operational cost rather than a functional one. Resolved items (#01, #04, #08, #09,
+#10) are in [../CompletedIssues/](../CompletedIssues/README.md).
