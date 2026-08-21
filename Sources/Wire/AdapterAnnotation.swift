@@ -132,7 +132,37 @@ public enum WireAdapterCapability {
     /// deliberately not a protocol requirement: its signature is whatever the annotation's arguments are,
     /// which no protocol can express — and the same is already true of the initialisers. A missing
     /// overload is an adapter-authoring bug caught the first time the annotation is wired.
-    case rewritesInjection(provider: String)
+    ///
+    /// `selector:` opts the annotation into naming *which* provider binding to read from, for a graph
+    /// binding more than one. It is the single place Wire stops copying the argument list verbatim: the
+    /// named argument is removed and used to key the synthesised producer's dependency on the provider,
+    /// and the rest is spliced as before. Omitted, the provider resolves unkeyed, by type.
+    case rewritesInjection(provider: String, selector: WireProviderSelector? = nil)
+}
+
+/// How a `.rewritesInjection` annotation names which provider binding to read from.
+///
+/// A struct rather than an enum so a second form can be added without breaking an exhaustive `switch`
+/// in any adapter that inspects one.
+///
+/// The selector is identified by **label**, not by position. Position cannot work in general: an
+/// annotation whose own first argument is unlabelled — `@Secret("DB_PASSWORD")` — is indistinguishable
+/// from one leading with a selector, and Wire sees only the use site, never the wrapper's signature, so
+/// it cannot check that an adapter has no other unlabelled arguments. A label is unambiguous whatever
+/// else the annotation takes, and each adapter picks one that reads correctly in its own domain
+/// (`reader:` for configuration, `from:` for secrets) rather than Wire imposing a word.
+public struct WireProviderSelector: Sendable, Equatable {
+    /// The argument label carrying the provider's `BindingKey`.
+    public let label: String
+
+    /// The provider is named by the argument with this label — `.labelled("reader")` for
+    /// `@ConfigProperty(reader: ConfigKeys.testReader, forKey: "PORT")`.
+    ///
+    /// The argument's type is the adapter's to declare (`BindingKey<ConfigReader>?`, defaulted `nil`, so
+    /// one initialiser admits both the selected and unselected spellings). Wire reads it as opaque text.
+    public static func labelled(_ label: String) -> WireProviderSelector {
+        WireProviderSelector(label: label)
+    }
 }
 
 /// The scope at which a `.contributesProxy` proxy is emitted — the scope of the multibinding

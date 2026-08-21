@@ -276,9 +276,17 @@ func injectionRewriteCandidate(in attributes: AttributeListSyntax) -> InjectionR
         let name = attribute.attributeName.trimmedDescription
         guard !wireOwnedInjectionAttributes.contains(name) else { continue }
         guard case let .argumentList(list) = attribute.arguments else {
-            return InjectionRewriteSite(annotationName: name, arguments: "")
+            return InjectionRewriteSite(annotationName: name, arguments: [])
         }
-        return InjectionRewriteSite(annotationName: name, arguments: list.trimmedDescription)
+        // Split by label but never interpreted: the labels exist so a declared *selector* can be lifted
+        // out by name once the adapter that declared it is known, which discovery cannot yet see.
+        let arguments = list.map { argument in
+            InjectionRewriteSite.Argument(
+                label: argument.label?.text,
+                text: argument.expression.trimmedDescription
+            )
+        }
+        return InjectionRewriteSite(annotationName: name, arguments: arguments)
     }
     return nil
 }

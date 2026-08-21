@@ -50,8 +50,12 @@ package enum DiscoveredAdapterCapability: Sendable, Equatable {
     /// `@X` / `@X(.role, …)` on a `@Factory` template supplies the role mapping for its assisted
     /// parameters; `roles` is the adapter's ordered vocabulary of canonical slot names (opaque to Wire).
     case mapsFactoryRoles(roles: [String])
-    /// `@X(...)` rewrites a consumer's injection resolution. Reserved — no pass yet.
-    case rewritesInjection(provider: String)
+    /// `@X(...)` rewrites a consumer's injection resolution — the site resolves to a producer
+    /// `applyInjectionRewrites` synthesises, which reads the value from `provider`.
+    ///
+    /// `selectorLabel` is the argument label naming *which* provider binding to read from
+    /// (`.labelled("reader")` at the source), or `nil` when the adapter did not opt in.
+    case rewritesInjection(provider: String, selectorLabel: String?)
 }
 
 /// One adapter-annotation definition found in source — a `WireAdapterAnnotationV1`
@@ -167,7 +171,21 @@ func adapterCapability(from expression: ExprSyntax) -> DiscoveredAdapterCapabili
             let providerArgument = call.arguments.first(where: { $0.label?.text == "provider" }),
             let provider = providerArgument.expression.as(StringLiteralExprSyntax.self)?.representedLiteralValue
         {
-            return .rewritesInjection(provider: provider)
+            // `selector:` is optional and has one form today, `.labelled("…")`. An unrecognised form
+            // reads as no selector rather than failing: the annotation still wires, its provider just
+            // resolves unkeyed, which is the pre-selector behaviour.
+            let selectorLabel =
+                call.arguments.first(where: { $0.label?.text == "selector" })?
+                .expression.as(FunctionCallExprSyntax.self)
+                .flatMap { selectorCall -> String? in
+                    guard
+                        selectorCall.calledExpression.as(MemberAccessExprSyntax.self)?
+                            .declName.baseName.text == "labelled"
+                    else { return nil }
+                    return selectorCall.arguments.first?.expression
+                        .as(StringLiteralExprSyntax.self)?.representedLiteralValue
+                }
+            return .rewritesInjection(provider: provider, selectorLabel: selectorLabel)
         }
         if member.declName.baseName.text == "mapsFactoryRoles",
             let rolesArgument = call.arguments.first(where: { $0.label?.text == "roles" }),

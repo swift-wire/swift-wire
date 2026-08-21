@@ -9,7 +9,9 @@ import WireHarnessSettings
 //   • two sites with the *same* annotation arguments and type share one binding, and different ones stay distinct;
 //   • an ordinary unannotated binding of the same type is untouched — the rewrite is keyed, so it cannot
 //     capture a plain dependency;
-//   • the no-default form yields an optional — the present key gives the value, the absent one nil.
+//   • the no-default form yields an optional — the present key gives the value, the absent one nil;
+//   • a declared `source:` selector picks *which* provider a site reads from, and two sites with
+//     identical arguments reading different providers stay different bindings.
 //
 // The adapter here is synthetic and has nothing to do with configuration, which is the point: if Wire can
 // wire this, it never learned anything domain-specific.
@@ -17,6 +19,17 @@ import WireHarnessSettings
 @Provides
 func settings() -> SettingsSource {
     SettingsSource(["host": "0.0.0.0", "port": "9090", "level": "debug", "dsn": "postgres://db"])
+}
+
+/// A *second* provider of the same type, keyed. Nothing resolves it by type, so a site that wants it has
+/// to name it — which is what the selector is for.
+enum SettingsKeys {
+    static let overrides = BindingKey<SettingsSource>()
+}
+
+@Provides(SettingsKeys.overrides)
+func overrideSettings() -> SettingsSource {
+    SettingsSource(["host": "10.0.0.1", "level": "trace"])
 }
 
 /// A plain `String` binding, unannotated. It must keep resolving.
@@ -79,6 +92,34 @@ struct ParameterForm: Sendable {
     @Inject init(@FromSettings(named: "host", default: "127.0.0.1") host: String) { self.host = host }
 }
 
+/// The selector, and the case that would break quietly if it left the dedup identity: `host` is read with
+/// the *same* arguments from two different providers, so these must be two bindings with two values.
+@Singleton
+struct SelectedSettings: Sendable {
+    let unkeyed: String
+    let keyed: String
+    let keyedLevel: String
+
+    @Inject init(
+        @FromSettings(named: "host", default: "127.0.0.1") unkeyed: String,
+        @FromSettings(source: SettingsKeys.overrides, named: "host", default: "127.0.0.1") keyed: String,
+        // A key absent from the override source falls back to the default rather than to the other source.
+        @FromSettings(source: SettingsKeys.overrides, named: "port", default: 1234) keyedPort: Int,
+        @FromSettings(source: SettingsKeys.overrides, named: "level", default: "info") keyedLevel: String
+    ) {
+        self.unkeyed = unkeyed
+        self.keyed = keyed
+        self.keyedLevel = keyedLevel
+        precondition(keyedPort == 1234, "absent key in the selected source should fall back: \(keyedPort)")
+    }
+}
+
+/// The selector also works at the property form, where the *macro* half carries it.
+@Singleton
+struct SelectedProperty: Sendable {
+    @Inject @FromSettings(source: SettingsKeys.overrides, named: "host", default: "127.0.0.1") let host: String
+}
+
 @Singleton(allowUnused: true)
 struct Report: Sendable {
     let text: String
@@ -88,8 +129,21 @@ struct Report: Sendable {
         settings: LogSettings,
         propertyVar: PropertyFormVar,
         propertyLet: PropertyFormLet,
-        parameter: ParameterForm
+        parameter: ParameterForm,
+        selected: SelectedSettings,
+        selectedProperty: SelectedProperty
     ) {
+        // Same annotation arguments, different providers — two bindings, two values. One binding here
+        // would mean both sites silently read whichever provider won.
+        precondition(
+            selected.unkeyed == "0.0.0.0" && selected.keyed == "10.0.0.1",
+            "selector did not pick the provider: unkeyed=\(selected.unkeyed) keyed=\(selected.keyed)"
+        )
+        precondition(selected.keyedLevel == "trace", "selected source misread: \(selected.keyedLevel)")
+        precondition(
+            selectedProperty.host == selected.keyed,
+            "property form disagreed with parameter form: \(selectedProperty.host)"
+        )
         // All three spellings resolve to the same value, from the same shared binding — the `var` and
         // `let` property forms and the initialiser-parameter form.
         precondition(
