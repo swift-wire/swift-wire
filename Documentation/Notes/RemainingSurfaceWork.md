@@ -118,7 +118,7 @@ a tier that has already shipped. Until `@RawRoute` shrinks to the routes that ge
 sender, you cannot tell which routes are there for which reason.
 
 **Independent of Phase 4, and of the duplex question generally.** Both routes are `@Get`s that read no body,
-so neither can reach the `readerBodyOnStreamingResponse` diagnostic. `PendingIssues/14` is explicit that an
+so neither can reach the `bodyStreamOnStreamingResponse` diagnostic. `PendingIssues/14` is explicit that an
 earlier analysis coupling the two was wrong; this note does not repeat it.
 
 **`/todos/stream` first, `/export` second.** `/export` streams through `MultiPartSender<S>`, a middleware
@@ -201,13 +201,14 @@ consistency one, and it should be recorded as such rather than treated as this i
 
 **Two pieces of it are not blocked and should not wait:**
 
-- **The sequential case** — a `.readerBody` binding on a *streaming-response* route: reduce the body without
-  buffering, then stream. `readerBodyOnStreamingResponse` refuses it under the same diagnostic as duplex, but
-  it needs no response parameter and no upstream fix. One new terminal overload lending the reader into
-  `building` as a *consuming closure parameter*; it compiles (`spike-33`, `LendingTerminal.swift`). The
-  recorded obstacle — "a closure only borrows it" — is about a *captured* reader and does not apply. **This
-  is the one buildable item the parity note does not list at all**, and on cost-to-value it belongs early:
-  put it beside Phase 1.
+- ~~**The sequential case**~~ — **shipped**, wire-mvc #113. A `.readerBody` binding on a
+  *streaming-response* route: reduce the body without buffering, then stream. It went in as the third
+  terminal overload, `lendingBodyFrom:`, handing the reader to `building` as a consuming closure parameter —
+  moved in rather than captured, which is why the recorded obstacle ("a closure only borrows it") never
+  applied. The bind lands inside the same `do` whose `catch` maps, so a malformed or oversized body still
+  becomes a status through `@ErrorResponse` instead of escaping as a truncated response.
+  `readerBodyOnStreamingResponse` is now `bodyStreamOnStreamingResponse`, refusing only the duplex shape it
+  was always about.
 - **The lent-binding validation step.** Duplex is the first shape where the handler runs *after* the head, so
   `MultipartParts.init`'s deferred content-type check would truncate a response instead of mapping to 415.
   Fixing that changes a **public binding protocol**, which is cheaper before 1.0 than after — so it wants

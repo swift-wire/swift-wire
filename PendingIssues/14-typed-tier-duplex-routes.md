@@ -10,7 +10,7 @@ counterpart), then spikes 31–33 in `swift-wire-spikes`.
 ## What it is
 
 A **duplex** route reads its request body incrementally *and* writes its response body incrementally.
-`WireMVCDiagnostic.readerBodyOnStreamingResponse` refuses it on the typed tiers and points at `@RawRoute`
+`WireMVCDiagnostic.bodyStreamOnStreamingResponse` refuses it on the typed tiers and points at `@RawRoute`
 for "full control of both directions".
 
 The design that would lift that is settled and compiles: the response becomes a **parameter** rather than a
@@ -101,11 +101,13 @@ All in `swift-wire-spikes`, on 6.4-dev unless noted:
 
 Two neighbouring items are independent and can proceed:
 
-- **The sequential case** — a `.readerBody` binding on a streaming-response route (reduce the body without
-  buffering, *then* stream). `readerBodyOnStreamingResponse` refuses it under the same message, but it needs
-  no response parameter and no upstream fix: one new terminal overload that lends the reader into `building`
-  as a *consuming closure parameter*. Compiles (`spike-33`, `LendingTerminal.swift`). The recorded obstacle
-  ("a closure only borrows it") is about a *captured* reader and does not apply.
+- **The sequential case — shipped (#113).** A `.readerBody` binding on a streaming-response route (reduce
+  the body without buffering, *then* stream) was refused under the same message; it needed no response
+  parameter and no upstream fix. It went in as a third terminal overload, `lendingBodyFrom:`, lending the
+  reader into `building` as a *consuming closure parameter* — moved in, not captured, so the recorded
+  obstacle ("a closure only borrows it") never applied. The bind lands inside the same `do` whose `catch`
+  maps, so a malformed or oversized body becomes a status rather than a truncated response. The diagnostic
+  is now `bodyStreamOnStreamingResponse`, refusing only the duplex shape this issue is about.
 - **The `StreamingResponseTier.md` migration** of `/todos/stream` and `/export` off `@RawRoute`. Both are
   `@Get` routes that read no body, so neither can reach this diagnostic. An earlier analysis coupled the
   two; that was wrong.
