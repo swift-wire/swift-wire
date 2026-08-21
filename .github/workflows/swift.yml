@@ -97,6 +97,21 @@ jobs:
         # fixture in swift-wire's own tests would cycle.
         run: bash AdapterHarness/run-adapter-harness.sh
 
+  InjectionRewriteHarness:
+    name: Injection-rewrite harness (.rewritesInjection gate)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: SwiftyLab/setup-swift@v1
+        with:
+          swift-version: "6.3.3"
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+      - name: Run injection-rewrite harness
+        # Outside `swift test`: the fixture adapter depends on swift-wire, so a package inside these
+        # tests would cycle. The adapter is synthetic, so this gate needs no external repo.
+        run: bash InjectionRewriteHarness/run-injection-rewrite-harness.sh
+
   GraphInputsHarness:
     name: Graph-inputs harness (@GraphInputs gate)
     runs-on: ubuntu-24.04

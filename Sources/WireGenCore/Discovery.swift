@@ -494,6 +494,10 @@ package struct DependencyParameter: Sendable {
     /// `@Inject` site (or `@Provides func` parameter) the diagnostic
     /// should point at when this dependency can't be resolved.
     package let location: SourceLocation
+    /// A `.rewritesInjection` annotation on this site (`@Configuration(forKey:…)`), or `nil` for an
+    /// ordinary dependency. Present ⇒ the site does not resolve by its own type: `applyInjectionRewrites`
+    /// synthesises a producer from it and re-points this dependency at that.
+    package let injectionRewrite: InjectionRewriteSite?
     /// Canonical text of the `@Inject(<expr>)` argument when the
     /// consumer is selecting a keyed binding, or `nil` for the unkeyed
     /// form. Unkeyed deps match only unkeyed bindings; keyed deps
@@ -515,7 +519,8 @@ package struct DependencyParameter: Sendable {
         kind: DependencyKind,
         location: SourceLocation,
         keyIdentifier: String? = nil,
-        nonOwningInitForm: NonOwningInitForm? = nil
+        nonOwningInitForm: NonOwningInitForm? = nil,
+        injectionRewrite: InjectionRewriteSite? = nil
     ) {
         self.name = name
         self.type = type
@@ -523,6 +528,7 @@ package struct DependencyParameter: Sendable {
         self.location = location
         self.keyIdentifier = keyIdentifier
         self.nonOwningInitForm = nonOwningInitForm
+        self.injectionRewrite = injectionRewrite
     }
 }
 

@@ -261,3 +261,27 @@ func inferTypeFromConstructorCall(_ expr: ExprSyntax?) -> String? {
     guard let first = text.first, first.isUppercase else { return nil }
     return text
 }
+
+/// A candidate `.rewritesInjection` annotation on a parameter — any attribute that is not one Wire already
+/// owns there. Captured speculatively and classified later against the *declared* rewriting annotations
+/// (`applyInjectionRewrites` filters by them), the same candidate-then-classify shape `aliasUseSites` uses:
+/// discovery runs per file and cannot yet know which annotations an adapter declared.
+func parameterInjectionRewrite(from parameter: FunctionParameterSyntax) -> InjectionRewriteSite? {
+    injectionRewriteCandidate(in: parameter.attributes)
+}
+
+/// The same, for an `@Inject` property's attribute list.
+func injectionRewriteCandidate(in attributes: AttributeListSyntax) -> InjectionRewriteSite? {
+    for case let .attribute(attribute) in attributes {
+        let name = attribute.attributeName.trimmedDescription
+        guard !wireOwnedInjectionAttributes.contains(name) else { continue }
+        guard case let .argumentList(list) = attribute.arguments else {
+            return InjectionRewriteSite(annotationName: name, arguments: "")
+        }
+        return InjectionRewriteSite(annotationName: name, arguments: list.trimmedDescription)
+    }
+    return nil
+}
+
+/// Attributes Wire itself gives meaning to at an injection site, so they are never rewrite candidates.
+private let wireOwnedInjectionAttributes: Set<String> = ["Bind", "Inject", "Provides", "Teardown"]

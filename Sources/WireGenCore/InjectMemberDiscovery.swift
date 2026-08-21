@@ -144,7 +144,8 @@ private func applyInjectInit(
                 sourcePath: sourcePath,
                 converter: converter
             ),
-            keyIdentifier: parameterKey
+            keyIdentifier: parameterKey,
+            injectionRewrite: parameterInjectionRewrite(from: parameter)
         )
     }
     let effects = functionEffectFlags(initDecl.signature.effectSpecifiers)
@@ -363,7 +364,8 @@ private func applyInjectVar(
                     kind: .injectProperty,
                     location: location,
                     keyIdentifier: propertyKey,
-                    nonOwningInitForm: nonOwningForm
+                    nonOwningInitForm: nonOwningForm,
+                    injectionRewrite: injectionRewriteCandidate(in: varDecl.attributes)
                 )
             )
         }
