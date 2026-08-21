@@ -73,3 +73,20 @@ public let wireHarnessSettingsAnnotation = WireAdapterAnnotationV1(
     annotation: "FromSettings",
     capability: .rewritesInjection(provider: "SettingsSource")
 )
+
+/// The *macro* half of `@FromSettings`, sharing the wrapper's name. Swift resolves each use site to
+/// whichever declaration can apply there: a parameter takes the property wrapper (a macro cannot attach to
+/// one), and a `let` property takes this (a property wrapper cannot attach to one). It generates nothing —
+/// Wire reads the attribute syntactically either way.
+///
+/// The two forms are therefore equivalent and both expressible, including with `let`:
+///
+///     @Inject @FromSettings(named: "host", default: "127.0.0.1") let host: String
+///     @Inject init(@FromSettings(named: "host", default: "127.0.0.1") host: String) { … }
+@attached(peer)
+public macro FromSettings<Value>(named: String, default: Value) =
+    #externalMacro(module: "WireHarnessSettingsMacros", type: "FromSettingsMacro")
+
+@attached(peer)
+public macro FromSettings(named: String) =
+    #externalMacro(module: "WireHarnessSettingsMacros", type: "FromSettingsMacro")

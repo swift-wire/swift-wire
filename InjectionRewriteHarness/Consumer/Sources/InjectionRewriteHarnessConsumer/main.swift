@@ -27,7 +27,7 @@ struct Endpoint: Sendable {
     let description: String
 }
 
-/// Site 1 — `@Provides func` parameters, including the no-default form (`dsn`).
+/// Site 1 — `@Provides func` parameters, including the no-default form (`dsn`, optional).
 @Provides
 func endpoint(
     @FromSettings(named: "host", default: "127.0.0.1") host: String,
@@ -55,10 +55,46 @@ struct LogSettings: Sendable {
     @Inject @FromSettings(named: "level", default: "info") var level: String
 }
 
+// The two forms of the same thing, which must be equivalent and both expressible. Site 3 is the property
+// form; site 2 above is the initialiser-parameter form. The one asymmetry Swift forces: a property wrapper
+// "can only be applied to a 'var'", so the property form cannot say `let` — while the parameter form can,
+// because there the wrapper is on the *parameter* and the stored property is an ordinary `let`.
+@Singleton
+struct PropertyFormVar: Sendable {
+    // Resolves to the property *wrapper* — legal on a `var`.
+    @Inject @FromSettings(named: "host", default: "127.0.0.1") var host: String
+}
+
+@Singleton
+struct PropertyFormLet: Sendable {
+    // Resolves to the peer *macro*, because a property wrapper cannot attach to a `let`. Same spelling,
+    // same result — which is the whole point: the property form need not give up immutability.
+    @Inject @FromSettings(named: "host", default: "127.0.0.1") let host: String
+}
+
+@Singleton
+struct ParameterForm: Sendable {
+    let host: String  // an ordinary `let` — the wrapper is on the parameter, not on this
+    @Inject init(@FromSettings(named: "host", default: "127.0.0.1") host: String) { self.host = host }
+}
+
 @Singleton(allowUnused: true)
 struct Report: Sendable {
     let text: String
-    @Inject init(endpoint: Endpoint, advertiser: Advertiser, settings: LogSettings) {
+    @Inject init(
+        endpoint: Endpoint,
+        advertiser: Advertiser,
+        settings: LogSettings,
+        propertyVar: PropertyFormVar,
+        propertyLet: PropertyFormLet,
+        parameter: ParameterForm
+    ) {
+        // All three spellings resolve to the same value, from the same shared binding — the `var` and
+        // `let` property forms and the initialiser-parameter form.
+        precondition(
+            propertyVar.host == parameter.host && propertyLet.host == parameter.host,
+            "forms disagree: var=\(propertyVar.host) let=\(propertyLet.host) param=\(parameter.host)"
+        )
         text = "\(endpoint.description) | advertised=\(advertiser.host) | level=\(settings.level)"
     }
 }
