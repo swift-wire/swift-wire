@@ -69,7 +69,9 @@ struct InjectionRewriteTests {
                 #"Configuration<String>.wireValue(from: _wireProvider, forKey: "a", default: "x")"#
             )
         )
-        #expect(rewrite.declaration.contains("_wireProvider: Configuration<String>.Provider"))
+        // The provider is spelled as the capability named it — one source of truth, rather than also
+        // relying on an associated type on the wrapper that would have to agree with it.
+        #expect(rewrite.declaration.contains("_wireProvider: ConfigReader"))
     }
 
     @Test func theAnnotatedSiteResolvesToTheSynthesisedProducer() throws {

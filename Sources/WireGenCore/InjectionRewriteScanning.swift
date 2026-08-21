@@ -196,7 +196,7 @@ private func record(
     // instance is constructed to resolve. `from:` leads; the annotation's own arguments follow verbatim.
     let arguments = site.arguments.isEmpty ? "" : ", \(site.arguments)"
     let declaration = """
-        private func \(functionName)(_wireProvider: \(wrapper).Provider) throws -> \(valueType) {
+        private func \(functionName)(_wireProvider: \(provider)) throws -> \(valueType) {
             try \(wrapper).wireValue(from: _wireProvider\(arguments))
         }
         """

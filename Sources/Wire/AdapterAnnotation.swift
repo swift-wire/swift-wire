@@ -108,14 +108,30 @@ public enum WireAdapterCapability {
     /// reads the value out of a *provider* the graph supplies (e.g. `@Configuration(forKey: "PORT")`
     /// reading a `ConfigReader`).
     ///
-    /// The annotation type is a property wrapper conforming to ``WireInjectionRewrite``. Wire emits
+    /// Wire emits, for a site of type `T` annotated `@X(a, b)`:
     ///
-    ///     try <Annotation><Value>(<the annotation's arguments, verbatim>).wireValue(from: <provider>)
+    ///     private func _wireRewrite_…(_wireProvider: <provider>) throws -> T {
+    ///         try X<T>.wireValue(from: _wireProvider, a, b)
+    ///     }
     ///
-    /// so it never learns what the value means, how it is read, or which method reads it — that is the
-    /// wrapper's own Swift, type-checked at the use site. `provider` is the one thing Wire cannot derive:
-    /// it resolves dependencies by canonical type text and so cannot see through the wrapper's
-    /// `Provider` associated type. Name the provider's type as written (`"ConfigReader"`).
+    /// — copying the annotation's argument list **verbatim**, so it never learns what the value means, how
+    /// it is read, or which method reads it. `provider` names the binding the value is read from, as
+    /// written (`"ConfigReader"`); Wire matches dependencies by canonical type text and cannot infer it.
+    ///
+    /// The annotation is declared **twice under one name**, and Swift resolves each use site to whichever
+    /// can apply there:
+    ///
+    /// - a **property wrapper**, the only mechanism that can attach to a parameter, supplying
+    ///   `init(wrappedValue:…)` per supported shape — a parameter site always has a value to pass, so
+    ///   these need carry nothing else;
+    /// - a **peer macro** generating nothing, the only mechanism that can attach to a `let` property
+    ///   (`property wrapper can only be applied to a 'var'`), and which `var` properties resolve to as
+    ///   well.
+    ///
+    /// Resolution itself is a **static** `wireValue(from:…)` on the wrapper, one overload per shape. It is
+    /// deliberately not a protocol requirement: its signature is whatever the annotation's arguments are,
+    /// which no protocol can express — and the same is already true of the initialisers. A missing
+    /// overload is an adapter-authoring bug caught the first time the annotation is wired.
     case rewritesInjection(provider: String)
 }
 

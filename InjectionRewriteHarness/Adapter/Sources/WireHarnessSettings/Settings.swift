@@ -15,9 +15,7 @@ public struct SettingsSource: Sendable {
 /// Dispatch is by constrained initialiser, as the real adapter's is — `String` reads directly, `Int`
 /// parses. An unsupported type has no initialiser and so fails at the user's own annotation.
 @propertyWrapper
-public struct FromSettings<Value>: WireInjectionRewrite {
-    public typealias Provider = SettingsSource
-
+public struct FromSettings<Value> {
     /// The *attachment* role, and all of it. Immutable, and never optional: the wrapper is only ever
     /// applied to a **parameter**, where the compiler always has a value to pass. A property site resolves
     /// to the macro below instead — for a `let` because a property wrapper cannot attach to one, and for a
