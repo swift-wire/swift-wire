@@ -42,7 +42,11 @@ public struct FromSettings<Value> {
 
     // MARK: Resolution — static, so no instance is built to resolve
 
-    public static func wireValue(from provider: SettingsSource, named name: String, default value: Value)
+    public static func wireValue(
+        from provider: SettingsSource,
+        named name: String,
+        default value: Value
+    )
         -> Value
     where Value == String {
         provider.string(named: name) ?? value
@@ -51,7 +55,11 @@ public struct FromSettings<Value> {
     where Value == String? {
         provider.string(named: name)
     }
-    public static func wireValue(from provider: SettingsSource, named name: String, default value: Value)
+    public static func wireValue(
+        from provider: SettingsSource,
+        named name: String,
+        default value: Value
+    )
         -> Value
     where Value == Int {
         provider.string(named: name).flatMap(Int.init) ?? value
