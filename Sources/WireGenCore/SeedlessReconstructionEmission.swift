@@ -97,8 +97,15 @@ private func seedlessScopeEntryThunkLines(
     let rawThunkType = proxy.dependencies.first(where: { $0.name == contributorProxyScopeEntryFieldName })?.type ?? ""
     let thunkType = liftSpecialised(rawThunkType, in: .scopeBound(proxy))
     let thunkLocal = identifierName(forType: thunkType, key: nil)
-    // The subject is the reconstruction scope's terminal binding — the routed controller the proxy wraps.
-    let subjectLocal = scope.topologicalOrder.last.map { propertyName(for: $0) } ?? ""
+    // The subject is read out of the thunk's own return type, as the seeded path does. It used to be
+    // taken positionally — `topologicalOrder.last` — on the assumption that the routed controller is
+    // always constructed last. Anything that appends an app-scope binding the scope borrows can land
+    // after it and silently become the returned value: an injection rewrite (`@ConfigProperty`) did
+    // exactly that, and the thunk returned a config string where a controller belonged.
+    let subjectLocal =
+        parsedContributorScopeEntryThunkType(thunkType)
+        .map { identifierName(forType: $0.subject, key: nil) }
+        ?? scope.topologicalOrder.last.map { propertyName(for: $0) } ?? ""
 
     var lines: [String] = ["    let \(thunkLocal) = { @Sendable (doubles: \(doublesType)) async throws in"]
     for binding in scope.topologicalOrder {
