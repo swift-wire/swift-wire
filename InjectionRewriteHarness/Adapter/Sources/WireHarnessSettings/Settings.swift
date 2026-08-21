@@ -18,34 +18,29 @@ public struct SettingsSource: Sendable {
 public struct FromSettings<Value>: WireInjectionRewrite {
     public typealias Provider = SettingsSource
 
-    // The *attachment* role. Optional-backed because the property-site declaration constructs the wrapper
-    // with no value to carry yet — the generated initialiser assigns through the setter afterwards.
-    private var storage: Value?
-    public var wrappedValue: Value {
-        get { storage! }
-        set { storage = newValue }
-    }
-
-    private init(_ storage: Value?) { self.storage = storage }
+    /// The *attachment* role, and all of it. Immutable, and never optional: the wrapper is only ever
+    /// applied to a **parameter**, where the compiler always has a value to pass. A property site resolves
+    /// to the macro below instead — for a `let` because a property wrapper cannot attach to one, and for a
+    /// `var` because the macro applies there too and Swift prefers it. So there is no declaration that
+    /// constructs this without a value, and nothing has to stand in for one.
+    public let wrappedValue: Value
 
     // MARK: Attachment — String
 
     public init(wrappedValue: Value, named name: String, default value: Value) where Value == String {
-        self.init(wrappedValue)
+        self.wrappedValue = wrappedValue
     }
-    public init(named name: String, default value: Value) where Value == String { self.init(nil) }
-
     /// No default: the value is optional, and an absent setting is `nil`. Absence is what `Optional`
     /// means, so there is nothing to invent an error for — the site declares `String?` and decides.
-    public init(wrappedValue: Value, named name: String) where Value == String? { self.init(wrappedValue) }
-    public init(named name: String) where Value == String? { self.init(nil) }
+    public init(wrappedValue: Value, named name: String) where Value == String? {
+        self.wrappedValue = wrappedValue
+    }
 
     // MARK: Attachment — Int
 
     public init(wrappedValue: Value, named name: String, default value: Value) where Value == Int {
-        self.init(wrappedValue)
+        self.wrappedValue = wrappedValue
     }
-    public init(named name: String, default value: Value) where Value == Int { self.init(nil) }
 
     // MARK: Resolution — static, so no instance is built to resolve
 
