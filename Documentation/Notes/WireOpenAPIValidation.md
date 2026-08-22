@@ -338,11 +338,27 @@ to what the request already paid to decode. An unconstrained document emits and 
    new exception. One caveat for slice 3 — the one-hop `lookup` used here is fine for parameters,
    responses and request bodies, whose components are concrete; walking *schemas* will need the
    name-keyed, cycle-aware treatment this note describes, and must not reintroduce a full resolve.
-1. **Runtime only.** Both error types, their `HTTPResponseConvertible` conformances (including the
-   400/422-by-location rule), the `Failure` accumulator and the cap. No codegen. Provable with a
-   hand-written `throw` in a fixture controller plus an `@ErrorResponse` mapping — which exercises the
-   **entire** error path, both the mapped and the unmapped tier, before a single schema has been read.
-   This is the milestone that de-risks the claim this note rests on.
+1. ✅ **Done — the runtime.** `WireOpenAPIRequestValidationError`,
+   `WireOpenAPIResponseValidationError`, `WireOpenAPIFailure`/`Location` and
+   `WireOpenAPIFailureAccumulator`, in `Sources/WireOpenAPI/SchemaValidation.swift`. No codegen. The
+   claim this note rests on is now made good by a running fixture rather than by argument — all three
+   tiers answer over HTTP:
+
+   | proof | request | answer |
+   |---|---|---|
+   | mapped, body failure | `GET /api/v1/tasks/invalid` | `422` + the document's `Problem` body |
+   | unmapped, parameter failure | `POST /api/v1/tasks/invalid/delete` | `400` + the failure list as JSON |
+   | response failure | `POST …/replace?title=badresponse` | `500`, zero body bytes |
+
+   Three things worth recording. The mapped proof sits on a **`@RawOperation`**, so validation is
+   demonstrably not a typed-shim concern — a raw operation receives the same `Input`. The unmapped
+   proof is a *parameter* failure where the mapped one is a *body* failure, so one test pair
+   establishes both the tier and the 400/422 split. And the 500 was confirmed to carry zero bytes,
+   not merely an empty-looking body.
+
+   The decided logic — the status rule, the mixed-location case in both orders, the cap and its
+   reporting, the wire shape — is unit-tested in a new `WireOpenAPITests` target rather than only
+   through the fixture, since none of it is a walk.
 2. **Parameters only**, scalar constraints. Self-contained, no `$ref` walking, no recursion. The
    fixture grows a `minLength` path parameter.
 3. **Component schemas.** Per-name validators, `$ref` as a call, arrays, nesting, recursion.
