@@ -359,10 +359,67 @@ to what the request already paid to decode. An unconstrained document emits and 
    The decided logic — the status rule, the mixed-location case in both orders, the cap and its
    reporting, the wire shape — is unit-tested in a new `WireOpenAPITests` target rather than only
    through the fixture, since none of it is a walk.
-2. **Parameters only**, scalar constraints. Self-contained, no `$ref` walking, no recursion. The
-   fixture grows a `minLength` path parameter.
-3. **Component schemas.** Per-name validators, `$ref` as a call, arrays, nesting, recursion.
-4. **The decision-2 diagnostics**, with the request-reachability walk.
+2. ✅ **Done — parameters.** `WireOpenAPIValidate` in the runtime, `SpecAssertions` read from the
+   document, and a `Validation` enum emitted inside each spec's namespace and called as the first
+   statement of the forwarder's `do`. The fixture's `getTask` and `deleteTask` now carry real document
+   assertions, and the hand-written throws from slice 1 are gone — the observable behaviour is
+   unchanged, which is the point.
+
+   **Scope grew by one step, deliberately.** This slice was written as "scalars only", but arrays of
+   scalars came almost free and leaving them out would have forced a choice between two bad options for
+   `minItems` on a query array: error (breaking documents that serve correctly today) or skip silently
+   (the thing this capability exists to remove). So parameters are now covered end to end — scalars,
+   arrays, and the array's element assertions, indexed into the failure path as `query.tags[1]`.
+
+   **`format` decides the Swift type, and this was the trap.** The generator emits `Foundation.Date`
+   for `format: date-time`, `Int32`/`Int64` for the integer formats and `Float` for `format: float`.
+   Emitting a fixed-width call would have produced uncompilable generated code the first time a
+   document used a format nobody tested. The numeric checks are therefore generic over `BinaryInteger`
+   and `BinaryFloatingPoint` (compared in `Int64` and `Double`, both lossless for what the generator
+   emits), and a *string* assertion on a `date-time` is diagnosed rather than emitted — the value is not
+   a string by the time a check could run.
+
+   **Every value is passed as an `Optional`,** which is what lets one call shape serve a required
+   parameter and an optional one alike: a non-optional member promotes at the call site, so the emitter
+   never has to know which the document declared and cannot get it wrong. `nil` is not a failure —
+   absence is `required`'s business, and the generator enforced it by making the member non-optional.
+
+   **Patterns are compiled by `WireOpenAPIGen`, at build time,** with the same engine the runtime will
+   use. An expression Swift cannot read fails the build naming the parameter, instead of trapping in
+   `WireOpenAPIPattern.init` on the first request that reaches it. This is better than either option
+   this note originally offered, and it is why the emitted `WireOpenAPIPattern(...)` needs no `try`.
+
+   **The one place strictness was not applied.** A parameter whose schema is an *object* or a
+   *composition* yields no checks and no diagnostic. Erroring would break documents that serve correctly
+   today, for a shape slice 3 reaches properly when it walks component schemas; those two shapes are the
+   only silent gap in the capability, and they are recorded here rather than left to be discovered.
+3. ✅ **Done — component schemas, with slice 4 folded in.** Request bodies are validated, `$ref`
+   becomes a call to the named schema's own validator, and recursion terminates because of it. Slice 4
+   could not sensibly be deferred: the moment the walker enters a schema it meets `minProperties` and
+   `additionalProperties`, and *emit nothing, say nothing* is the silent drop this whole capability
+   exists to remove.
+
+   **Only a named schema needs its Swift type spelled.** An inline one is walked in place through member
+   access, so `Operations.X.Input.Body.JsonPayload.NestedPayload` is a spelling the emitter never
+   derives. That halves the dialect coupling this slice could have carried.
+
+   **The failure location is a parameter of a schema validator, not a literal.** The same component
+   schema is reachable from a request body *and* from a `$ref`'d parameter schema, and the two earn
+   different statuses — 422 for a body, 400 for the request line. Baking one in answered the other
+   wrongly, which the fixture caught.
+
+   **One predicate decides both call sites and declarations.** The first draft used a structural
+   `isEmpty` at the call site and a transitive `asserts` at the declaration site, and emitted
+   `schema_Task(…)` against a `Task` that asserts nothing and was therefore never declared. They cannot
+   be allowed to disagree.
+
+   Two things the walk does *not* do, both deliberate. `additionalProperties: false` emits nothing,
+   because the generator already enforces it in `init(from:)`. And an assertion beneath a `oneOf`/`anyOf`
+   is refused rather than guessed at: the generator emits those as an enum whose case names are a *third*
+   naming derivation, alongside the safe-name transform and the status table, and a wrong guess there is
+   a "no member" error inside generated code.
+
+   The object/composition gap slice 2 left open is closed by the same walker.
 5. **Response validation**, gated off — success path *and* every mapped error body, with the
    one-hop regress rule.
 
@@ -442,6 +499,16 @@ leaves genuinely open.
   enforces `additionalProperties: false` but nothing else — all three verified against the pinned
   fork (`9e655e0`) rather than assumed, and all three are dialect coupling belonging in
   *Coupling inventory*. A generator bump can move any of them.
+- **OpenAPIKit's *computed* accessors** are a hazard of the same shape as the generated-symbol ones, and
+  cost a build to find. `ObjectContext.minProperties` returns `max(explicit, requiredProperties.count)`,
+  so every object with a required property reports one whether the document wrote it or not — reading it
+  literally diagnoses documents that assert nothing. Comparing against that count recovers the author's
+  intent, and is right on its own terms: a bound at or below the number of required properties is already
+  enforced by `required`. `StringContext.minLength` and `ArrayContext.minItems` default to 0 the same way.
+- **`format` → Swift type** is a fourth such coupling, and the sharpest: `date-time` → `Foundation.Date`,
+  `int32`/`int64` → `Int32`/`Int64`, `float` → `Float`, while `date`, `uri`, `uuid` and `byte` stay
+  `String` and `double` stays `Double`. Verified the same way. A generator that changes any of these
+  turns a validator call into a type error inside generated code.
 
 ## Reproducing the findings
 
