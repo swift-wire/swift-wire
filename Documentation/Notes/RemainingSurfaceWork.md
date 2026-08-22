@@ -37,6 +37,7 @@ tracking decision recorded as open at the end; the sequence holds either way.
 | [`StreamingResponseTier.md`](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/StreamingResponseTier.md) | the tier shipped; migrating SSE and multipart off `@RawRoute` is "the larger part of the payoff" and still to come |
 | [`WireMVCRouter.md`](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/WireMVCRouter.md) | the six-item router backlog |
 | [`PendingIssues/14`](../../PendingIssues/14-typed-tier-duplex-routes.md) | the duplex story: what spikes 31–33 already measured, and the upstream bug the typed tier waits on |
+| [wire-mvc-performance](https://github.com/tachyonics/wire-mvc-performance) | measured per-request cost and allocations — where Phase 5 comes from |
 
 Where an ordering below differs from its source, the difference is called out and argued. Where it does not,
 the source's reasoning stands and is summarised rather than repeated.
@@ -95,10 +96,18 @@ written, and is kept here only so it is not re-run.
    revisit.** `ServerTransport.register` returns `(HTTPResponse, HTTPBody?)` and the framework consumes the
    body after the closure returns, so the producer must outlive the closure — no task group inside it can
    work, a discarding one included, since those await their children at scope exit. A `ServiceLifecycle`
-   group one level out would be structured but does not subsume the per-request fix, and Hummingbird and
-   Vapor are natively head-then-body too (`respond → Response`, body lent a writer only afterwards), so
-   per-framework bridges would not remove the task either. Native adapters remain a question about the
-   `ServerTransport` ceiling, not about concurrency structure.
+   group one level out would be structured but does not subsume the per-request fix.
+
+   **A per-framework adapter is a different matter, and an earlier version of this note got it wrong.** It
+   said Hummingbird and Vapor are natively head-then-body (`respond → Response`, body lent a writer only
+   afterwards) so a native adapter would not remove the task either. That holds only for a **dynamic**
+   status. Where the status is *declared* — every typed tier — a native adapter can return
+   `Response(status: declared, body: .closure { writer in try await handler(writer) })` and run the handler
+   inside the lent writer: no task, no `ResponseChannel` rendezvous, no `HandlerTaskHandle`, and no second
+   set of currency types. Since that covers most routes rather than an edge case, concurrency structure
+   *is* among the arguments for a native path, alongside the `ServerTransport` ceiling. What is missing is
+   measurement, not argument — see
+   [CatchAllMountingProbe.md](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/CatchAllMountingProbe.md).
 
 2. ~~**The `response-body-processing` echo as a `@RawRoute`.**~~ **Already answered — do not re-run.**
    The parity note lists the full-duplex case as unverified on Hummingbird and Vapor, and that is now stale.
@@ -213,6 +222,132 @@ consistency one, and it should be recorded as such rather than treated as this i
   `MultipartParts.init`'s deferred content-type check would truncate a response instead of mapping to 415.
   Fixing that changes a **public binding protocol**, which is cheaper before 1.0 than after — so it wants
   doing on 1.0's schedule, not on #91473's, even though the feature it serves is paused.
+
+### Phase 5 — allocation reduction in the native request path
+
+Not a correctness item and not urgent: the whole native path is ~0.9 µs at p50 and ~1.2 µs at p99, against
+a `ServerTransport` bridge that costs 16–47 µs. It is here because the measurements exist, the causes are
+identified, and two of the fixes are small enough that leaving them undone is a choice rather than a
+backlog.
+
+Measured in [wire-mvc-performance](https://github.com/tachyonics/wire-mvc-performance) with a `malloc`
+interposer, bisected in process so the numbers are the router's rather than a socket's. **Nine allocations
+and 756 bytes per request.** For contrast, Hummingbird's router adds *none* — so these are choices in this
+implementation, not the cost of routing.
+
+**This is a native-path project.** On a bridged runtime the host's router matches the path and parameters
+arrive as `metadata.pathParameters`, so `FrozenRouteTrie.resolve` never runs and groups #1 and #2 — the two
+clearest wins below — do not exist there. What does carry over is the registry, allocated per request at
+`WireMVCServerTransport.swift:342` whether or not anything contributes. So Phase 5 is 3–5 allocations off a
+9-allocation request natively, and one off a 47- or 106-allocation one through the bridge.
+
+| # | what | count | addressable | what it would take | recommended |
+|---|---|---|---|---|---|
+| 1 | `split` array growth in `FrozenRouteTrie.resolve` | 2 | **yes** | walk segments lazily instead of materialising `[Substring]` | **yes** |
+| 2 | parameter collection + `Dictionary(zip(…))` | 2 | **yes** | inline buffer for the 0–2 case; name lookup against the route's own `parameterNames` | **yes, with #1** |
+| 3 | response body + write path | 4 | partly | the bytes are the work; some copies may be avoidable | not yet — measure first |
+| 4 | `ResponseHeaderRegistry` instance | 1 | **yes** | make it a `~Copyable` struct, or allocate it lazily | **yes** — see below |
+
+**#1 is the clearest, and the diagnosis is exact.** `resolve` does
+`requestPath.split(separator: "/", omittingEmptySubsequences: true)` and then walks the result forward
+once. The cost is not one allocation but *`Array` growth*: measured at 2 allocations for a two-segment path
+and 4 for a five-segment one, which is the doubling sequence (capacity 1, 2, 4, 8), not one per segment.
+So a deeper path costs more, for a container nothing needs to index or keep. Iterating segments lazily
+takes this to zero and gets *better* the deeper the route.
+
+**#2 follows the same shape.** Values are collected positionally into an array, then built into a
+`[String: Substring]` via `Dictionary(zip(route.parameterNames, values))`. Most routes bind nought to two
+parameters. An inline buffer would carry them without heap, and the handler's by-name lookup could resolve
+against `parameterNames` directly. Note this cost arrived *with* a correctness fix — per-route parameter
+naming, which removed a registration-order dependency — so the inline version recovers what that cost.
+
+**#3 is the one to leave alone for now.** Four allocations to build and write a response body is the least
+suspicious group: producing bytes and handing them to a sender is the work itself. Attributing them
+individually needs an allocation *list*, not a counter, which means Instruments.
+
+#### The registry, and the inline-buffer version
+
+`ResponseHeaderRegistry` is a `final class` the courier instantiates per request whether or not anything
+contributes. Three options, in increasing order of both cost and payoff:
+
+1. **Allocate lazily** — the registry exists only once something registers. Removes the one allocation in
+   the common case, is contained within one type, and changes no API. The cheap 80%.
+2. **`~Copyable` struct with a heap container.** Removes the same allocation and, more importantly, makes
+   ownership match the box's — see the design argument below. Contributions still allocate their payloads.
+3. **`~Copyable` struct with an inline buffer.** `InlineArray<N, Registration>` (SE-0453, stdlib, verified
+   available on the pinned toolchain — four `Int`s occupy 32 bytes with no heap at all) plus a
+   `UniqueArray` overflow for the rare deep case. This is the only option that reaches **zero allocations
+   while contributing**, not merely when empty. Two payloads still allocate and cannot be helped by the
+   container: `.values` holds an `Array` (flattening the store would fix it) and `.deferred` captures an
+   escaping closure (inherent). `N` is a tuning parameter — four covers a CORS, a cache and a security
+   header with room spare.
+
+**The reason to do 2 or 3 is not the allocation.** `RequestResponseMiddlewareBox` is `~Copyable` precisely
+so ownership is explicit and "consumed exactly once" is checked rather than trusted — and it carries inside
+it a shared mutable reference that escapes all of those guarantees. Today the registry is aliased three
+ways at once (the context, the box, and `ResponseHeaderApplyingSender`), and a write through one handle
+must be visible through another. Under ownership, "drained exactly once" becomes a compiler-checked
+property rather than a convention — and it is a convention that has already been violated once, which is
+why the 405 needed a synthesised handler and why raw routes need the applying-sender wrapper at all.
+
+The data flow permits it: contributions only ever travel downward, registered on the way in and drained
+deeper, because a middleware cannot mutate after `next` returns. What blocks it is plumbing — two
+independent read sites (`requestContext.responseHeaders` and `wireMVCFinalBox.responseHeaders`, both
+emitted by codegen) that must agree, plus the sender wrapper holding its own handle.
+
+**Sequencing.** #1 and #2 are internal to `WireMVCRouter` and can be done any time — and being
+native-path-only, they are worth exactly as much as the native path is. The registry's option 1
+likewise. Options 2 and 3 change a public shape — `box.responseHeaders` becomes a borrow or a consume, and
+every middleware that contributes changes with it, including user-written ones — so if they are right they
+are right **now**: a public-shape change is cheap pre-1.0 and expensive after, the same argument
+`PendingIssues/14` makes about the lent-binding validation step.
+
+**Caveat on the analysis.** The four groups are measured; the identity of every individual allocation
+within groups 2 and 3 is inferred from the code rather than observed. Confirming those needs an allocation
+list. And the ownership redesign should re-walk each contribution site — particularly `respondingWith` on
+the gate path and the keyed-harness variant paths, which this analysis did not trace.
+
+## Response framing
+
+**Done.** Every one-shot response WireMVC writes now states a `Content-Length`, through one rule —
+`HTTPResponse.stateLengthIfAbsent(_:)`, which RFC 9110 §8.6 makes skip `1xx` and `204`, and which skips
+`304` because that carries the length the `200` *would* have had. Three sites use it: `WireMVCOutcome.send`
+for typed routes, the courier's writer for raw ones, and the synthesised `404`/`405`, which write their own
+heads rather than going through an outcome.
+
+Before it, every WireMVC response on every runtime went out `Transfer-Encoding: chunked`, because nothing
+downstream infers a length — not the router, not the `ServerTransport` bridge, not `NIOHTTPServer`, whose
+only `Content-Length` is the one it writes for an aborted request. What that cost, measured with both sides
+of every comparison framed alike:
+
+- **On a bare server, with no framework at all**: a p99 tail of +11.8 µs on Hummingbird, +14.3 µs on Vapor,
+  +18.9 µs on the proposal server. Not allocation — 0.1 allocations and 488 bytes — so it is writes and
+  parsing, which is why allocation counting would never have found it.
+- **Through the bridge, which amplifies it**: Hummingbird's cost rises from +16.3 to +23.3 µs at p50 and
+  Vapor's from +47.7 to +67.5, while the plain routes barely move.
+- **WireMVC's own path: unchanged either way**, ~2 µs. That is the point. WireMVC never had a tail; it
+  omitted the header that avoided one, and was then compared against things that had it.
+
+The whole class was invisible for as long as framing was something a harness set once and never varied, and
+three careful attempts to find it by bisecting layers all refuted correctly and learned nothing — because
+nothing was in a layer. A one-minute dump of response headers found it.
+
+### What remains
+
+- **An upstream report.** `HTTPResponseSender` declares `sendAndFinish(_:buffer:trailer:)` as a requirement
+  *and* supplies a same-signature extension with `trailer` defaulted. A two-argument call — the spelling
+  nearly every raw route uses — cannot match the requirement, so it binds to the extension, which calls
+  `self.send` instead of dispatching through the witness. Any conformer's override is silently bypassed,
+  which contradicts the proposal's own advice that conformers are encouraged to override it. Working around
+  it is why the courier defers its head at all; the fix belongs upstream.
+- **A trade-off to revisit.** Deferring means a raw route that *streams* sees its head flushed on the first
+  `write` rather than on `send`. Typed routes and transformed-sender routes (SSE, multipart) are
+  unaffected, so the exposure is hand-written raw streaming routes with an untransformed sender — a client
+  there sees headers at the first chunk rather than immediately. Narrow, but it is a timing change, and if
+  upstream fixes the shadowing the deferral can be dropped entirely.
+- **Routes registered directly on a builder** — bypassing codegen, as a benchmark or a test harness might —
+  do not get the courier's sender and so state no length. Not an app-authoring path, but worth knowing
+  before concluding from one that raw routes are still chunked.
 
 ## Independent of the sequence
 
