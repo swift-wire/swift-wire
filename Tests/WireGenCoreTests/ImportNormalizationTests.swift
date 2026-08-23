@@ -4,8 +4,8 @@ import Testing
 
 /// Imports reach the generated files from every source file discovery parses — the consumer's and, under
 /// cross-module composition, its Wire-aware dependencies' — each written at whatever access level suited
-/// the file it came from. These pin the canonical form the generated files carry instead: one import per
-/// module, at internal level, with `@_exported` left alone.
+/// the file it came from, and some re-exporting. These pin the canonical form the generated files carry
+/// instead: one import per module, at internal level, re-exporting nothing.
 @Suite("ImportNormalization")
 struct ImportNormalizationTests {
     @Test("One module reached at several access levels collapses to one internal import")
@@ -27,27 +27,17 @@ struct ImportNormalizationTests {
         #expect(normalizedImports(["fileprivate import Yams"]) == ["import Yams"])
     }
 
-    /// Dropping `@_exported` would change what the *consumer's* module re-exports, and break any of its
-    /// files that reached a re-exported module's types through the generated file. Out of scope for an
-    /// import-hygiene pass, so it survives with its access level.
-    @Test("`@_exported` survives, access level and all")
-    func keepsExported() {
-        #expect(
-            normalizedImports(["@_exported public import HTTPAPIs"])
-                == ["@_exported public import HTTPAPIs"]
-        )
-    }
-
-    /// The re-exporting spelling wins the whole module, so the plain one does not come back alongside it
-    /// at a different level — which is the collision that produced the warnings in the first place.
-    @Test("A re-exported module keeps one line even when also imported plainly")
-    func exportedAbsorbsPlainImport() {
+    /// A dependency's re-export is not the consumer's to inherit: carried over, the module holding the
+    /// generated file would re-export whatever that dependency does.
+    @Test("`@_exported` is dropped — a re-export is not propagated")
+    func dropsExported() {
+        #expect(normalizedImports(["@_exported public import HTTPAPIs"]) == ["import HTTPAPIs"])
         #expect(
             normalizedImports([
                 "@_exported public import HTTPTypes",
                 "import HTTPTypes",
                 "package import HTTPTypes",
-            ]) == ["@_exported public import HTTPTypes"]
+            ]) == ["import HTTPTypes"]
         )
     }
 
@@ -75,12 +65,13 @@ struct ImportNormalizationTests {
     }
 
     /// The platform-selection block is captured whole by discovery, so normalisation has to reach the
-    /// imports *inside* it — a `public import` written in one clause would otherwise survive.
+    /// imports *inside* it — an access level or a re-export written in one clause would otherwise be the
+    /// one place the rule does not apply.
     @Test("Imports inside an `#if` block normalise too, guard and all")
     func normalizesInsideIfConfig() {
         let block = """
             #if canImport(FoundationEssentials)
-            public import FoundationEssentials
+            @_exported public import FoundationEssentials
             #else
             package import Foundation
             #endif
@@ -119,10 +110,10 @@ struct ImportNormalizationTests {
         let checks = renderWireKeyChecks(imports: imports, allBindings: [])
         for generated in [graph, checks] {
             #expect(generated.contains("\nimport Wire\n"))
-            #expect(generated.contains("\n@_exported public import HTTPAPIs\n"))
-            #expect(!generated.contains("\npublic import Wire\n"))
-            #expect(!generated.contains("\npackage import Wire\n"))
-            #expect(!generated.contains("\nimport HTTPAPIs\n"))
+            #expect(generated.contains("\nimport HTTPAPIs\n"))
+            #expect(!generated.contains("public import"))
+            #expect(!generated.contains("package import"))
+            #expect(!generated.contains("@_exported"))
         }
     }
 }
