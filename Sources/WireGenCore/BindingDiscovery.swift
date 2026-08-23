@@ -63,8 +63,10 @@ final class BindingDiscovery: SyntaxVisitor {
     /// Verbatim `import` statements found in the source — captured for
     /// propagation into the generated `_WireGraph.swift` so any types
     /// referenced by discovered bindings stay in scope. Includes
-    /// `@_implementationOnly`, `@testable`, and other modifiers since
-    /// `trimmedDescription` preserves them.
+    /// `@_implementationOnly`, `@testable`, and other attributes since
+    /// `trimmedDescription` preserves them; the access level each was
+    /// written at is dropped at emission (see ``normalizedImports``),
+    /// because everything WireGen emits is internal.
     var imports: [String] = []
     /// Source-pattern warnings the visitor accumulates as it walks the
     /// tree (e.g. `@Container` combined with a scope annotation, or

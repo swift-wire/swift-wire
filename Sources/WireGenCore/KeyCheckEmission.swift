@@ -52,7 +52,7 @@ package func renderWireKeyChecks(
     lines.append("// mismatch surfaces as a Swift compile error attributed via")
     lines.append("// #sourceLocation to the user's source line.")
 
-    let sortedImports = Array(Set(imports)).sorted()
+    let sortedImports = normalizedImports(imports)
     if !sortedImports.isEmpty {
         lines.append("")
         for line in sortedImports {
