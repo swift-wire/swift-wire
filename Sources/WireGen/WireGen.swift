@@ -574,7 +574,9 @@ extension WireGen {
             seedScopeOrders: seedScopeOrders,
             graphConformances: inputs.aggregate.graphConformances,
             multibindingKeys: inputs.aggregate.multibindingKeys,
-            syntheticTypeDeclarations: inputs.injectionRewrites.map(\.declaration)
+            syntheticTypeDeclarations: (inputs.injectionRewrites.isEmpty
+                ? [] : [injectionRewriteHelperDeclaration])
+                + inputs.injectionRewrites.map(\.declaration)
                 + consumerSyntheticTypes(
                     factories: inputs.factories,
                     proxyIdentities: inputs.proxyIdentities,

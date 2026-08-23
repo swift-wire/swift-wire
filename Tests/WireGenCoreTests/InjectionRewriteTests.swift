@@ -81,6 +81,35 @@ struct InjectionRewriteTests {
         #expect(rewrite.declaration.contains("_wireProvider: ConfigReader"))
     }
 
+    /// Whether the adapter's `wireValue` throws is invisible here — it is another module's static method,
+    /// picked by overload resolution over an argument list Wire copies without reading, and the same
+    /// annotation resolves to a throwing overload at one site and a non-throwing one at the next. So the
+    /// call is routed through an always-throwing `@autoclosure` and one `try` is correct for both.
+    @Test func theProducerCarriesATryThatIsCorrectEitherWay() throws {
+        let result = applyInjectionRewrites(
+            to: [.default: [provider("host", parameters: [("String", site(#"forKey: "a", default: "x""#))])]],
+            annotations: [annotation()],
+            consumerModule: testModule
+        )
+        let rewrite = try #require(result.synthesized.first)
+        #expect(
+            rewrite.declaration.contains(
+                #"try _wireRewritten(Configuration<String>.wireValue(from: _wireProvider, forKey: "a", default: "x"))"#
+            )
+        )
+        // The producer still declares `throws`, so a throwing adapter needs no separate shape.
+        #expect(rewrite.declaration.contains("throws -> String"))
+    }
+
+    /// The helper the producers route through: emitted into the generated file, `private` to it, and
+    /// unconditionally throwing — which is what makes the caller's `try` justified when the adapter's
+    /// call throws nothing.
+    @Test func theHelperIsPrivateAndAlwaysThrowing() {
+        #expect(injectionRewriteHelperDeclaration.contains("private func _wireRewritten<Value>"))
+        #expect(injectionRewriteHelperDeclaration.contains("@autoclosure () throws -> Value"))
+        #expect(injectionRewriteHelperDeclaration.contains(") throws -> Value {"))
+    }
+
     @Test func theAnnotatedSiteResolvesToTheSynthesisedProducer() throws {
         let result = applyInjectionRewrites(
             to: [.default: [provider("endpoint", parameters: [("Int", site(#"forKey: "p", default: 1"#))])]],

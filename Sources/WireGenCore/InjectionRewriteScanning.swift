@@ -17,6 +17,20 @@
 //
 // Domain-free in the same sense as `ContributorProxySynthesis`: Wire wires a value it never inspects.
 
+/// The declaration every synthesised producer routes its adapter call through — emitted once into the
+/// generated file when the module has any injection rewrite, and `private` because nothing outside that
+/// file names it.
+///
+/// It exists to make one emission correct for a throwing and a non-throwing adapter alike; see the note on
+/// the producer's own `try`. `@autoclosure` is what carries the callee's effect to the call site: a
+/// throwing argument expression is covered by the caller's `try`, and this function's own `throws` covers
+/// the case where the argument throws nothing.
+package let injectionRewriteHelperDeclaration = """
+    private func _wireRewritten<Value>(_ value: @autoclosure () throws -> Value) throws -> Value {
+        try value()
+    }
+    """
+
 /// A `.rewritesInjection` annotation as written at an injection site.
 package struct InjectionRewriteSite: Sendable, Equatable {
     /// One argument as written — `forKey: "PORT"` is `(label: "forKey", text: "\"PORT\"")`.
@@ -243,9 +257,17 @@ private func record(
     // A *static* call: the wrapper's initialisers are its attachment role and play no part here, so no
     // instance is constructed to resolve. `from:` leads; the annotation's own arguments follow verbatim.
     let spliced = arguments.isEmpty ? "" : ", \(arguments)"
+    // `try _wireRewritten(...)` rather than a bare `try` on the call: whether the adapter's `wireValue`
+    // throws is not something Wire can see. It is a static method in another module, chosen by overload
+    // resolution over the argument list Wire copied without reading — wire-configuration's `default:`
+    // overloads do not throw while its required ones do, so the effect differs *between two sites of the
+    // same annotation*. Emitting a bare `try` was therefore right about half the time and an
+    // `UnnecessaryEffectMarker` warning the rest, in a file the consumer cannot edit. Routed through an
+    // always-throwing `@autoclosure`, one spelling is correct either way: a throwing call is covered by the
+    // `try`, and a non-throwing one is covered by `_wireRewritten` itself.
     let declaration = """
         private func \(functionName)(_wireProvider: \(provider.type)) throws -> \(valueType) {
-            try \(wrapper).wireValue(from: _wireProvider\(spliced))
+            try _wireRewritten(\(wrapper).wireValue(from: _wireProvider\(spliced)))
         }
         """
     let rewrite = SynthesizedInjectionRewrite(
