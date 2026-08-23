@@ -420,8 +420,41 @@ to what the request already paid to decode. An unconstrained document emits and 
    a "no member" error inside generated code.
 
    The object/composition gap slice 2 left open is closed by the same walker.
-5. **Response validation**, gated off — success path *and* every mapped error body, with the
-   one-hop regress rule.
+5. ✅ **Done — response validation, opt-in per document.** Success path, raw operations, and every
+   mapped error body, with the one-hop regress rule.
+
+   **The switch is a `wire-openapi.yaml` beside the document**, not a key in
+   `openapi-generator-config.yaml` — that file belongs to swift-openapi-generator, which **rejects
+   unknown keys outright** and fails before this tool runs. Tested, not assumed. Both plugins discover
+   it, declare it an input, and exclude it from document discovery, which the `*.yaml` filter would
+   otherwise have taken for a second document.
+
+   **Build-time rather than `#if DEBUG`,** because the diagnostics have to agree with the emission. A
+   compile-time flag is invisible to the emitter, so an unrepresentable constraint on a response schema
+   would fail *release* builds for a check that never runs there. Reading the setting where the walk is
+   decided makes `responseRoots` simply empty when it is off, which is the whole of the
+   request-reachability rule.
+
+   **Raw operations are covered.** A raw handler builds its own `Output`, so the value is destructured
+   back out — needing no naming the emitter did not already rely on: the case is the status's safe name,
+   which the typed shim already emits when it *constructs* one, and `.body`/`.json` are the members
+   `bodyBinding` already reads on an `Input`.
+
+   Patterns are now pooled once up front instead of accumulated while emitting: response checks come
+   from the forwarder, a different traversal from the one declaring the `_pN` constants, and an index
+   handed out by one meant nothing to the other.
+
+   Three bugs, all the same seam — *what is called and what is declared must agree*. Reachability walked
+   only request roots, so a response-only schema was called but never declared; `validatedOperations`
+   was request-based, so an operation asserting only on its output got no `Validation` enum; and
+   response checks are emitted in the conformer, a **sibling** of `Validation` rather than a member, so
+   a bare `schema_Order(…)` did not resolve. That seam has reopened from three directions across two
+   slices, which is worth remembering before adding a fourth emission site.
+
+   Gated by the fixture serving **both arrangements at once**: `OrdersAPI` turns responses on, the app's
+   own document leaves them off, so each proves the setting is per document. CI asserts `500:0` — the
+   status *and* zero body bytes. The golden gains a matched pair on one document differing only by the
+   switch, which holds the reachability rule in both directions.
 
 ## Closed by building the fixture
 
@@ -467,22 +500,49 @@ answers contradicted this note as first written.
   carries `Double` — so integer `multipleOf` is exact arithmetic, and the epsilon question applies
   only to `type: number`.
 
-## The decode-time seam
+## The decode-time seam — closed, as far as it can be
 
 `additionalProperties: false` is enforced by the generator's `init(from:)`, which runs in the
-**deserializer** — before the forwarder, before the `Input` exists. So it throws a `DecodingError`,
-which is terminal-scoped by `ErrorMapping.isTerminalScoped`, answered by the runtime's own
-`HTTPResponseConvertible` mapping, and matchable only by a terminal-scoped
-`@ErrorResponse(DecodingError.self, …)` that cannot construct one of the operation's documented
-responses.
+**deserializer** — before the forwarder, before the `Input` exists. Measuring it turned out to widen the
+problem: **four** of the document's rules about a body are enforced there, not one. A missing `required`
+property, a property of the wrong type, a null where a value is required, and JSON that is not JSON all
+throw a `DecodingError` before any generated check runs. Only the keyword assertions — `minLength` and
+its kin — are reached in the forwarder.
 
-A `minLength` violation on the very same schema is forwarder-scoped, answers 422, and *can* be a
-documented response. **Two assertions in one schema, answered by two tiers, with two statuses and two
-mapping scopes.** Nothing in this design causes that — it is where the generator already draws the
-line — but it is the sharpest edge a user will meet, and it must be documented rather than discovered.
-Whether the two should be reconciled (by catching the decode rejection and re-throwing it as a request
-validation failure, which would cost the deserializer's error detail) is the one question this note
-leaves genuinely open.
+And the answers disagreed sharply. Unmapped, the four decode-time rejections answered **400 with an
+empty body**; a `minLength` violation on the very same schema answered **422 with a list naming the
+field**. So a caller learned nothing from the more basic mistake and everything from the subtler one.
+
+> **The note used to worry this was a trade.** Converting the rejection "would cost the deserializer's
+> error detail". Measurement inverted that: there was no detail to lose, because the runtime's answer
+> carries no body at all, and a `DecodingError`'s `codingPath` is exactly the path a failure wants.
+> Converting *adds* detail. That is a good argument for measuring the thing before pricing it.
+
+**A decode rejection is now expressed as the same error a generated validator throws.** 422 rather than
+400 is not a new opinion either: `WireMVCBindingError.malformedBody` already answers 422 for a body it
+could not parse, so this is the two adapters agreeing rather than this one inventing a rule. Transport
+failures are deliberately untouched — a missing body stays 400 and a wrong content type stays 415,
+matching `WireMVCBindingError` again, because neither is the document being violated.
+
+**One `@ErrorResponse` now covers both sides.** That needed `isTerminalScoped` split in two, because it
+was answering two questions with one flag: *can this error reach the terminal* and *is it exempt from
+naming a documented status*. A `DecodingError` is both — the request never became this operation's
+`Input`, so its responses do not describe the outcome. `WireOpenAPIRequestValidationError` is only the
+first: it arrives at the terminal from a refused body **and** inside the forwarder from a generated
+check, where it constructs one of the document's own responses and must name a declared status.
+Conflating them would have quietly dropped the must-be-documented rule for every validation mapping.
+
+An explicit `DecodingError` mapping still wins, by type, before the conversion happens — an author who
+wants the deserializer's failure handled separately still can. The fixture serves both arrangements:
+`createTask` carries one validation mapping that answers a refused body and a failed check *identically*,
+and `replaceTask` keeps a `DecodingError` mapping to prove the older path still takes precedence. CI
+asserts the two sides of the seam produce the **same bytes**, which is the property worth holding.
+
+**What remains, and cannot be removed.** The forwarder was never entered, so a decode rejection has no
+`Output` to construct: at the terminal the response is assembled directly, and inside the forwarder it is
+one of the document's own cases. The status, the body, the error type and the mapping that catches them
+are now the same on both sides; only where the answer is *built* still differs, and that is structural
+rather than a wrinkle worth apologising for.
 
 ## What this rests on
 
