@@ -489,7 +489,9 @@ struct DiagnosticGalleryTests {
         let rendered = renderDiagnostics(discovery.warnings)
         #expect(rendered.contains("Plain.swift:2:5: warning:"))
         #expect(rendered.contains("@Inject on 'logger' has no effect"))
-        #expect(rendered.contains("Add a scope macro to the type"))
+        #expect(rendered.contains("nothing on 'Plain' reads it"))
+        #expect(rendered.contains("Add @Singleton, @Scoped(seed:)"))
+        #expect(rendered.contains("@Factory(key) for a factory template"))
     }
 
     @Test func strayInjectAtModuleScopeRendersAsDiagnostic() throws {
