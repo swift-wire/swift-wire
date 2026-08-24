@@ -101,13 +101,14 @@ public macro Factory(_ key: FactoryKey) =
     #externalMacro(module: "WireMacrosImpl", type: "FactoryMacro")
 
 /// Marks a stored property (or init parameter) as an injection point.
-/// The enclosing type's scope macro (`@Singleton` or `@Scoped`) reads
-/// these markers to synthesise its initialiser, and the build plugin
-/// reads them when discovering dependencies.
+/// The enclosing type's `@Singleton`, `@Scoped` or `@Factory` reads these
+/// markers to synthesise its initialiser, and the build plugin reads them
+/// when discovering dependencies.
 ///
 /// `@Inject` itself contributes no code — it's a marker that other
 /// macros and the build plugin recognise. Putting `@Inject` on a
-/// property of a type that has no scope macro is harmless but pointless.
+/// property of a type carrying none of them is harmless but pointless,
+/// and the plugin says so.
 ///
 /// Pass a `BindingKey<Value>` to disambiguate when multiple bindings of
 /// the same type exist:

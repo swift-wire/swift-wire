@@ -10,6 +10,17 @@ import SwiftSyntax
 /// another — almost always a user error.
 let scopeMacroNames = ["Singleton", "Scoped"]
 
+/// Attribute names of the macros that **read** a type's `@Inject` members, which is a different
+/// question from `scopeMacroNames`' one and answers differently for `@Factory`.
+///
+/// A factory template is not a scope — it is not a binding of its own, and it takes assisted
+/// parameters per use site — so it has no business in the `@Container` conflict rule above. But it
+/// synthesises its initialiser from the type's `@Inject` members, "following the same rules as
+/// `@Singleton`" (see `@Factory`'s own declaration), and the plugin resolves those dependencies once
+/// when it synthesises the concrete factory. So `@Inject` on a factory template is wired, and saying
+/// otherwise contradicts what the generated factory struct visibly holds.
+let injectReadingMacroNames = scopeMacroNames + ["Factory"]
+
 /// Build a candidate when the `@Provides` was found inside an
 /// unannotated extension (i.e. the immediate enclosing scope's
 /// `VisitorScope.unannotatedExtensionTarget` is non-nil). WireGen
@@ -46,10 +57,10 @@ func providesPropertyBoundType(_ binding: PatternBindingSyntax) -> String? {
     return inferTypeFromConstructorCall(binding.initializer?.value)
 }
 
-/// `@Inject` on the members of a non-scope-annotated type is a silent
-/// no-op — there's no macro on the enclosing type to read it. Emit a
-/// warning per `@Inject`-marked init or stored property so the user
-/// understands they need a scope macro to get wiring.
+/// `@Inject` on the members of a type no macro reads is a silent no-op —
+/// nothing on the enclosing type consumes the marker. Emit a warning per
+/// `@Inject`-marked init or stored property so the user understands what
+/// to add to get wiring.
 func strayInjectMemberDiagnostics(
     nameToken: TokenSyntax,
     attributes: AttributeListSyntax,
@@ -57,9 +68,9 @@ func strayInjectMemberDiagnostics(
     sourcePath: String,
     converter: SourceLocationConverter
 ) -> [Diagnostic] {
-    // If the type itself carries a scope macro, `@Inject` on its
-    // members IS meaningful — the scope macro reads them. Skip.
-    if scopeMacroNames.contains(where: { hasAttribute(attributes, named: $0) }) {
+    // If the type carries a macro that reads them, `@Inject` on its members IS
+    // meaningful — that macro synthesises the initialiser from them. Skip.
+    if injectReadingMacroNames.contains(where: { hasAttribute(attributes, named: $0) }) {
         return []
     }
     var warnings: [Diagnostic] = []
@@ -75,7 +86,7 @@ func strayInjectMemberDiagnostics(
                         converter: converter
                     ),
                     message:
-                        "@Inject on this initialiser has no effect — '\(nameToken.text)' has no scope macro. Add a scope macro to the type (@Singleton, or @Scoped(seed:) for a seeded scope) to enable wiring."
+                        "@Inject on this initialiser has no effect — nothing on '\(nameToken.text)' reads it. Add @Singleton, @Scoped(seed:) for a seeded scope, or @Factory(key) for a factory template, to enable wiring."
                 )
             )
             continue
@@ -93,7 +104,7 @@ func strayInjectMemberDiagnostics(
                         converter: converter
                     ),
                     message:
-                        "@Inject on '\(pattern.identifier.text)' has no effect — '\(nameToken.text)' has no scope macro. Add a scope macro to the type (@Singleton, or @Scoped(seed:) for a seeded scope) to enable wiring."
+                        "@Inject on '\(pattern.identifier.text)' has no effect — nothing on '\(nameToken.text)' reads it. Add @Singleton, @Scoped(seed:) for a seeded scope, or @Factory(key) for a factory template, to enable wiring."
                 )
             )
         }
