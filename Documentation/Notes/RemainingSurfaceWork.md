@@ -1,9 +1,15 @@
-# Remaining surface work — the proposed sequence
+# Remaining surface work — the sequence, and where it stands
 
-> **Status:** planning note, nothing here is built. It assembles into one order the surface work that is
-> currently spread across five documents in three repositories, and proposes a sequence with the reasoning
-> for it. It introduces no new work — every item already exists somewhere; this note is about *order*, and
-> about the fact that most of these items are not tracked by the milestone whose job they are.
+> **Status:** live sequencing note, revised 2026-08-25 against all four repositories. **Phases 0, 1 and 2
+> are done; Phase 5 is about half done; Phase 3 has not started; Phase 4 is blocked upstream.** Each phase
+> carries its own status and the PRs that closed it, and where a phase's *argument* was overturned by what
+> shipped, the note says so rather than quietly agreeing with the outcome.
+>
+> It assembled into one order the surface work that was spread across five documents in three repositories,
+> and introduced no new work — every item already existed somewhere; the note was about *order*, and about
+> the fact that most of these items were not tracked by the milestone whose job they are. That second half
+> is now half-fixed: `ROADMAP.md`'s M6 entry links this note, so M6 can at least say where its remaining
+> work is enumerated. *Which* milestone it belongs to is still open — see the end.
 >
 > **Two items were removed on first assembly**, both from the parity note's streaming track, because
 > `PendingIssues/14` records them already measured: the Hummingbird/Vapor duplex question (answered, spikes
@@ -17,25 +23,28 @@ M6 is defined in [`ROADMAP.md`](../../ROADMAP.md) as *"features that make idioma
 unblock the last examples."* Read against its own sub-milestones, M6 is one-and-a-half items from done:
 M6a/M6b complete, M6c built, M6d built with task-cluster unmigrated.
 
-Read against the documents that actually enumerate the last examples, it is not close. The roadmap contains
-no reference to
+Read against the documents that actually enumerate the last examples, it was not close when this note was
+assembled. The roadmap referenced neither
 [`HummingbirdExamplesParity.md`](https://github.com/tachyonics/wire-mvc-examples/blob/main/Documentation/Notes/HummingbirdExamplesParity.md),
-which holds the gap list M6 exists to close; and
+which holds the gap list M6 exists to close, nor
 [`WireMVCRouter.md`](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/WireMVCRouter.md)'s
-six-item backlog — which includes behaviour a 1.0 router is expected to have — appears in neither M6 nor M7.
+six-item backlog — which includes behaviour a 1.0 router is expected to have.
 
-So "what remains in M6" currently has two defensible answers that differ by an order of magnitude. This note
-takes the larger one and sequences it. Whether these become an M6e or an explicitly post-M6 track is a
-tracking decision recorded as open at the end; the sequence holds either way.
+So "what remains in M6" had two defensible answers that differed by an order of magnitude. This note took
+the larger one and sequenced it. **Two of the three tracks in that larger answer have since closed** — the
+router backlog entirely, the streaming migration entirely — which is the answer to whether the larger
+reading was the right one to work from. What is left is the parity examples, one blocked tier, and an
+allocation pass. Whether that becomes an M6e or an explicitly post-M6 track is still open at the end; the
+sequence holds either way.
 
 ## Sources
 
 | Source | What it contributes |
 |---|---|
 | [`ROADMAP.md`](../../ROADMAP.md) M6d | task-cluster migration; upstreaming the generator access change |
-| [`HummingbirdExamplesParity.md`](https://github.com/tachyonics/wire-mvc-examples/blob/main/Documentation/Notes/HummingbirdExamplesParity.md) | the parity track (5 items) and the streaming track (3), with their internal ordering already argued |
-| [`StreamingResponseTier.md`](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/StreamingResponseTier.md) | the tier shipped; migrating SSE and multipart off `@RawRoute` is "the larger part of the payoff" and still to come |
-| [`WireMVCRouter.md`](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/WireMVCRouter.md) | the six-item router backlog |
+| [`HummingbirdExamplesParity.md`](https://github.com/tachyonics/wire-mvc-examples/blob/main/Documentation/Notes/HummingbirdExamplesParity.md) | the parity track (5 items) and the streaming track (3), with their internal ordering already argued — **the parity track is what remains** |
+| [`StreamingResponseTier.md`](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/StreamingResponseTier.md) | the tier shipped, and migrating SSE and multipart off `@RawRoute` — "the larger part of the payoff" — is **now done**, Phase 1 |
+| [`WireMVCRouter.md`](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/WireMVCRouter.md) | the six-item router backlog, **all six shipped**; that note carries the per-item record and the prior-art surveys behind each decision |
 | [`PendingIssues/14`](../../PendingIssues/14-typed-tier-duplex-routes.md) | the duplex story: what spikes 31–33 already measured, and the upstream bug the typed tier waits on |
 | [wire-mvc-performance](https://github.com/tachyonics/wire-mvc-performance) | measured per-request cost and allocations — where Phase 5 comes from |
 
@@ -44,7 +53,7 @@ the source's reasoning stands and is summarised rather than repeated.
 
 ## The sequence
 
-### Phase 0 — one question left, and one already answered
+### Phase 0 — one question left, and one already answered — **both closed**
 
 The parity note poses two. One is genuinely open and cheap; the other has been measured since that note was
 written, and is kept here only so it is not re-run.
@@ -120,73 +129,117 @@ written, and is kept here only so it is not re-run.
    and nothing downstream is waiting on this answer. An echo example would now be worth writing for parity
    value alone — it belongs in Phase 3, not ahead of anything.
 
-### Phase 1 — migrate the streaming routes onto the producer tier
+### Phase 1 — migrate the streaming routes onto the producer tier — **done**
 
-wire-mvc's own outstanding item, and `StreamingResponseTier.md` calls it "the larger part of the payoff" of
-a tier that has already shipped. Until `@RawRoute` shrinks to the routes that genuinely need the whole
-sender, you cannot tell which routes are there for which reason.
+wire-mvc's own outstanding item, and `StreamingResponseTier.md` called it "the larger part of the payoff" of
+a tier that had already shipped. Both routes moved, in the proposed order — `/todos/stream` first
+(wire-mvc-examples **#53**), `/export` second (**#54**) — and the reason for that order turned out to be the
+right hedge.
 
-**Independent of Phase 4, and of the duplex question generally.** Both routes are `@Get`s that read no body,
-so neither can reach the `bodyStreamOnStreamingResponse` diagnostic. `PendingIssues/14` is explicit that an
-earlier analysis coupling the two was wrong; this note does not repeat it.
+**`/todos/stream`** became `@EventStreamResponse` over a `ServerSentEventProducer`: SSE modelled as a codec
+through `@ResponseMode(.streaming, codec:)`, the third use of that extension point after `@FormBody` and
+`@YAMLResponse`, and the first on the streaming tier. What the route gained is the **mapped region** — the
+handler call now sits inside the terminal's `building` closure, so a repository failure becomes a status
+instead of an empty `200` with a truncated body. Mapping after the first byte is still impossible, which is
+inherent to streaming; the raw version had the same exposure without saying so. Wire format unchanged, so
+the existing assertions passed untouched on all three runtimes.
 
-**`/todos/stream` first, `/export` second.** `/export` streams through `MultiPartSender<S>`, a middleware
-that transforms the *sender*, while the producer tier's writer comes from the framework's own `send`. It is
-not obvious the two compose, and that migration may surface a real constraint rather than being mechanical.
-Ordering it second means a failure there does not also cost the tier its first client.
+**`/export` surfaced the constraint the ordering was hedging against, and it was real.** `MultiPartSender<S>`
+transforms the *sender*; the producer tier calls `send` itself and hands the producer a plain writer, so
+`beginParts()` is never reached and the transform goes inert. The two are alternatives, not collaborators.
+It resolved by **splitting the concerns rather than trading them**: `/export` is the producer tier,
+`/export/raw` keeps the sender transform and `@RawRoute(.responseSender)`, and one shared `multiPartFrame`
+means they cannot drift. Comparing the two bodies as an equivalence assertion was tried and is unsound —
+`all()` promises no part ordering and `JSONEncoder` no key ordering within a part, both observed varying
+between adjacent requests — so each route's framing is asserted separately.
 
-### Phase 2 — router correctness
+**Independent of Phase 4, and of the duplex question generally**, as recorded: both routes are `@Get`s that
+read no body, so neither can reach the `bodyStreamOnStreamingResponse` diagnostic.
 
-The six items from `WireMVCRouter.md`, which are independent of the example tracks and can proceed in
-parallel with them. All are additive and testable through `RouteTrie`/`FrozenRouteTrie` before anything
-above the router sees them.
+So `@RawRoute` has shrunk to the routes that genuinely need the whole sender, which was the point of the
+phase. `/export/raw` is the only one left in the examples repo, kept deliberately: it is the sole running
+proof of a box-transforming middleware in either repository, since every wire-mvc fixture declares
+`NextInput = Input`.
 
-The source lists these "roughly by value." **This note proposes one change to that order:** raise
-**percent-decoding** to second. It is the only item on the list that produces a *silently wrong value* — a
-handler receives `a%20b` where the client sent `a b` — rather than a wrong status code or an absent
-capability. Everything else on the list fails visibly or fails to exist.
+### Phase 2 — router correctness — **done**
 
-| | Item | Why here |
-|---|---|---|
-| 1 | **405 vs 404** — distinguish "path matched, not this method" (`405` + `Allow`) from "no path matched" (`404`); `resolve` reports a node's available methods on a path hit | The most visible gap against what a 1.0 router is expected to do, and the one an HTTP-conformance test suite fails on first |
-| 2 | **Percent-decoding** of path parameters | *Raised from 6th.* The only silent-wrong-value item — a handler cannot tell it received undecoded input |
-| 3 | **Duplicate-route diagnostics** — two registrations for the same method+template | Today a precondition guards only index/handler drift; a real duplicate is accepted silently. Cheap, and a build-time error beats a runtime surprise |
-| 4 | **Trailing-slash policy** — a deliberate strict/redirect/lenient choice | Replaces incidental "empty segments omitted" behaviour with a stated one. Behavioural, so it wants deciding before adopters depend on the accident |
-| 5 | **Full precedence** — parameter beats catch-all, order-independent among ambiguous routes | Partly blocked on catch-all existing; the order-independence half is separable and worth doing alone |
-| 6 | **Catch-all / wildcard params** (`{path*}`) | Last, deliberately — see below |
+All six items from `WireMVCRouter.md` shipped. The source listed them "roughly by value"; this note proposed
+one change to that order — raise **percent-decoding** to second, as the only item producing a *silently
+wrong value* rather than a wrong status or an absent capability — and that is the order the work took.
 
-**Catch-all is last on purpose, and it is not the blocker it looks like.** Nothing in the 28
-hummingbird-examples registers one (a grep for `**` across all their route tables returns nothing), and the
-two examples usually attributed to it — `s3-file-provider` and `proxy-server` — are middleware with at most
-one real route. Arbitrarily deep *fixed-arity* templates already work; what is missing is a variable-arity
-remainder.
+| | Item | Shipped as | What it turned out to be |
+|---|---|---|---|
+| 1 | **405 vs 404** | wire-mvc **#116** | `resolve` returns a three-way `RouteResolution`, but the *head* is written by a synthesised `registerMethodNotAllowed` handler, the sibling of the synthesised `404`. A router-written head carries no global `@Middleware` contributions, since only generated code has a `ResponseHeaderCarrying` context — so the obvious implementation would have dropped every contribution on the one response an app never declares |
+| 2 | **Percent-decoding** | **#117** | Parameters only, and *after* the split, so `%2F` binds one parameter containing a slash rather than reintroducing a path boundary. Malformed input stays verbatim (Vapor's `removingPercentEncoding ?? $0`) rather than becoming a 400 the router invented. Hand-rolled, so the router stays free of Foundation on a per-request path |
+| 3 | **Duplicate-route diagnostics** | **#119** | `insert` reports `.inserted`/`.duplicate(existing:)`; the builder turns the second into a `preconditionFailure`. Duplicate is a property of the **node**, not the template text — `/users/{id}` and `/users/{name}` are the same node, a collision comparing strings would miss |
+| 4 | **Trailing-slash policy** | **#120** | `TrailingSlashPolicy` chosen where an app builds its router. `.lenient` (default) and `.strict` shipped; **`.redirect` deliberately did not** — canonicalising means writing a response head, so it would want a *third* synthesised handler beside the 404's and the 405's. Cheap once something asks; nothing has |
+| 5 | **Full precedence** | **#121** + **#123** | Split in half. Order-independence (#121) was hiding a defect, not a missing feature: the parameter edge carried the `{name}`, so with `GET /users/{id}` and `DELETE /users/{userId}` the DELETE handler's value arrived under `"id"`. Names now belong to the route. Parameter-beats-catch-all fell out of #123 |
+| 6 | **Catch-all / wildcard params** | **#123** | `{name*}` as the final segment, one-or-more segments, last only. The remainder is bound **undecoded** — the one place this router does not decode, because a remainder spans separators and decoding would turn `%2F` into a real path boundary before whatever resolves it ever sees it |
 
-Portability makes it worse than a missing feature. `ServerTransport` carries OpenAPI's `{name}` template
-convention, and a wildcard fails **silently and differently** per adapter: swift-openapi-vapor maps anything
-that isn't `{name}` to a literal segment, while swift-openapi-hummingbird hands it to `RouterPath`, where
-`{path*}` parses as a single-segment capture *named* `path*`. Any catch-all example would work on
-`SwiftHttpServerExample` and be quietly broken on the other two. Building it means deciding what it means
-across three adapters, not just adding a trie edge.
+**This note's catch-all argument was overturned, and that is worth recording rather than quietly agreeing
+with the outcome.** It argued catch-all belonged last because nothing in the 28 hummingbird-examples
+registers one, and because the portability story was bad. Both facts held; the conclusion did not. #123's
+reasoning is that blocking it was wrong regardless: catch-all is a standard capability every neighbour has
+— Hummingbird's four wildcard forms, Vapor's `.catchall`, Go's `{path...}`, Express's `*`, Spring's `/**` —
+with uses well beyond file serving, and refusing it *natively* bought no portability, since nobody had it
+either way. It was also the thing item 5 was waiting on, so deferring it deferred two items rather than one.
 
-### Phase 3 — parity examples
+The portability cliff was handled rather than avoided. `WireMVCServerTransport` **throws on a catch-all
+route at registration** — not at codegen, since a controller in a shared package does not know which runtime
+will serve it — so a catch-all controller serves natively only, entered knowingly. The example (#57) lives
+in `SwiftHttpServerExample`'s own package rather than in `Controllers`, so the cliff is visible in the
+layout instead of at boot. Whether it closes at a small seam is what
+[CatchAllMountingProbe.md](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/CatchAllMountingProbe.md)
+measures — now with a native implementation to mount, which is what the probe needed.
 
-In the parity note's own order, which this note does not change. Each is an example rather than framework
-work, so they are individually droppable and individually schedulable.
+**What came out of the phase that this note did not anticipate: a divergence matrix.** Three of the six
+items make the native path behave differently from the bridged runtimes, and the difference is now measured
+in each runtime's own suite rather than inferred from router source (wire-mvc-examples **#55–#58**):
+
+| | native | Hummingbird | Vapor |
+|---|---|---|---|
+| wrong method on a real path | `405` + `Allow` | `404` | `404` |
+| percent-encoded path parameter | decoded | **not decoded** | decoded |
+| catch-all route | serves | refused at registration | refused at registration |
+
+Accepted rather than filed as defects: on a `ServerTransport` runtime WireMVC collates onto the host's
+router rather than owning it — the same position file serving sits in — and neither host exposes a hook,
+both constructing their not-found responder internally. The two hosts reach the same `404` differently,
+which matters if anyone proposes closing the gap: Hummingbird *has* the information and declines to use it,
+while Vapor cannot tell the cases apart at all, the method being the first path component of its lookup.
+
+### Phase 3 — parity examples — **not started**
+
+The one track that has not moved. In the parity note's own order, which this note does not change. Each is
+an example rather than framework work, so they are individually droppable and individually schedulable —
+and with Phases 1 and 2 closed, this is where the remaining example-facing work is.
 
 1. **File serving / s3-file-provider** — a global `@Middleware` that answers the request itself over the
    `@NotFound` fallback: the box's `.responded` state plus the front layer wrapping every route including
    the fallback. Nothing in the repo exercises that seam end-to-end. Native-path only — on the
    `ServerTransport` runtimes the host's own file middleware does this, which is the honest story for a
    framework that collates rather than owns the router.
+
+   **Partly overtaken, and the remaining part is the one this item was always about.** `AssetsController`
+   (#57) now serves a tree through `@Get("/{path*}")`, so the shape people *expect* from a file-serving
+   example — a variable-arity remainder resolved against a store, with traversal checked — is demonstrated
+   on the native runtime. That is not what this item asks for, as the note said from the start: the
+   unexercised thing is the middleware-answers-over-the-fallback seam. Worth restating the item as that
+   seam rather than as "file serving", which now reads as done when the part that matters is not.
 2. **jobs** — a queue as a graph-hosted `ServiceLifecycle` service plus a route that enqueues. Nothing
    currently shows work outliving the request.
 3. **auth-abac / auth-permissions** — policy objects as bindings, composed by route-scope middleware. The
    existing API-key gate is a toy next to this.
-4. **upload** — an unbounded body streamed to disk. Was blocked on the request-body-streaming bridge, now
-   ordinary. Overlaps the streaming track: a large streamed upload answered with a streamed response is the
-   echo's shape.
+4. ~~**upload**~~ — **covered, and the item wants striking or restating.** `UploadController` (#46/#47)
+   already runs both shapes: `POST /upload` binds `@MultipartSummary` on the `.readerBody` tier and
+   `POST /upload/stream` binds `@MultipartStream` on the `.bodyStream` tier, neither ever holding the
+   upload. That is the unbounded-body-in half of the item, and it landed before this note was assembled —
+   listing it as outstanding was a staleness of exactly the kind the note exists to catch.
 
-### Phase 4 — the typed duplex tier
+   What is *not* covered is the sentence after it: a large streamed upload answered with a **streamed
+   response**, which is the echo's shape and belongs to Phase 4's blocker, not here.
+
+### Phase 4 — the typed duplex tier — **blocked upstream**
 
 **Not a spike, and not conditional on Phase 0.** The parity note proposes spiking a lending tier with
 ownership as the open question. That framing is superseded: spikes 31–33 have already run, the ownership
@@ -218,35 +271,72 @@ consistency one, and it should be recorded as such rather than treated as this i
   becomes a status through `@ErrorResponse` instead of escaping as a truncated response.
   `readerBodyOnStreamingResponse` is now `bodyStreamOnStreamingResponse`, refusing only the duplex shape it
   was always about.
-- **The lent-binding validation step.** Duplex is the first shape where the handler runs *after* the head, so
-  `MultipartParts.init`'s deferred content-type check would truncate a response instead of mapping to 415.
-  Fixing that changes a **public binding protocol**, which is cheaper before 1.0 than after — so it wants
-  doing on 1.0's schedule, not on #91473's, even though the feature it serves is paused.
+- **The lent-binding validation step — still open.** Duplex is the first shape where the handler runs
+  *after* the head, so `MultipartParts.init`'s deferred content-type check would truncate a response
+  instead of mapping to 415. Fixing that changes a **public binding protocol**, which is cheaper before 1.0
+  than after — so it wants doing on 1.0's schedule, not on #91473's, even though the feature it serves is
+  paused. Still a spelling rather than a protocol today: `RequestBinding.swift:38` calls the
+  `MultipartParts(request:reader:)` init "a spelling, not a protocol", which is exactly the gap.
 
-### Phase 5 — allocation reduction in the native request path
+### Phase 5 — allocation reduction in the native request path — **about half done**
 
-Not a correctness item and not urgent: the whole native path is ~0.9 µs at p50 and ~1.2 µs at p99, against
-a `ServerTransport` bridge that costs 16–47 µs. It is here because the measurements exist, the causes are
-identified, and two of the fixes are small enough that leaving them undone is a choice rather than a
-backlog.
+**The header path is finished, in eight changes rather than the two this note listed; the router path is
+untouched.** Not a correctness item and not urgent: the whole native path is ~0.9 µs at p50 and ~1.2 µs at
+p99, against a `ServerTransport` bridge that costs 16–47 µs. It is here because the measurements exist, the
+causes are identified, and the fixes that remain are small enough that leaving them undone is a choice
+rather than a backlog.
 
 Measured in [wire-mvc-performance](https://github.com/tachyonics/wire-mvc-performance) with a `malloc`
-interposer, bisected in process so the numbers are the router's rather than a socket's. **Nine allocations
-and 756 bytes per request.** For contrast, Hummingbird's router adds *none* — so these are choices in this
-implementation, not the cost of routing.
+interposer, bisected in process so the numbers are the router's rather than a socket's. **Twelve
+allocations and 920 bytes per request** — re-measured 2026-08-25 against wire-mvc `1437735`, where it was
+nine and 756 when this note was assembled, and thirteen before the re-measurement's own finding was fixed. For contrast, Hummingbird's router adds *none* — so these are
+choices in this implementation, not the cost of routing.
 
-**This is a native-path project.** On a bridged runtime the host's router matches the path and parameters
+**On time, there is nothing to fix.** Scope-matched — WireMVC's trie served on the bare server with no
+courier and no registry, against each framework's own routerless floor — its router is indistinguishable
+from Hummingbird's, both at or below what the harness can resolve, with Vapor's the only measurable one at
+about +4 µs. So this phase is about allocations, which are real and countable, not about latency, which is
+already at parity. Anyone reaching for it as a performance fix is reaching for the wrong thing: the bridge
+costs 16–47 µs and everything here is fractions of one.
+
+**Mostly a native-path project.** On a bridged runtime the host's router matches the path and parameters
 arrive as `metadata.pathParameters`, so `FrozenRouteTrie.resolve` never runs and groups #1 and #2 — the two
 clearest wins below — do not exist there. What does carry over is the registry, allocated per request at
-`WireMVCServerTransport.swift:342` whether or not anything contributes. So Phase 5 is 3–5 allocations off a
-9-allocation request natively, and one off a 47- or 106-allocation one through the bridge.
+`WireMVCServerTransport.swift:339` whether or not anything contributes, and header *resolution*, which runs
+whichever router matched. So what is left of Phase 5 is 3–5 allocations off a 13-allocation request
+natively, and one off a 47- or 106-allocation one through the bridge — **plus items #7 and #8, which are
+worth 2 more on every runtime**, since the outcome sends whichever router matched. The header work below
+counted everywhere too, which is why it was worth taking first even though this note ranked it last.
 
-| # | what | count | addressable | what it would take | recommended |
+**The count is for a request that contributes no headers**, and **none of the four original groups has
+been touched.** A route with a contributed header pays for resolution on top; that was the largest single
+item found and is now closed — see *The header path* below, which is measured on its own scale and does not
+appear in this total.
+
+**Nine became thirteen, and the re-measurement is the reason this note now carries two more items.** The
+four original groups are unchanged to the allocation. What moved is everything after them:
+
+| | allocs/req | |
+|---|---|---|
+| route, parameter, and building the response — groups #1–#3 | 8.0 | unchanged since first measured |
+| **+ stating a `Content-Length`** | **+4.0** | arrived with the framing fix, #125 — new item **#7** |
+| ~~+ `WireMVCOutcome`'s `[:]` default~~ | ~~+1.0~~ | a live sibling of the #129 defect — **found and fixed** |
+| + `ResponseHeaderRegistry` (group #4) | +0.0 | was +1.0; the bisection can no longer see it — read the caveat |
+| | **12.0** | 920 bytes |
+
+Each row is a pair of cases differing in exactly one thing, measured by slope (22,000 against 62,000
+requests, so process startup cancels) and reproducible to the allocation across runs.
+
+| # | what | count | addressable | what it would take | status |
 |---|---|---|---|---|---|
-| 1 | `split` array growth in `FrozenRouteTrie.resolve` | 2 | **yes** | walk segments lazily instead of materialising `[Substring]` | **yes** |
-| 2 | parameter collection + `Dictionary(zip(…))` | 2 | **yes** | inline buffer for the 0–2 case; name lookup against the route's own `parameterNames` | **yes, with #1** |
-| 3 | response body + write path | 4 | partly | the bytes are the work; some copies may be avoidable | not yet — measure first |
-| 4 | `ResponseHeaderRegistry` instance | 1 | **yes** | make it a `~Copyable` struct, or allocate it lazily | **yes** — see below |
+| 1 | `split` array growth in `FrozenRouteTrie.resolve` | 2 | **yes** | walk segments lazily instead of materialising `[Substring]` | **open** — still `requestPath.split(…)` at `RouteTrie.swift:276` |
+| 2 | parameter collection + `Dictionary(zip(…))` | 2 | **yes** | inline buffer for the 0–2 case; name lookup against the route's own `parameterNames` | **open** — do with #1 |
+| 3 | response body + write path | 4 | partly | the bytes are the work; some copies may be avoidable | **open, deliberately** — measure first |
+| 4 | `ResponseHeaderRegistry` instance | 1 | **yes** | allocate it lazily, or make it a `~Copyable` struct | **open** — one per request at `RequestContextCourier.swift:100` and `WireMVCServerTransport.swift:339`; see below |
+| 5 | `apply`'s array-valued subscript, **per contribution** | 7 → 5 | — | scalar `HTTPFields` API | **shipped**, wire-mvc #128 |
+| 6 | `resolved`'s wrapper around `apply` | 2 | — | it was the *defaulted parameter*, not the round-trip | **shipped**, #129 — and the note's guess was wrong; see below |
+| 7 | stating a `Content-Length`, **every response, every runtime** | 4 | **no** | nothing left — the one idea was tried and measured identical | **closed as not-addressable**; see below |
+| 8 | `WireMVCOutcome.init`'s `headerFields: HTTPFields = [:]` | 1 | — | `HTTPFields()`, exactly as #129 did to `resolved` | **fixed** — all seven defaults, across `Responses.swift` and `StreamingResponses.swift` |
 
 **#1 is the clearest, and the diagnosis is exact.** `resolve` does
 `requestPath.split(separator: "/", omittingEmptySubsequences: true)` and then walks the result forward
@@ -259,31 +349,162 @@ takes this to zero and gets *better* the deeper the route.
 `[String: Substring]` via `Dictionary(zip(route.parameterNames, values))`. Most routes bind nought to two
 parameters. An inline buffer would carry them without heap, and the handler's by-name lookup could resolve
 against `parameterNames` directly. Note this cost arrived *with* a correctness fix — per-route parameter
-naming, which removed a registration-order dependency — so the inline version recovers what that cost.
+naming (wire-mvc #121, Phase 2 item 5), which removed a registration-order dependency — so the inline
+version recovers what that cost rather than undoing it.
 
 **#3 is the one to leave alone for now.** Four allocations to build and write a response body is the least
 suspicious group: producing bytes and handing them to a sender is the work itself. Attributing them
 individually needs an allocation *list*, not a counter, which means Instruments.
 
-#### The registry, and the inline-buffer version
+#### #7 and #8 — what the re-measurement found
 
-`ResponseHeaderRegistry` is a `final class` the courier instantiates per request whether or not anything
-contributes. Three options, in increasing order of both cost and payoff:
+Both are on the **typed** path and both count on **every runtime**, since `WireMVCOutcome` is what sends
+whether the host's router matched or ours did. Neither existed as an item before the count was re-taken,
+which is the argument for re-taking it rather than carrying a number forward.
 
-1. **Allocate lazily** — the registry exists only once something registers. Removes the one allocation in
-   the common case, is contained within one type, and changes no API. The cheap 80%.
-2. **`~Copyable` struct with a heap container.** Removes the same allocation and, more importantly, makes
-   ownership match the box's — see the design argument below. Contributions still allocate their payloads.
-3. **`~Copyable` struct with an inline buffer.** `InlineArray<N, Registration>` (SE-0453, stdlib, verified
-   available on the pinned toolchain — four `Int`s occupy 32 bytes with no heap at all) plus a
-   `UniqueArray` overflow for the rare deep case. This is the only option that reaches **zero allocations
-   while contributing**, not merely when empty. Two payloads still allocate and cannot be helped by the
-   container: `.values` holds an `Array` (flattening the store would fix it) and `.deferred` captures an
-   escaping closure (inherent). `N` is a tuning parameter — four covers a CORS, a cache and a security
-   header with room spare.
+**Both were acted on, and only one of them survived contact with the measurement.** #8 is fixed and worth
+one allocation on every typed response on every runtime. #7 had one idea, it was implemented, it measured
+nothing, and it was reverted — which is the more useful of the two results.
 
-**The reason to do 2 or 3 is not the allocation.** `RequestResponseMiddlewareBox` is `~Copyable` precisely
-so ownership is explicit and "consumed exactly once" is checked rather than trusted — and it carries inside
+**#7 — framing costs four allocations, and it is not `String(Int)`.** A hand-written handler that writes a
+bare `HTTPResponse(status:)` costs 8; the same handler stating a `Content-Length` costs 12. The obvious
+suspect is the `String(length)`, and it is innocent: a case building that string *once at registration*
+measures identically to one building it per request, because a length like `"1024"` fits Swift's inline
+string form and never reaches the allocator. All four are the **field insertion**, and that number is not
+WireMVC's to fix — the `+fields-N` ladder puts every response header field at 3–4 allocations, which is
+what inserting into `HTTPFields` costs.
+
+**One of the four looked like ours, and it was not.** A handler that builds `var fields = HTTPFields()`,
+sets the length and hands it to `HTTPResponse(status:headerFields:)` pays **3**, where `stateLengthIfAbsent`
+mutating an already-constructed response pays **4** — so the typed path was changed to state the length
+into a local `HTTPFields` before constructing the response. It measured **identical**: 12 either way.
+
+The difference was between the two *cases*, not the two spellings. The hand-written handler builds its
+fields fresh; `WireMVCOutcome.send` has to copy `headerFields` off the outcome, and the copy costs exactly
+what the later mutation would have. **The allocation moves; it does not go.** Reverted, with the reasoning
+left in the source, because it is the kind of idea that gets proposed again — and it is the third
+attribution in this phase that was convincing and wrong. That is now the reliable pattern rather than the
+exception: at this scale, nothing here should be changed on an argument.
+
+**This is a trade, not a regression, and it should not be argued as one.** Those four allocations bought a
+p99 tail of 12–19 µs on every server tested. They are listed because they are countable and had not been
+counted, not because they should be given back — the same discipline the rest of this phase asks for.
+
+**#8 was a defect, and it is the one from #129 that got away — now fixed.** `WireMVCOutcome.init`
+defaulted `headerFields: HTTPFields = [:]` — a dictionary literal, the exact spelling #129 removed from
+`WireMVCResponseHeaders.resolved` after measuring it at one allocation per call. A case passing
+`HTTPFields()` explicitly and differing in nothing else measured 13 against 12, which is how it was found.
+Every typed route that does not return header fields paid it, which is most of them. All seven remaining
+defaults — six in `Responses.swift`, one in `StreamingResponses.swift` — now spell it `HTTPFields()`, and
+the pair measures equal, which makes it the regression guard as well as the diagnosis.
+
+That #129 fixed one call site of this and left seven is worth more than the allocation: the fix was applied
+where the measurement pointed rather than to the pattern, and nothing looked for the pattern elsewhere. The
+sweep this time was a two-token grep. Worth doing after any fix whose cause is a *spelling* rather than a
+place — which, in this phase, has been most of them.
+
+**The registry now measures zero, and that is a limit of the instrument.** Group #4 read +1 when first
+measured and reads +0 now. In these cases the registry never escapes the handler, so the optimiser is free
+to promote it; in the real courier it escapes into the request context and cannot be. Read it as "this
+bisection can no longer see it", not as "it is free" — item #4 is still a `final class` allocated per
+request at `RequestContextCourier.swift:100`, and measuring it honestly needs a case where it escapes.
+
+#### The header path — finished, in eight changes rather than two
+
+Header resolution was the largest single item found, and this note listed it as two: the array-valued
+subscript (#5) and `resolved`'s wrapper (#6). It took eight, because each fix exposed the next one behind
+it. All of it counts on **bridged runtimes as well as native**, since header resolution runs whichever
+router matched.
+
+The chain, for **one contributed header resolved into `HTTPFields`** — each figure measured in process by
+the change that made it:
+
+| | change | | |
+|---|---|---|---|
+| #128 | `apply` through the **scalar** `HTTPFields` API | 7 → 5 | `fields[values: name] = [value]` built an `Array` to carry one value, and `.setIfAbsent` built one *just to ask `.isEmpty`*, then another to write |
+| #132 | non-variadic `add` | `add`: 2 → 1 | `add` was variadic, so `add(.set(name, value))` built an `Array` for the argument and boxed it into a `.values` case. Every caller passes exactly one |
+| #135 | `InlineArray<4>` registrations + `drain(into:)` | 5 → 3, `add`: 1 → 0 | the registration array grew on the first `add`; `drain()` built an array for its caller to iterate and discard |
+
+And three that are not on that scale, each at its own call site:
+
+| | change | measured | |
+|---|---|---|---|
+| #129 | default `returned` to `HTTPFields()`, not `[:]` | 1 allocation per call | a dictionary literal ran `init(dictionaryLiteral:)` at **every typed route**, since only a handler returning response fields in its tuple passes one |
+| #130 | apply contributions onto the head the handler wrote | 17 → 3 allocations, 2.75 → 1.96 µs | on the raw-route path `statics` is always empty, so replaying `returned` into an empty `HTTPFields` reproduced what `response.headerFields` already was |
+| #138 | applying sender through `drain(into:)` | 6 → 5 | the one call site still doing the round-trip `drain(into:)` was added to remove — and it runs for every raw route |
+
+**Item #6 was real but this note guessed its cause wrong, twice over.** An earlier version said the
+subscript was worth 7 → 3; re-measurement after #128 landed put it at 7 → 5, with the other 2 attributed to
+`resolved`'s `applying(returned:)` round-trip. That attribution was also wrong. Guarding the round-trip was
+tried **twice**, before and after, and changed nothing; the 2 allocations were the **defaulted empty
+parameter** — the candidate this note named as the alternative and did not pick. #129 fixed it. #134 later
+removed the replay anyway, because with no statics it reproduces `returned` exactly, but that is a
+simplification rather than the allocation win it was predicted to be.
+
+The lesson is the one the bisection already carried: at this scale a plausible cause with a delta of the
+right size is not evidence. Three attributions in this section were wrong before measurement corrected them,
+and each was individually convincing.
+
+**#137 is the largest single win here and was nowhere in this note.** `WireMVCOutcome.send` used the
+two-argument `sendAndFinish` spelling, which cannot match the three-parameter protocol requirement — Swift
+forbids defaults on requirements — so it bound to the same-signature extension and never dispatched through
+the witness. `BridgeResponseSender` fuses head and body into a known-length response *in its witness*, so
+**every buffered response took the streaming path**: `deliverStreaming`, the `AsyncChannel` rendezvous and a
+`HandlerTaskHandle`, for a body already complete. The bridge's own comment called the fused path "the typed
+path"; nothing reached it. Worth **5 allocations per request** through the Hummingbird bridge, whose
+`contentLength:` fast path only a known-length body can reach. Vapor is unchanged, which matches
+OpenAPIVapor building every body the same way regardless.
+
+It is the same upstream wart as the deferred head under *Response framing*, found from the other end.
+
+The original bisection is still worth keeping, because it contradicted the two obvious guesses:
+
+| step | µs |
+|---|---|
+| registry allocated but unused | +0.04 |
+| `add` + the `async drain()` | +0.13 |
+| **`WireMVCResponseHeaders.resolved`** | **+0.21–0.29** |
+| building `HTTPField.Name` per request | +0.04 |
+| applying sender + deferred head | +0.04 |
+
+The `async drain()` was the suspect going in — an await per response — and it is 0.13 µs. Per-request
+`HTTPField.Name` construction, the other candidate, is 0.04. Neither was the answer.
+
+**Behaviour pinned along the way**, because "equivalent spelling" was an assumption worth checking: `.set`
+must clear *every* value a name already has, which both spellings do; and `HTTPFields`' scalar setter
+special-cases `Cookie` by splitting on `"; "` where assigning `[value]` stored one field containing the
+separator. That last is a real divergence, narrow enough to accept — `Cookie` is a request header and
+malformed on a response, and `Set-Cookie` is not special-cased. #130's five equivalence tests and #135's
+three ordering tests were each run against the *previous* implementation and pass there too, which is what
+makes them evidence of equivalence rather than of the new code agreeing with itself.
+
+**What this does not close.** The socketed harness reported this mechanism at ~3 µs and the in-process one
+at ~0.5. The in-process figure is the trustworthy one; the difference is the ~2.5 µs of jitter in the
+proposal baseline (see the harness README). Anything at single-µs scale has to be measured in process
+until that is understood. And none of this is a latency win — #135 says so explicitly, and it is worth
+repeating: these are allocation wins and should not be justified as the other thing.
+
+#### The registry — the inline buffer landed, the ownership change did not
+
+This section proposed three options. **What shipped is option 3's payoff without option 3**, which changes
+what is left to argue.
+
+`ResponseHeaderRegistry` is still a `final class` the courier instantiates per request whether or not
+anything contributes — item #4, still open. But inside it, #135 replaced the heap `[Registration]` with
+`InlineArray<4, Registration?>` plus an overflow `Array` past four, and #132 added a `.value` case so a
+single contribution is stored without boxing. So **registering contributions is now free of the heap** —
+`add` measures 0 allocations — which was the distinguishing property of option 3. Only `.deferred`'s
+escaping closure still allocates a payload, and that is inherent.
+
+That leaves the three options re-priced:
+
+1. **Allocate lazily** — still open, still the cheap 80%, and now the *only* remaining allocation win here:
+   one per request, contained within one type, no API change.
+2. **`~Copyable` struct with a heap container** — the allocation argument for it is spent.
+3. **`~Copyable` struct with an inline buffer** — the buffer exists; what is missing is the ownership.
+
+**The reason to do 2 or 3 was never the allocation, and now that is the only reason left.**
+`RequestResponseMiddlewareBox` is `~Copyable` precisely so ownership is explicit and "consumed exactly once" is checked rather than trusted — and it carries inside
 it a shared mutable reference that escapes all of those guarantees. Today the registry is aliased three
 ways at once (the context, the box, and `ResponseHeaderApplyingSender`), and a write through one handle
 must be visible through another. Under ownership, "drained exactly once" becomes a compiler-checked
@@ -295,12 +516,16 @@ deeper, because a middleware cannot mutate after `next` returns. What blocks it 
 independent read sites (`requestContext.responseHeaders` and `wireMVCFinalBox.responseHeaders`, both
 emitted by codegen) that must agree, plus the sender wrapper holding its own handle.
 
-**Sequencing.** #1 and #2 are internal to `WireMVCRouter` and can be done any time — and being
-native-path-only, they are worth exactly as much as the native path is. The registry's option 1
-likewise. Options 2 and 3 change a public shape — `box.responseHeaders` becomes a borrow or a consume, and
-every middleware that contributes changes with it, including user-written ones — so if they are right they
-are right **now**: a public-shape change is cheap pre-1.0 and expensive after, the same argument
-`PendingIssues/14` makes about the lent-binding validation step.
+**Sequencing, and the one item with a deadline.** #1 and #2 are internal to `WireMVCRouter` and can be
+done any time — and being native-path-only, they are worth exactly as much as the native path is. The
+registry's option 1 likewise.
+
+Options 2 and 3 change a **public shape** — `box.responseHeaders` becomes a borrow or a consume, and every
+middleware that contributes changes with it, including user-written ones — so if they are right they are
+right **now**: cheap pre-1.0 and expensive after, the same argument `PendingIssues/14` makes about the
+lent-binding validation step. This is the only item in Phase 5 that is scheduled by 1.0 rather than by
+value, and the header work has made the *decision* sharper rather than the deadline later: with the
+allocation argument spent, a yes here has to be justified on ownership alone.
 
 **Caveat on the analysis.** The four groups are measured; the identity of every individual allocation
 within groups 2 and 3 is inferred from the code rather than observed. Confirming those needs an allocation
@@ -334,17 +559,38 @@ nothing was in a layer. A one-minute dump of response headers found it.
 
 ### What remains
 
-- **An upstream report.** `HTTPResponseSender` declares `sendAndFinish(_:buffer:trailer:)` as a requirement
-  *and* supplies a same-signature extension with `trailer` defaulted. A two-argument call — the spelling
-  nearly every raw route uses — cannot match the requirement, so it binds to the extension, which calls
-  `self.send` instead of dispatching through the witness. Any conformer's override is silently bypassed,
-  which contradicts the proposal's own advice that conformers are encouraged to override it. Working around
-  it is why the courier defers its head at all; the fix belongs upstream.
-- **A trade-off to revisit.** Deferring means a raw route that *streams* sees its head flushed on the first
-  `write` rather than on `send`. Typed routes and transformed-sender routes (SSE, multipart) are
-  unaffected, so the exposure is hand-written raw streaming routes with an untransformed sender — a client
-  there sees headers at the first chunk rather than immediately. Narrow, but it is a timing change, and if
-  upstream fixes the shadowing the deferral can be dropped entirely.
+- **The upstream fix — written, not yet upstreamed.** `HTTPResponseSender` declares
+  `sendAndFinish(_:buffer:trailer:)` as a requirement *and* supplies a same-signature extension with
+  `trailer` defaulted. A two-argument call — the spelling nearly every raw route uses — cannot match the
+  requirement (Swift forbids defaults on requirements), so it binds to the extension, which expands to
+  `send` + `finish` and never dispatches through the witness. Any conformer's override is silently
+  bypassed, contradicting the proposal's own advice that conformers are encouraged to override it.
+
+  The fix is small and exists in a local `swift-http-api-proposal` working tree: drop the default from the
+  extension implementing the requirement, and add a **distinct** two-argument overload that forwards to the
+  requirement, so the call dispatches through the witness. A `ResponseSenderDispatchTests.swift` goes with
+  it. **Neither is committed or submitted**, and wire-mvc pins revision `638af2b`, which is before it — so
+  nothing downstream sees it yet. This is now the smallest remaining item in the whole note and the only
+  one whose next step is a pull request against someone else's repository.
+
+- **The workaround has been removed, so the exposure changed shape.** wire-mvc #139 dropped the courier's
+  deferred head. It worked and cost almost nothing (0.05 µs, no allocations), but it required a `~Copyable`
+  state machine with an explicit in-flight placeholder — a throw between consuming the state and
+  reinitialising it would leave `self` consumed — to work around an API wart that is being fixed at source.
+
+  So the trade-off this note recorded is **gone**: streaming raw routes get their head flushed at `send`
+  again rather than at the first `write`, which is what they always did. What replaces it is narrower and
+  more honest — until the upstream fix lands, **a two-argument raw route frames as chunked**. Every call
+  site in wire-mvc uses one or three arguments and is unaffected, as is every typed route. A test pins the
+  gap and is documented as expected to fail when the fix arrives, at which point it should be inverted.
+
+- **The same wart cost more than framing.** #137 found the other end of it: `WireMVCOutcome.send` used the
+  two-argument spelling too, so every buffered response missed `BridgeResponseSender`'s fusing witness and
+  took the streaming path. Worth 5 allocations per request through the Hummingbird bridge — see *The header
+  path* in Phase 5. One upstream overload-resolution wart, two unrelated-looking symptoms — a chunked
+  response, and a buffered body taking the streaming path — found from opposite ends on the same day. That
+  is the argument for fixing it upstream rather than working around it a third time.
+
 - **Routes registered directly on a builder** — bypassing codegen, as a benchmark or a test harness might —
   do not get the courier's sender and so state no length. Not an app-authoring path, but worth knowing
   before concluding from one that raw routes are still chunked.
@@ -382,6 +628,97 @@ Also deferred by decision within M6d, and unchanged here: `@OpenAPIConfiguration
 non-JSON bodies are supported at the terminal), the decomposition-transformer registry (it belongs in
 wire-mvc first), and non-JSON bodies themselves.
 
+## Mounting on Hummingbird and Vapor: four options, and why there are four
+
+Measured in [wire-mvc-performance](https://github.com/tachyonics/wire-mvc-performance) by building a native
+Hummingbird adapter and reading Vapor's own proposal-server adoption. This supersedes the framing of
+"native adapters, pending rationale" — the rationale is here, and the answer is not one option.
+
+### The mismatch, and where it lives
+
+The proposal hands a handler **both carriers for its whole lifetime**:
+`handle(request:requestContext:reader:responseSender:)`. Nothing is returned; the handler writes. WireMVC
+follows that model, which is what lets `@RawRoute` be a literal passthrough of the carrier types.
+
+Hummingbird and Vapor route handlers **return a response**. Their routers are built on that, it is their
+public API, and they have no reason to change it.
+
+Adapting between the two is **asymmetric**, and this is the whole of the analysis:
+
+- **Return-based → push-based** composes structurally. The responder returns a *description* — Vapor's
+  `Response.Body` is `.stream(BodyStream)`, a callback not yet run — so the adapter gets the head first and
+  can drive the body callback into the sender inside its own scope. Vapor's `VaporHTTPServerHandler` does
+  exactly this in ~100 lines with no concurrency machinery.
+- **Push-based → return-based needs an unstructured task.** The head must exist before the closure returns
+  (a `Response` cannot be built without a status) and the body must be written after. WireMVC's handler
+  produces both, in that order, as *one continuous execution*. Splitting one execution across a return
+  boundary means suspending it on one side and resuming it on the other, and a suspendable resumable async
+  execution **is** a task. There is no trick: buffering the body until the handler finishes is structural
+  but no longer streaming, and calling the handler twice is not an option.
+
+**The mismatch lives at the router, not the server, and it is permanent.** Vapor has adopted the proposal
+server underneath an entirely unchanged `Responder`/`Response` API — the push-based shape is confined to
+one adaptation layer, and everything the router knows about is still return-based. Hummingbird has no
+proposal work at all (checked: no reference to `swift-http-api-proposal` or `swift-http-server` in any
+`Package.swift` on any of its 26 branches). So framework adoption changes the *server* boundary and leaves
+the *router* boundary exactly as it is.
+
+### The four options
+
+They are different products, not rankings.
+
+| | what it is | cost | what you give up |
+|---|---|---|---|
+| 1 | **Mount in their router** — an `HTTPServerRouteBuilder` registering on `Router`/`Application` | +3.6 µs buffered, task for streaming | nothing, once the shape hint exists |
+| 2 | **Serve on their server** through the proposal interface | free, structural | their router, their middleware, their ecosystem |
+| 3 | **WireMVC's router on top, theirs as a fallback route** | free for WireMVC routes; theirs pay what they already pay | their middleware over WireMVC routes; two routing tables |
+| 4 | **A push-based hole in their `RoutesBuilder`** | free, structural, both directions | needs them to agree |
+
+**Option 1 is measured.** A native Hummingbird adapter costs **+3.6 µs and 4 allocations** against a plain
+Hummingbird route where `ServerTransport` costs **+16.5 µs and 41** — so 13 µs is the bridge's *shape*
+rather than the cost of mounting. Catch-all comes back for free (`{name*}` → Hummingbird's `**`), which was
+the capability `ServerTransport.register` could not express. Adding streaming to the prototype pushed it to
++9.6 µs and 18 allocations, because the adapter cannot tell a buffered route from a streaming one at
+registration and so spawns the task for both — see the shape hint below.
+
+**Option 3 is the interesting one and was not previously on the table.** Invert the stack: WireMVC's router
+on top, the host's whole `Responder` chain mounted as a fallback route. That adapts in the *structural*
+direction, so nothing needs a task — WireMVC routes pay nothing at all, and host routes pay exactly what
+the host already pays itself. It is also the least code, because Vapor has written the reference
+implementation. It reads as a migration path ("a WireMVC app that still hosts Vapor routes") rather than an
+integration, which is a positioning question rather than a technical one.
+
+**Option 4 is the best outcome and the biggest ask.** Vapor now holds a `responseSender` at the top of its
+stack and discards it after writing one buffered response; the information a hole needs already exists.
+What makes it a real request rather than plumbing is **middleware**: their middleware is
+`(Request, Responder) -> Response`, it exists to transform a returned response, and a push-based route
+never produces one. So the hole admits a class of route their middleware cannot wrap. The argument that
+would carry it is that this is not WireMVC-specific — anything built on the proposal's carriers hits it.
+
+### What WireMVC should change
+
+**Add a route-shape hint to `HTTPServerRouteBuilder.register`.** Codegen knows statically whether a route
+is buffered (a typed terminal) or streaming (`@EventStreamResponse`, multipart); `register` does not pass
+it, so every adapter must assume the worst and pay for streaming machinery on every request. With the hint,
+a buffered route registers a task-free closure and only streaming routes pay.
+
+This is worth doing whatever happens with the options above, because **`ServerTransport` pays the same
+unstructured task on every buffered request today**. And it is not a workaround for a transition — the
+mismatch is permanent, so this is the correct permanent design.
+
+**Nothing else in WireMVC needs to change.** In particular the streaming model should not: it is the
+proposal's, and it is what makes `@RawRoute` a passthrough. Handing builders a body *description* instead
+would trade that passthrough for adapter convenience, which is the wrong way round.
+
+### One thing this settled in the proposal's favour
+
+Duplex — reading a request while writing a response — is ordinary in the proposal's model, because the
+handler holds both carriers at once. In a return-based model it has to be reconstructed inside the response
+body callback, after the route function has returned. Vapor's adoption does not support it at all yet: it
+eagerly collects the whole request body before building its `Request`. That is a stronger argument for the
+typed duplex tier in [`PendingIssues/14`](../../PendingIssues/14-typed-tier-duplex-routes.md) than the
+performance work produced.
+
 ## The `ServerTransport` ceiling, for reference
 
 Worth stating once so it is not rediscovered per item. `ServerRequestMetadata` is a struct whose entire
@@ -393,15 +730,27 @@ dispatch — so the protocol's only job in this stack is as a borrowed universal
 for Hummingbird, Vapor and Lambda. Dropping to a native adapter would cost portability, not any OpenAPI
 capability. That is the trade Phase 0.1's answer prices.
 
+That trade is now measured rather than argued: a native Hummingbird adapter costs +3.6 µs and 4 allocations
+where `ServerTransport` costs +16.5 µs and 41. See
+[Mounting on Hummingbird and Vapor](#mounting-on-hummingbird-and-vapor-four-options-and-why-there-are-four),
+which also answers what the ceiling costs on each of the four routes out of it.
+
 ## Open decision
 
-**Where this lives in the roadmap.** The sequence above is independent of the answer, but the current state
-is not tenable: M6 cannot tell you it is incomplete, because the documents enumerating its remaining work
-are not linked from it. Two options:
+**Where this lives in the roadmap.** Half-answered since this was written: `ROADMAP.md`'s M6 entry now
+links this note and names the open question, so M6 can at least say where its remaining work is enumerated.
+The other half — which milestone that work *is* — is still unstated, and now matters less than it did,
+since two of the three tracks have closed. Two options, unchanged:
 
-- **M6e**, linking this note from the M6 header — accurate to M6's stated purpose ("unblock the last
-  examples"), at the cost of a milestone that grows after being nearly closed.
+- **M6e**, naming what is left as a sub-milestone under the link that already exists — accurate to M6's
+  stated purpose ("unblock the last examples"), at the cost of a milestone that grows after being nearly
+  closed. Cheaper now than when this was written, since what would be added is one track and two loose
+  ends rather than three tracks.
 - **An explicitly post-M6 track**, with M6 closed at M6d and this note named as the successor — a cleaner
   milestone boundary, at the cost of M6 having not quite met its own definition.
 
-Either is fine. Leaving it unstated is not, which is what this note exists to fix.
+Either is fine. Leaving it unstated is not, which is what this note exists to fix. **What is left to place
+is now small enough to describe in a sentence**, which it was not before: the parity examples (Phase 3), the
+router path's four allocation groups and the registry's ownership question (Phase 5), the lent-binding
+validation step, and one upstream pull request. Everything else is either shipped or waiting on
+[swiftlang/swift#91473](https://github.com/swiftlang/swift/issues/91473).
