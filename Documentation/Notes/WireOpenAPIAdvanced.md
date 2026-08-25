@@ -996,13 +996,15 @@ underscored-module one, and its naming logic is `internal` — only `runGenerato
 
 **To WireMVC** (unified mode): `RouteContributor`, `HTTPServerRouteBuilder.register`, the middleware
 fold shape, `WireMVCKeys.routeContributors`, and — since response headers — `ResponseHeaderCarrying`,
-`WireMVCContext.takeBase()`, the box's `responseHeaders`, and `ResponseHeaderApplyingSender`. All
-compile-checked, all in-repo.
+`WireMVCContext.takeContents()`, the registry the box's destructures yield, and
+`ResponseHeaderApplyingSender`. All compile-checked, all in-repo.
 
 The response-header couplings are worth calling out as the sharpest in this table, because they all
 landed at once and three of the four are *shape* couplings rather than name couplings: the box gained a
 required `responseHeaders:` argument, the register closure's context became a courier that must be
-unwrapped, and the fold's factory specialisation moved to `Builder.RequestContext.Base`. Each announces
+destructured, and the fold's factory specialisation moved to `Builder.RequestContext.Base`. Making the
+registry linear later moved that argument again — it is now taken from the box's own destructure rather
+than a local, which is what keeps a wrapped sender disconnected. Each announces
 itself at compile time, but only after wire-mvc's `main` is re-resolved — this package tracks it by
 branch, so a break appears on the next update rather than in the PR that caused it.
 

@@ -239,48 +239,50 @@ this is where the remaining example-facing work is.
      middleware contributed is discarded — CORS's `Access-Control-Allow-Origin` among them, on exactly the
      responses a browser fetches most.
 
-   **And one finding that is upstream, not ours.** A `@RawRoute` cannot declare its response sender
-   `consuming sending Sender` when the sender is the **untransformed** one — every raw route not behind a
-   sender-transforming middleware, and always a `@NotFound`, which folds no middleware and so can never be
-   handed a transformed sender. A reader takes `sending` today, even through a middleware fold; so does a
-   transformed sender (`MultiPartSender<S>`). Only the untransformed sender refuses, and each case was
-   established by compiling it rather than by reading the codegen.
+   **And one finding that looked upstream — fixed in-house instead, and it paid.** A `@RawRoute` could not
+   declare its response sender `consuming sending Sender` when the sender was the **untransformed** one:
+   every raw route not behind a sender-transforming middleware, and always a `@NotFound`, which folds no
+   middleware and so can never be handed a transformed sender. A reader took `sending` even then, through
+   a fold; so did a transformed sender (`MultiPartSender<S>`). Only the untransformed sender refused, and
+   each case was established by compiling it rather than by reading the codegen.
 
-   **The cause is provenance, not the wrap and not aliasing** — regions permit aliasing within a region.
+   **The cause was provenance, not the wrap and not aliasing** — regions permit aliasing within a region.
    The proposal's `HTTPServerRequestHandler.handle` declares `reader` and `responseSender` as `consuming
    sending` but `requestContext` as plain `consuming`, and the `ResponseHeaderRegistry` travels inside the
    context (it must: `handle` takes exactly four values and the context is the only extension point among
-   them). So the registry is task-isolated, and `ResponseHeaderApplyingSender` merging it into an
-   otherwise-disconnected sender is what closes the region. Nothing is merged into the reader, which is
-   why it already takes `sending`.
+   them). So the registry was task-isolated, and `ResponseHeaderApplyingSender` merging it into an
+   otherwise-disconnected sender is what closed the region.
 
-   **The minimal fix is one word upstream** — `requestContext: consuming sending RequestContext` — after
-   which today's generated code compiles unchanged, verified against a model of the shape. It asks the
-   server to promise it keeps no reference to the context it hands over; that invariant is the proposal's
-   to state. It is a second, unrelated ask on the **same package** as the `sendAndFinish` overload wart in
-   *Response framing* below — and that one already has a written fix sitting in a local
-   `swift-http-api-proposal` working tree, uncommitted. Two annotations, one submission: worth carrying
-   together rather than opening the same door twice.
+   **The minimal fix was one word upstream** — `requestContext: consuming sending RequestContext` — and it
+   was never asked for, because the API break was affordable while there are no consumers and the in-house
+   route turned out to pay for itself. `ResponseHeaderRegistry` is now a `~Copyable` struct carried in
+   `WireDisconnected` inside `WireMVCContext`, the treatment reader and sender already had; linearity is
+   the load-bearing half, since `WireDisconnected` over a class compiles and is **unsound** (its
+   precondition is that the stored value is never aliased, true of a linear value by construction and
+   false of a reference). wire-mvc's
+   [`LinearResponseHeaderRegistry.md`](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/LinearResponseHeaderRegistry.md)
+   records the design and the four places the plan turned out to be wrong.
 
-   Failing that, two in-house routes exist and both cost more. The first — make `ResponseHeaderRegistry`
-   `~Copyable` and carry it in `WireDisconnected` inside `WireMVCContext`, the treatment reader and sender
-   already get — is written up step by step in wire-mvc's
-   [`LinearResponseHeaderRegistry.md`](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/LinearResponseHeaderRegistry.md),
-   so it need not be re-derived each time this comes up; that brief is also where the cost is stated
-   honestly, including the public break (every middleware's `input.responseHeaders.add(…)` call site,
-   which works only because a class reference mutates through a borrow) and the fact that it is
-   source-breaking across wire-open-api's pin. The second — make the registry `Sendable` with a `Mutex`
-   and `@Sendable` `onSend` closures — overturns a decision that type documents deliberately, and costs a
-   middleware the ability to capture per-request state in a deferred contribution. Using `WireDisconnected` while leaving the registry a class
-   compiles and is **unsound**: that type's stated precondition is that the value is never aliased, which
-   holds for a linear reader or sender and not for a class reference.
+   **It removed six allocations and 1536 bytes per request**, measured on a case where the registry
+   genuinely escapes into the courier, reproducible to the allocation across two matched pairs. That was
+   the *second* payoff the brief hoped for and could not promise, and it is larger than the one allocation
+   predicted — why it is six is not attributed. So the upstream annotation, if it ever lands, is now a
+   simplification rather than a rescue.
 
-   Two smaller wire-mvc items fall out. `notFoundHandlerRegistersAsFallback` spells its fixture with
-   `sending` and asserts only on rendered source, so nothing compiles it — the only place in either repo
-   advertising a spelling that cannot work. (The wrapped path itself is compiled, by two of the
-   `Fixtures` apps, both using the working spelling.) And two comments — `WireMVCExample`'s raw route and
-   `WireMVCOutcome.send(on:)` — state the rule correctly but blame the middleware fold for handing the
-   sender out as "a plain `consuming` value", where both box destructures declare `consuming sending`.
+   The public break landed as expected and was smaller than feared: every middleware's
+   `input.responseHeaders.add(…)` became `input.contributing { headers in … } then: { … }`, across
+   wire-mvc, wire-open-api, wire-mvc-examples and wire-mvc-performance. The third option — a `Sendable`
+   registry with a `Mutex` and `@Sendable` `onSend` closures — was not taken, and the reason still stands:
+   it costs a middleware the ability to capture per-request state in a deferred contribution.
+
+   The two smaller wire-mvc items are closed. `notFoundHandlerRegistersAsFallback` spelled its fixture
+   with `sending` while asserting only on rendered source, so nothing compiled it — the only place in
+   either repo advertising a spelling that could not work. It is true now, and compiled for real by two
+   fixtures plus `SwiftHttpServerExample`'s `noRoute`. And two comments — `WireMVCExample`'s raw route and
+   `WireMVCOutcome.send(on:)` — blamed the middleware fold for handing the sender out as "a plain
+   `consuming` value", where both box destructures declare `consuming sending`; both now say that plain
+   `consuming` is simply the permissive spelling.
+
 2. **jobs** — a queue as a graph-hosted `ServiceLifecycle` service plus a route that enqueues. Nothing
    currently shows work outliving the request.
 3. **auth-abac / auth-permissions** — policy objects as bindings, composed by route-scope middleware. The
@@ -333,10 +335,10 @@ consistency one, and it should be recorded as such rather than treated as this i
   paused. Still a spelling rather than a protocol today: `RequestBinding.swift:38` calls the
   `MultipartParts(request:reader:)` init "a spelling, not a protocol", which is exactly the gap.
 
-### Phase 5 — allocation reduction in the native request path — **about half done**
+### Phase 5 — allocation reduction in the native request path — **two thirds done**
 
-**The header path is finished, in eight changes rather than the two this note listed; the router path is
-untouched.** Not a correctness item and not urgent: the whole native path is ~0.9 µs at p50 and ~1.2 µs at
+**The header path is finished, in eight changes rather than the two this note listed; the registry is gone
+entirely; the router path is untouched.** Not a correctness item and not urgent: the whole native path is ~0.9 µs at p50 and ~1.2 µs at
 p99, against a `ServerTransport` bridge that costs 16–47 µs. It is here because the measurements exist, the
 causes are identified, and the fixes that remain are small enough that leaving them undone is a choice
 rather than a backlog.
@@ -347,6 +349,11 @@ allocations and 920 bytes per request** — re-measured 2026-08-25 against wire-
 nine and 756 when this note was assembled, and thirteen before the re-measurement's own finding was fixed. For contrast, Hummingbird's router adds *none* — so these are
 choices in this implementation, not the cost of routing.
 
+**That twelve excluded the courier, and a real request was paying eighteen.** These cases drive the router
+directly; the courier sits above it and the bisection never priced it, reporting +0.0 for group #4 while
+the true cost was 6 (see *#4* below). Since wire-mvc #148 the courier costs nothing, so twelve is now the
+whole native figure rather than the visible part of it.
+
 **On time, there is nothing to fix.** Scope-matched — WireMVC's trie served on the bare server with no
 courier and no registry, against each framework's own routerless floor — its router is indistinguishable
 from Hummingbird's, both at or below what the harness can resolve, with Vapor's the only measurable one at
@@ -354,14 +361,13 @@ about +4 µs. So this phase is about allocations, which are real and countable, 
 already at parity. Anyone reaching for it as a performance fix is reaching for the wrong thing: the bridge
 costs 16–47 µs and everything here is fractions of one.
 
-**Mostly a native-path project.** On a bridged runtime the host's router matches the path and parameters
-arrive as `metadata.pathParameters`, so `FrozenRouteTrie.resolve` never runs and groups #1 and #2 — the two
-clearest wins below — do not exist there. What does carry over is the registry, allocated per request at
-`WireMVCServerTransport.swift:339` whether or not anything contributes, and header *resolution*, which runs
-whichever router matched. So what is left of Phase 5 is 3–5 allocations off a 13-allocation request
-natively, and one off a 47- or 106-allocation one through the bridge — **plus items #7 and #8, which are
-worth 2 more on every runtime**, since the outcome sends whichever router matched. The header work below
-counted everywhere too, which is why it was worth taking first even though this note ranked it last.
+**Now entirely a native-path project.** On a bridged runtime the host's router matches the path and
+parameters arrive as `metadata.pathParameters`, so `FrozenRouteTrie.resolve` never runs and groups #1 and
+#2 — the two clearest wins below — do not exist there. The registry used to carry over, allocated per
+request at `WireMVCServerTransport.swift:339` whether or not anything contributed; it is a `~Copyable`
+struct now and allocates nowhere, on any runtime. What still counts everywhere is header *resolution*,
+which runs whichever router matched, and that is finished. So what is left of Phase 5 is **4 allocations
+off a native request and nothing at all off a bridged one** — groups #1 and #2, both in the router.
 
 **The count is for a request that contributes no headers**, and **none of the four original groups has
 been touched.** A route with a contributed header pays for resolution on top; that was the largest single
@@ -376,7 +382,7 @@ four original groups are unchanged to the allocation. What moved is everything a
 | route, parameter, and building the response — groups #1–#3 | 8.0 | unchanged since first measured |
 | **+ stating a `Content-Length`** | **+4.0** | arrived with the framing fix, #125 — new item **#7** |
 | ~~+ `WireMVCOutcome`'s `[:]` default~~ | ~~+1.0~~ | a live sibling of the #129 defect — **found and fixed** |
-| + `ResponseHeaderRegistry` (group #4) | +0.0 | was +1.0; the bisection can no longer see it — read the caveat |
+| ~~+ `ResponseHeaderRegistry` (group #4)~~ | ~~+0.0~~ | never visible here; measured at **+6.0** where it escapes, and now **0** — read below |
 | | **12.0** | 920 bytes |
 
 Each row is a pair of cases differing in exactly one thing, measured by slope (22,000 against 62,000
@@ -387,7 +393,7 @@ requests, so process startup cancels) and reproducible to the allocation across 
 | 1 | `split` array growth in `FrozenRouteTrie.resolve` | 2 | **yes** | walk segments lazily instead of materialising `[Substring]` | **open** — still `requestPath.split(…)` at `RouteTrie.swift:276` |
 | 2 | parameter collection + `Dictionary(zip(…))` | 2 | **yes** | inline buffer for the 0–2 case; name lookup against the route's own `parameterNames` | **open** — do with #1 |
 | 3 | response body + write path | 4 | partly | the bytes are the work; some copies may be avoidable | **open, deliberately** — measure first |
-| 4 | `ResponseHeaderRegistry` instance | 1 | **yes** | allocate it lazily, or make it a `~Copyable` struct | **open** — one per request at `RequestContextCourier.swift:100` and `WireMVCServerTransport.swift:339`; see below |
+| 4 | `ResponseHeaderRegistry` instance | 1 → **6** | **yes** | the `~Copyable` struct, not the lazy allocation | **shipped**, wire-mvc #148 — and it was worth six, not one; see below |
 | 5 | `apply`'s array-valued subscript, **per contribution** | 7 → 5 | — | scalar `HTTPFields` API | **shipped**, wire-mvc #128 |
 | 6 | `resolved`'s wrapper around `apply` | 2 | — | it was the *defaulted parameter*, not the round-trip | **shipped**, #129 — and the note's guess was wrong; see below |
 | 7 | stating a `Content-Length`, **every response, every runtime** | 4 | **no** | nothing left — the one idea was tried and measured identical | **closed as not-addressable**; see below |
@@ -458,11 +464,26 @@ where the measurement pointed rather than to the pattern, and nothing looked for
 sweep this time was a two-token grep. Worth doing after any fix whose cause is a *spelling* rather than a
 place — which, in this phase, has been most of them.
 
-**The registry now measures zero, and that is a limit of the instrument.** Group #4 read +1 when first
-measured and reads +0 now. In these cases the registry never escapes the handler, so the optimiser is free
-to promote it; in the real courier it escapes into the request context and cannot be. Read it as "this
-bisection can no longer see it", not as "it is free" — item #4 is still a `final class` allocated per
-request at `RequestContextCourier.swift:100`, and measuring it honestly needs a case where it escapes.
+#### #4 — the registry, and why this bisection never priced it
+
+**It read zero here for the wrong reason, and the honest number was six.** Group #4 measured +1 when first
+taken and +0 afterwards, because in these cases the registry never escapes the handler and the optimiser is
+free to promote it. The note said so at the time and said what it would take to measure honestly: a case
+where it escapes. `+courier` and `courier-headers` are those cases — the courier is exactly where the
+registry escapes into the request context — and against them the class cost **6 allocations and 1536 bytes
+per request**, reproducible to the allocation across two matched pairs and two replicates.
+
+It is now zero, for real. `ResponseHeaderRegistry` became a `~Copyable` struct, which was not done for this
+phase at all — it was forced by an ownership problem, since a task-isolated registry merged into a response
+sender stopped a `@RawRoute` declaring `consuming sending Sender` (Phase 3, item 1 above). The allocation
+saving is a side payment, and a larger one than the lazy-allocation idea this table proposed: lazy would
+have made the *uncontributed* case free, where linearity makes every case free.
+
+**Two lessons worth more than the six.** The estimate in this table was 1, from reading the type — a
+`final class` is one instance, so one allocation. It was six, and why it is six is *still not attributed*:
+an extra async frame does not explain it, since `WireMVCContextHandler` is untouched and the after-figure
+is zero. And the bisection reported +0.0 for two revisions while the true cost sat at 6, because the case
+it measured was not the case that runs. A number a harness cannot see is not a number that is not there.
 
 #### The header path — finished, in eight changes rather than two
 
