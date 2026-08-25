@@ -262,12 +262,16 @@ this is where the remaining example-facing work is.
    `swift-http-api-proposal` working tree, uncommitted. Two annotations, one submission: worth carrying
    together rather than opening the same door twice.
 
-   Failing that, two in-house routes exist and both cost more: make `ResponseHeaderRegistry` `~Copyable`
-   and carry it in `WireDisconnected` inside `WireMVCContext` (the treatment reader and sender already
-   get — but a redesign at four seams, one public, since middleware write through
-   `input.responseHeaders.add(…)`, which works only because a class reference mutates through a borrow);
-   or make the registry `Sendable` with a `Mutex` and `@Sendable` `onSend` closures, overturning a
-   decision that type documents deliberately. Using `WireDisconnected` while leaving the registry a class
+   Failing that, two in-house routes exist and both cost more. The first — make `ResponseHeaderRegistry`
+   `~Copyable` and carry it in `WireDisconnected` inside `WireMVCContext`, the treatment reader and sender
+   already get — is written up step by step in wire-mvc's
+   [`LinearResponseHeaderRegistry.md`](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/LinearResponseHeaderRegistry.md),
+   so it need not be re-derived each time this comes up; that brief is also where the cost is stated
+   honestly, including the public break (every middleware's `input.responseHeaders.add(…)` call site,
+   which works only because a class reference mutates through a borrow) and the fact that it is
+   source-breaking across wire-open-api's pin. The second — make the registry `Sendable` with a `Mutex`
+   and `@Sendable` `onSend` closures — overturns a decision that type documents deliberately, and costs a
+   middleware the ability to capture per-request state in a deferred contribution. Using `WireDisconnected` while leaving the registry a class
    compiles and is **unsound**: that type's stated precondition is that the value is never aliased, which
    holds for a linear reader or sender and not for a class reference.
 
