@@ -336,13 +336,15 @@ A middleware has no return value to carry a field in (the proposal's `Middleware
 generic in `Return`), so it contributes through the box:
 
 ```swift
-let headers = input.responseHeaders
-headers.add(.set(.strictTransportSecurity, "max-age=31536000"))   // known on the way in
-headers.onSend {                                                   // not knowable until the handler ran
-    guard let cookie = try await store.persistIfEdited(session) else { return [] }
-    return [.append(.setCookie, cookie.description)]
+return try await input.contributing { headers in
+    headers.add(.set(.strictTransportSecurity, "max-age=31536000"))  // known on the way in
+    headers.onSend {                                                 // not knowable until the handler ran
+        guard let cookie = try await store.persistIfEdited(session) else { return [] }
+        return [.append(.setCookie, cookie.description)]
+    }
+} then: { input in
+    try await next(input)
 }
-return try await next(input)
 ```
 
 **Registered on the way in, evaluated on the way out.** This is the load-bearing constraint, and it is not
@@ -359,13 +361,21 @@ behaviour (Hummingbird and Vapor middleware mutate on the way out, outermost las
 header set at the app edge from being overridden by something nested inside it. Order *within* one call is
 preserved, so a middleware never sees its own contributions reversed.
 
-**Threaded by the box, enforced by the compiler.** The registry is a class carried in *both* box states and
-reached by a borrowing accessor beside `peekedRequest`, so `withPendingContents` / `withContents` keep
-their signatures — the destructures user middleware actually call are untouched. It is a **required**
-parameter of `pending(…)` / `responded(…)`: a transforming middleware that rebuilds the box must thread it,
-and one that forgets fails to compile rather than silently discarding every contribution. The fixture
-`MultiPartMiddleware` proved this the moment the parameter landed. Same principle as the projection
-guarantee — the compiler enforces participation, nothing asserts it.
+**Threaded by the box, enforced by the compiler.** The registry is a `~Copyable` value carried in the box's
+`pending` state — not in `responded`, which holds none, because nothing drains a box whose response is
+already written and a field contributed there could never reach it. It is a **required** parameter of
+`pending(…)`: a transforming middleware that rebuilds the box must thread it out of
+`withContents(pending:responded:)` and back in, and one that forgets fails to compile rather than silently
+discarding every contribution. The fixture `MultiPartMiddleware` proved this the moment the parameter
+landed. Same principle as the projection guarantee — the compiler enforces participation, nothing asserts
+it.
+
+Linearity is why the destructures yield it rather than an accessor handing it out: a `~Copyable` value
+cannot be reached off a borrow, so `withPendingContents` / `withContents` gained it as a trailing
+parameter, and contribution is `contributing(_:then:)` — a consuming method over the same primitive, which
+hands the registry `inout` so conditional fields go in one pass. That is also the fix for a region
+problem: a registry read into a local before the destructure is task-isolated, and a sender wrapped with
+one cannot then be handed on `sending`. See wire-mvc's `LinearResponseHeaderRegistry.md`.
 
 **The gate path drains too.** A gate short-circuits the terminal, so `respondingWith(_:)` — responding with
 a `WireMVCOutcome` — drains into it before sending. Without that, contributions would vanish on exactly the
@@ -405,9 +415,10 @@ a declaration choice in it, not a language constraint; mistaking one for the oth
 two designs down blind alleys.
 
 **It is a courier, not a carrier — and is unwrapped on arrival.** The registry lives on the *box*, where
-route and controller middleware already read it; the context only gets it across `handle`. So the generated
-register closure reads the registry, calls `takeBase()`, and builds the route's box over the **unwrapped**
-context. Nothing below routing meets the type: a context-transforming middleware wraps the app's real
+route and controller middleware already reach it; the context only gets it across `handle`. So the
+generated register closure calls `takeContents()` — one consuming destructure yielding both the registry
+and the base, since a linear registry cannot be handed out by a getter and two consuming methods cannot
+both be called on one courier — and builds the route's box over the **unwrapped** context. Nothing below routing meets the type: a context-transforming middleware wraps the app's real
 context, and the plugin's capability-forwarding conformances stay one layer shallower. The anticipated
 pressure on that — M6b putting a per-request *logger* on the context, something route code genuinely
 consumes, which would have earned the exposure and taken the unwrap out — **did not arrive**: M6b's logger

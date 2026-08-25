@@ -32,7 +32,7 @@ throws are not (the throwing frame drops it), and WireMVC must synthesise its ow
 ## The invariant, precisely
 
 The box is `RequestResponseMiddlewareBox` (`Sources/WireMVC/Middleware.swift`) in its
-`.pending(request, requestContext, reader, responseSender)` shape. The proposal's middleware
+`.pending(request, requestContext, reader, responseSender, responseHeaders)` shape. The proposal's middleware
 protocol threads it linearly (`swift-http-api-proposal/Sources/Middleware/Middleware.swift:45`):
 
 ```swift

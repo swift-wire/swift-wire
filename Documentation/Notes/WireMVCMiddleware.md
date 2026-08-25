@@ -50,17 +50,26 @@ so a middleware can `return` one) — i.e. stop being the proposal's `Middleware
 and this model are the same decision. (Prior art for data-flow short-circuit: Envoy filter-status
 enums, railway-oriented / `Either`, http4s `OptionT` — the streaming-first stacks land here too.)
 
-**The box is therefore a `~Copyable` enum, not a struct** (`Sources/WireMVC/Middleware.swift`):
+**The box is therefore two-state and `~Copyable`** (`Sources/WireMVC/Middleware.swift`). It is a struct
+wrapping an *internal* `~Copyable` enum rather than being one: the cases hold the reader, sender and
+response-header registry in `WireDisconnected` so they survive extraction as `sending`, and that wrapping
+is a detail no middleware should see. The states are the point; the container is not.
 
 ```swift
-public enum RequestResponseMiddlewareBox<RequestContext, Reader, ResponseSender>: ~Copyable where … {
-    case pending(request: HTTPRequest, requestContext: RequestContext, reader: Reader, responseSender: ResponseSender)
-    case responded(request: HTTPRequest)                 // sender consumed & gone; request kept for observation
+public struct RequestResponseMiddlewareBox<RequestContext, Reader, ResponseSender>: ~Copyable where … {
+    // internal — pending carries the registry, responded carries none, because nothing drains a box
+    // whose response is already written
+    enum Storage: ~Copyable { case pending(request:requestContext:reader:responseSender:responseHeaders:), responded(request:) }
 
     public var peekedRequest: HTTPRequest { … }          // borrowing, both states
     public var isPending: Bool { … }
+    public static func pending(request:requestContext:reader:responseSender:responseHeaders:) -> Self
+    public static func responded(request:) -> Self
     public consuming func responding(_ write: (consuming ResponseSender) async throws -> Void) async throws -> Self
-    public consuming func withPendingContents(_ handler: (HTTPRequest, consuming RequestContext, consuming Reader, consuming ResponseSender) async throws -> Void) async throws
+    public consuming func respondingWith(_ outcome: consuming WireMVCOutcome) async throws -> Self   // drains
+    public consuming func contributing(_: (inout ResponseHeaderRegistry) throws -> Void, then: (consuming Self) async throws -> R) async throws -> R
+    public consuming func withPendingContents(_ handler: (HTTPRequest, consuming RequestContext, consuming sending Reader, consuming sending ResponseSender, consuming sending ResponseHeaderRegistry) async throws -> Void) async throws
+    public consuming func withContents<R: ~Copyable>(pending: (…) async throws -> R, responded: (HTTPRequest) async throws -> R) async throws -> R
 }
 ```
 
