@@ -239,12 +239,44 @@ this is where the remaining example-facing work is.
      middleware contributed is discarded — CORS's `Access-Control-Allow-Origin` among them, on exactly the
      responses a browser fetches most.
 
-   **And one defect, in wire-mvc:** an authored `@NotFound` cannot declare its sender `consuming sending
-   Sender`. `registerNotFound` passes `ResponseHeaderApplyingSender(wrapping: responseSender, …)`, and that
-   task-isolated non-`Sendable` value cannot cross into a `sending` parameter. `consuming Sender` compiles.
-   wire-mvc's own codegen fixture (`notFoundHandlerRegistersAsFallback`) uses the `sending` spelling and
-   asserts on rendered source, so nothing there ever compiled it — the fixture wants correcting, and the
-   `@NotFound` macro's documentation wants the constraint stated.
+   **And one finding that is upstream, not ours.** A `@RawRoute` cannot declare its response sender
+   `consuming sending Sender` when the sender is the **untransformed** one — every raw route not behind a
+   sender-transforming middleware, and always a `@NotFound`, which folds no middleware and so can never be
+   handed a transformed sender. A reader takes `sending` today, even through a middleware fold; so does a
+   transformed sender (`MultiPartSender<S>`). Only the untransformed sender refuses, and each case was
+   established by compiling it rather than by reading the codegen.
+
+   **The cause is provenance, not the wrap and not aliasing** — regions permit aliasing within a region.
+   The proposal's `HTTPServerRequestHandler.handle` declares `reader` and `responseSender` as `consuming
+   sending` but `requestContext` as plain `consuming`, and the `ResponseHeaderRegistry` travels inside the
+   context (it must: `handle` takes exactly four values and the context is the only extension point among
+   them). So the registry is task-isolated, and `ResponseHeaderApplyingSender` merging it into an
+   otherwise-disconnected sender is what closes the region. Nothing is merged into the reader, which is
+   why it already takes `sending`.
+
+   **The minimal fix is one word upstream** — `requestContext: consuming sending RequestContext` — after
+   which today's generated code compiles unchanged, verified against a model of the shape. It asks the
+   server to promise it keeps no reference to the context it hands over; that invariant is the proposal's
+   to state. It is a second, unrelated ask on the **same package** as the `sendAndFinish` overload wart in
+   *Response framing* below — and that one already has a written fix sitting in a local
+   `swift-http-api-proposal` working tree, uncommitted. Two annotations, one submission: worth carrying
+   together rather than opening the same door twice.
+
+   Failing that, two in-house routes exist and both cost more: make `ResponseHeaderRegistry` `~Copyable`
+   and carry it in `WireDisconnected` inside `WireMVCContext` (the treatment reader and sender already
+   get — but a redesign at four seams, one public, since middleware write through
+   `input.responseHeaders.add(…)`, which works only because a class reference mutates through a borrow);
+   or make the registry `Sendable` with a `Mutex` and `@Sendable` `onSend` closures, overturning a
+   decision that type documents deliberately. Using `WireDisconnected` while leaving the registry a class
+   compiles and is **unsound**: that type's stated precondition is that the value is never aliased, which
+   holds for a linear reader or sender and not for a class reference.
+
+   Two smaller wire-mvc items fall out. `notFoundHandlerRegistersAsFallback` spells its fixture with
+   `sending` and asserts only on rendered source, so nothing compiles it — the only place in either repo
+   advertising a spelling that cannot work. (The wrapped path itself is compiled, by two of the
+   `Fixtures` apps, both using the working spelling.) And two comments — `WireMVCExample`'s raw route and
+   `WireMVCOutcome.send(on:)` — state the rule correctly but blame the middleware fold for handing the
+   sender out as "a plain `consuming` value", where both box destructures declare `consuming sending`.
 2. **jobs** — a queue as a graph-hosted `ServiceLifecycle` service plus a route that enqueues. Nothing
    currently shows work outliving the request.
 3. **auth-abac / auth-permissions** — policy objects as bindings, composed by route-scope middleware. The
