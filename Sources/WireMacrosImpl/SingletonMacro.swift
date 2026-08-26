@@ -67,6 +67,17 @@ public struct SingletonMacro: MemberMacro {
             throw SingletonMacroError.unsupportedDeclaration
         }
 
+        // A second lifetime macro on the same declaration synthesises nothing, so the `init` (and the
+        // `static key`) are emitted exactly once and `invalid redeclaration of 'init(…)'` never fires.
+        // `@Scoped` reaches here through this same expansion, so both are covered.
+        guard
+            !LifetimeMacroExclusion.isSupersededLifetimeMacro(
+                node: node,
+                declaration: declaration,
+                in: context
+            )
+        else { return [] }
+
         let analysis = InjectableInitSynthesis.analyse(declaration)
         InjectableInitSynthesis.diagnoseInitConfiguration(analysis: analysis, context: context)
 
@@ -135,6 +146,7 @@ enum WireDiagnostic: DiagnosticMessage {
     case multipleInjectInits
     case unmarkedUserInit
     case injectOnInitAndProperty
+    case multipleLifetimeMacros(this: String, first: String)
 
     var message: String {
         switch self {
@@ -148,6 +160,9 @@ enum WireDiagnostic: DiagnosticMessage {
         case .injectOnInitAndProperty:
             return
                 "@Inject is on both an initialiser and a stored property. Pick one source of truth — either the @Inject-marked initialiser declares dependencies via its parameters, or @Inject-marked properties declare them via Wire's auto-generated init."
+        case .multipleLifetimeMacros(let this, let first):
+            return
+                "@\(this) and @\(first) both declare a lifetime, and a declaration has one. @Singleton is one instance for the process, @Scoped(seed:) one per scope entry, and @Factory no scope at all — its template is constructed per `create` call, and the binding with a lifetime is the factory Wire synthesises for the key. Remove @\(this)."
         }
     }
 
@@ -158,6 +173,7 @@ enum WireDiagnostic: DiagnosticMessage {
         case .multipleInjectInits: identifier = "multiple-inject-inits"
         case .unmarkedUserInit: identifier = "unmarked-user-init"
         case .injectOnInitAndProperty: identifier = "inject-on-init-and-property"
+        case .multipleLifetimeMacros: identifier = "multiple-lifetime-macros"
         }
         return MessageID(domain: "Wire", id: identifier)
     }

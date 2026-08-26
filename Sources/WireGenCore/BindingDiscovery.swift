@@ -737,6 +737,14 @@ extension BindingDiscovery {
     /// and factory-template (`@Factory`) processing. Each returns early when its
     /// annotation is absent, so a type is recorded as at most one; bundling the two
     /// calls keeps the struct/class/actor visits compact.
+    ///
+    /// "At most one" is enforced here rather than assumed. A declaration carrying *both* a scope macro
+    /// and `@Factory` used to fall through both calls and be recorded twice, in incompatible roles — a
+    /// binding whose generic parameters must be bound, and a template whose generic parameters are
+    /// assisted — so the contradiction surfaced downstream as a generic-arity error about a type nobody
+    /// asked to be a singleton. It is diagnosed as what it is and recorded as **neither**, because there
+    /// is no reading of it that produces a working graph and every downstream error would be noise on top
+    /// of one already reported. See `factoryWithScopeDiagnostics`.
     fileprivate func processScopeAndFactory(
         typeKind: String,
         nameToken: TokenSyntax,
@@ -746,6 +754,16 @@ extension BindingDiscovery {
         modifiers: DeclModifierListSyntax,
         members: MemberBlockItemListSyntax
     ) {
+        let lifetimeConflict = factoryWithScopeDiagnostics(
+            nameToken: nameToken,
+            attributes: attributes,
+            sourcePath: sourcePath,
+            converter: converter
+        )
+        guard lifetimeConflict.isEmpty else {
+            warnings.append(contentsOf: lifetimeConflict)
+            return
+        }
         processScopeBoundType(
             typeKind: typeKind,
             nameToken: nameToken,

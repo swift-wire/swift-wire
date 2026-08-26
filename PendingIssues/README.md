@@ -3,7 +3,8 @@
 Outstanding gaps, unverified cases and deliberate deferrals, recorded so none stays silently deferred.
 Most of the list came from building the variant-app-graph testing story (M6a,
 `Documentation/Archive/ScopableRouteContributorsPlan.md`), where each was a scoping decision taken during
-Phase 1/A/B; #12–#15 came from later work and are noted below. Resolved ones have moved to
+Phase 1/A/B; #12–#15 came from later work and are noted below. #16 came from Phase 3's `auth-abac` item
+and has since been fixed. Resolved ones have moved to
 [../CompletedIssues/](../CompletedIssues/README.md). States:
 
 - 🔴 **Known broken** — reproduced or provably unhandled in the current code.
@@ -35,4 +36,6 @@ held back for surface consistency until an upstream compiler bug is fixed, with 
 case meanwhile. **#15** is the residue of a fix rather than an untested corner: the `ServerTransport`
 bridge's handler now cancels with its request, and what is left is that the cancelled request is *reported*
 as a 500, which is an operational cost rather than a functional one. Resolved items (#01, #04, #08, #09,
-#10) are in [../CompletedIssues/](../CompletedIssues/README.md).
+#10, #16) are in [../CompletedIssues/](../CompletedIssues/README.md) — #16 was the one *diagnostic* bug
+this list has held, and the only one fixed by making Wire say something true rather than by changing what
+it does.

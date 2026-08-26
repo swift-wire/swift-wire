@@ -36,7 +36,8 @@ extension DiscoveredScopeBoundType {
             contributions: contributions,
             allowUnused: allowUnused,
             teardown: teardown,
-            originModule: originModule
+            originModule: originModule,
+            factoryTemplateName: factoryTemplateName
         )
     }
 }
@@ -172,7 +173,8 @@ extension DiscoveredScopeBoundType {
             contributions: contributions,
             allowUnused: allowUnused,
             teardown: teardown,
-            originModule: originModule
+            originModule: originModule,
+            factoryTemplateName: factoryTemplateName
         )
     }
 }

@@ -318,7 +318,11 @@ package func factoryBinding(_ factory: SynthesizedFactory, module: String) -> Di
         genericParameterConstraints: factory.injectedParameterConstraints,
         dependencies: factory.dependencies,
         location: factory.location,
-        originModule: module
+        originModule: module,
+        // The template's name, so a diagnostic about this binding can name the declaration the user
+        // wrote rather than the `_WireFactory_<key>` type the plugin synthesised — which has no
+        // declaration to point at, and which no advice can ask them to change.
+        factoryTemplateName: factory.producedTypeName
     )
 }
 

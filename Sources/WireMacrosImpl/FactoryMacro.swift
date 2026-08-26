@@ -14,6 +14,11 @@ import SwiftSyntaxMacros
 ///   consumers (`@Middleware(key)`) — see WireGenCore's factory-template
 ///   discovery.
 ///
+/// It is nonetheless a **lifetime** macro, and so exclusive with `@Singleton`
+/// and `@Scoped(seed:)` — the lifetime it names is per-`create`, which is not a
+/// scope. `LifetimeMacroExclusion` enforces that here; `@Factory`'s public
+/// declaration carries the reasoning.
+///
 /// The macro's only job is to generate the initialiser the synthesised factory
 /// calls, from `@Inject` members, following the same rules as `@Singleton` (see
 /// `InjectableInitSynthesis`). Generating it explicitly at the type's access
@@ -31,6 +36,16 @@ public struct FactoryMacro: MemberMacro {
         guard let typeInfo = HostTypeInfo(declaration: declaration) else {
             throw FactoryMacroError.unsupportedDeclaration
         }
+
+        // `@Factory` alongside `@Singleton`/`@Scoped` is two lifetime macros on one declaration. Whichever
+        // came second synthesises nothing, so the two `init`s that used to collide are now one.
+        guard
+            !LifetimeMacroExclusion.isSupersededLifetimeMacro(
+                node: node,
+                declaration: declaration,
+                in: context
+            )
+        else { return [] }
 
         let analysis = InjectableInitSynthesis.analyse(declaration)
         InjectableInitSynthesis.diagnoseInitConfiguration(analysis: analysis, context: context)

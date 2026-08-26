@@ -114,7 +114,8 @@ package func crossScopeHintFor(
         fixItSuggestion: fixItSuggestion(
             consumerPartition: consumerPartition,
             bindingPartitions: matchPartitions,
-            consumerTypeName: consumerTypeName(missing.consumer)
+            consumer: missing.consumer,
+            dependencyType: missing.dependency.type
         )
     )
 }
@@ -134,6 +135,38 @@ private func describe(partition: Partition) -> String {
     case (let container?, let scope?):
         return "@Container \(container) / @Scoped(seed: \(scope.seed).self)"
     }
+}
+
+/// The `@Factory` template a synthesised `_WireFactory_<key>` consumer was built for, or `nil` for a
+/// consumer the user declared. Read off the binding rather than sniffed off the type name: the prefix is
+/// an emission detail, and a diagnostic that keyed on it would be one rename away from silently falling
+/// back to advice that cannot be followed.
+private func factoryTemplateName(of consumer: DiscoveredBinding) -> String? {
+    guard case .scopeBound(let scopeBound) = consumer else { return nil }
+    return scopeBound.factoryTemplateName
+}
+
+/// The fix-it for a synthesised factory consumer: what a `@Factory` template's lifetime actually is, why
+/// a scoped binding cannot be one of its `@Inject` members, and the moves that exist.
+///
+/// It deliberately does **not** offer "scope the template too". That is the advice this replaces, and it
+/// named something with no spelling: a scope macro on a `@Factory` template is two lifetime macros on one
+/// declaration, which Wire now refuses outright (`factoryWithScopeDiagnostics`).
+private func factoryTemplateSuggestion(
+    template: String,
+    dependencyType: String,
+    consumerPartition: Partition,
+    bindingPartitions: [Partition]
+) -> String {
+    // With the type bound in several partitions there is no single scope to name, so the message stays
+    // general rather than picking one of the notes printed above it arbitrarily.
+    let bindingScope =
+        bindingPartitions.count == 1
+        ? "\(describe(partition: bindingPartitions[0])) "
+        : "a narrower "
+    let consumerScope = describe(partition: consumerPartition)
+    return
+        "'\(template)' is a @Factory template, so it has no scope of its own: it is constructed per `create` call, and its @Inject members resolve once — where the factory Wire synthesises for its key is constructed, in \(consumerScope). A \(bindingScope)binding can't be one of them. Produce '\(dependencyType)' at \(consumerScope), or move the scope-bound concern out of the template and into a binding that lives in the scope. Annotating '\(template)' with a scope is not a move: @Factory is itself a lifetime, and a declaration has one."
 }
 
 /// The consumer's type name (or a synthetic placeholder for
@@ -167,17 +200,35 @@ private func consumerTypeName(_ consumer: DiscoveredBinding) -> String {
 /// from the consumer), the message shifts to acknowledge the
 /// multiplicity and ask the user to pick one to consolidate.
 ///
+/// **A synthesised factory is checked first, ahead of every shape above.** It is the one consumer kind
+/// for which "scope the consumer too" is not an available move: `_WireFactory_<key>` is synthesised per
+/// consumed key and has no declaration to annotate, and the template that *does* have one cannot take a
+/// scope macro either — `@Factory` is itself a lifetime, and lifetimes are alternatives. The message
+/// therefore names the template, states the constraint that actually bites, and offers only moves that
+/// can be written. See `PendingIssues/16`, where following the old advice took a reader from one error
+/// to three.
+///
 /// The fix-it message follows the Swift compiler's `note:` tone —
 /// imperative, specific, actionable.
 private func fixItSuggestion(
     consumerPartition: Partition,
     bindingPartitions: [Partition],
-    consumerTypeName: String
+    consumer: DiscoveredBinding,
+    dependencyType: String
 ) -> String {
     guard let bindingPartition = bindingPartitions.first else {
         // Defensive: caller doesn't invoke us with empty matches.
         return ""
     }
+    if let template = factoryTemplateName(of: consumer) {
+        return factoryTemplateSuggestion(
+            template: template,
+            dependencyType: dependencyType,
+            consumerPartition: consumerPartition,
+            bindingPartitions: bindingPartitions
+        )
+    }
+    let consumerTypeName = consumerTypeName(consumer)
     // Multi-binding case: the type is bound in several partitions,
     // none reachable from the consumer. No single tailored fix-it
     // applies — the user has to pick one and consolidate.
