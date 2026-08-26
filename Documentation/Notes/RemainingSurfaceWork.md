@@ -361,6 +361,36 @@ about +4 µs. So this phase is about allocations, which are real and countable, 
 already at parity. Anyone reaching for it as a performance fix is reaching for the wrong thing: the bridge
 costs 16–47 µs and everything here is fractions of one.
 
+**The header *mechanism* is the one place that is not quite parity, and it is a tenth of a microsecond.**
+Both frameworks driven in process, six runs each: Hummingbird's `RouterMiddleware` costs **+0.29 µs** over
+its own plain routed case and WireMVC's registry-plus-applying-sender costs **+0.41**. Hummingbird's figure
+is the `HTTPFields` insertion and nothing else — it lands exactly on what inserting one field costs,
+measured independently from the other direction — so WireMVC's extra **~0.12 µs** is what the
+sender-not-return-slot model costs over mutating a response that already exists.
+
+**That tenth splits, and only part of it is inherent.** About a third is the registry's *size*: making it
+`~Copyable` turned an 8-byte class pointer into a 240-byte value, moved about five times per request, and
+shrinking it (inline capacity 4 → 1, 240 B → 72 B) takes the mechanism from +0.41 to +0.37. Not taken —
+`CORSMiddleware` contributes four fields, so capacity 1 sends it to the overflow array and puts an
+allocation back where the inline storage earns its place, and capacity 2 measures no better than 4. The
+other two thirds are register-now-apply-later itself: storing a description of the operation, carrying it,
+walking the registrations and dispatching on the case to replay it. Registering costs nothing measurable;
+a fast path for the common single-`.value` case might take 0.03 … 0.05 of the rest, untested.
+
+**Closed rather than open.** The whole 0.12 is under 0.2% of a real request against a bridge costing
+16–47 µs. It is written down so the number has an explanation attached, not as an item.
+
+**Two measurements had to be thrown away to get that, and both failures are the same shape as the
+allocation ones.** The socketed rows put the gap at ~1.3 µs, which is inside their own ±1.6 µs spread, and
+the WireMVC row was not even scope-matched — it served on the courier server against a bare-server
+baseline, charging WireMVC for the courier as well as the mechanism, the same error `proposal-routed`
+exists to have stopped making for the router row. Then the in-process Hummingbird driver turned out to be
+measuring **executor hops**: `HTTPResponder.respond` is `@Sendable`, the harness enables
+`NonisolatedNonsendingByDefault` and Hummingbird does not, so every request hopped to the global executor
+and back. Its floor read 15.9 µs against WireMVC's 0.88 and its delta was noise; on the executor the call
+actually wants, the floor is 1.02. Both wrong numbers were published before being caught, and both looked
+reasonable. At this scale an instrument has to be checked as carefully as a cause.
+
 **Now entirely a native-path project.** On a bridged runtime the host's router matches the path and
 parameters arrive as `metadata.pathParameters`, so `FrozenRouteTrie.resolve` never runs and groups #1 and
 #2 — the two clearest wins below — do not exist there. The registry used to carry over, allocated per
