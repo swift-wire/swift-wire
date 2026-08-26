@@ -33,8 +33,14 @@ change ships `WireAdapterAnnotationV2`).
 ### The capability axis
 
 `capability: WireAdapterCapability` names *what edge* the annotation synthesises
-onto the binding it decorates. Four cases, all domain-free — Wire learns nothing
-about routing, HTTP, or middleware:
+onto the binding it decorates. All of them are domain-free — Wire learns nothing
+about routing, HTTP, or middleware.
+
+> The cases below are the ones this note was written against, and two of their names
+> predate a merge (`.injectsDependencyOnArgument` and `.injectsFactoryOnArgument` are one
+> `.injectsFromGraph` today, dispatching on the argument's kind). The enum in
+> `Sources/Wire/AdapterAnnotation.swift` is the current list and carries the per-case
+> reasoning; this section is the shape of the axis rather than an index of it.
 
 - **`.contributes(to: key)`** — an **output** edge. `@X` on a binding injects a
   synthetic `@Contributes(to: key)`, flowing the binding into `key`'s aggregate
@@ -62,6 +68,21 @@ about routing, HTTP, or middleware:
   that mapping-carrying annotation; until then, `@Factory` is discovered by fixed name.
 - **`.rewritesInjection`** — reserved for the M5.4 request-scope proxy (an adapter
   that redirects an injection through a scope re-entry); not yet consumed.
+**Scope yields are not a capability**, and are worth naming here because they look like one.
+A bridged proxy's scope entry hands back, alongside its subject, every binding in that
+subject's scope that the subject's *method parameters* name. Nothing declares it and
+nothing annotates for it: an attribute name and a type name are the same identifier in
+Swift, so `@AuthorizedDocument` on a parameter **is** `AuthorizedDocument` the binding, and
+the match is identity rather than a heuristic. A parameter attribute that names no binding
+(`@Path`, an ordinary property wrapper) matches nothing, which is why the rule needs no
+vocabulary of what to ignore and Wire still never learns what a route is.
+
+It was briefly a declared capability taking `@X(T.self)`. That is what an adapter author
+would reach for, and it was wrong for the *consumer*: the annotation did nothing for the
+person writing it, existed only to make the internals work, and was an error to omit while
+using the binding. Inferring it deletes the annotation, the capability, and the opt-in —
+and an opt-in had no false case anyway, since the only adapter that bridges is the one that
+wants this.
 
 Both input-edge cases keep swift-wire ignorant of what the injected value *is*: it
 sees "this binding gains a dependency on the thing named in the attribute argument,

@@ -64,6 +64,7 @@ struct WireGen {
             to: &aggregate.allBindings,
             adapterAnnotations: aggregate.adapterAnnotations,
             aliasUseSites: aggregate.aliasUseSites,
+            scopeYieldCandidates: aggregate.scopeYieldCandidates,
             factoryTemplates: aggregate.factoryTemplates,
             bindingKeys: aggregate.bindingKeys,
             consumerModule: consumerModule
@@ -182,6 +183,7 @@ struct WireGen {
             aggregate.bindingKeys.append(contentsOf: result.bindingKeys)
             aggregate.adapterAnnotations.append(contentsOf: result.adapterAnnotations)
             aggregate.aliasUseSites.append(contentsOf: result.aliasUseSites)
+            aggregate.scopeYieldCandidates.append(contentsOf: result.scopeYieldCandidates)
             aggregate.factoryTemplates.append(contentsOf: result.factoryTemplates)
             aggregate.resultBuilders.append(contentsOf: result.resultBuilders)
             aggregate.graphConformances.append(contentsOf: result.graphConformances)
@@ -332,6 +334,13 @@ struct WireGen {
         diagnostics += deadBindingDiagnostics(
             across: aggregate.allBindings,
             resolvedByContainer: resolvedBindingsByContainer
+        )
+        // A route parameter naming a scope binding its subject's scope cannot construct. Answered from the
+        // discovered bindings alone — "is this type bound in that partition" needs no built graph — so the
+        // report lands at the parameter rather than as a missing field on a generated struct.
+        diagnostics += scopeYieldDiagnostics(
+            bindings: aggregate.allBindings,
+            candidates: aggregate.scopeYieldCandidates
         )
         diagnostics += graphInputsDiagnostics(aggregate.graphInputs, externalModules: aggregate.externalModules)
         diagnostics += deadFactoryDiagnostics(
@@ -755,6 +764,9 @@ struct DiscoveryAggregate {
     var bindingKeys: [DiscoveredBindingKey] = []
     var adapterAnnotations: [DiscoveredAdapterAnnotation] = []
     var aliasUseSites: [ContributionAliasUseSite] = []
+    /// Parameter attributes on member methods, by enclosing type — the raw material scope yields are
+    /// matched from once the graph's bindings are known. See `ScopeYieldCandidate`.
+    var scopeYieldCandidates: [ScopeYieldCandidate] = []
     var factoryTemplates: [DiscoveredFactoryTemplate] = []
     var resultBuilders: [DiscoveredResultBuilder] = []
     var graphConformances: [DiscoveredGraphConformance] = []
@@ -796,6 +808,7 @@ private func applyPreGraphBindingPasses(
     to allBindings: inout [Partition: [DiscoveredBinding]],
     adapterAnnotations: [DiscoveredAdapterAnnotation],
     aliasUseSites: [ContributionAliasUseSite],
+    scopeYieldCandidates: [ScopeYieldCandidate],
     factoryTemplates: [DiscoveredFactoryTemplate],
     bindingKeys: [DiscoveredBindingKey],
     consumerModule: String
@@ -818,7 +831,8 @@ private func applyPreGraphBindingPasses(
     let proxied = applyContributorProxies(
         to: allBindings,
         annotations: adapterAnnotations,
-        useSites: aliasUseSites
+        useSites: aliasUseSites,
+        scopeYieldCandidates: scopeYieldCandidates
     )
     allBindings = proxied.bindings
     let useSites = proxied.useSites

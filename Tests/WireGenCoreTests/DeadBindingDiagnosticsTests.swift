@@ -325,9 +325,15 @@ struct DeadBindingDiagnosticsTests {
     // MARK: - Bridging contributor proxies (scope-entry thunks)
 
     /// A bridging proxy over a `@Scoped(seed:)` subject: it depends on a *thunk* that constructs the
-    /// subject, not on the subject's type. The dependency is named `_wireEnterScope`, as the synthesised
-    /// proxy names it.
-    private func bridgingProxy(_ name: String, seed: String, subject: String) -> DiscoveredBinding {
+    /// subject, not on the subject's type. Named and **kinded** as the synthesised proxy does it —
+    /// `.scopeEntryThunk` is the classifier (an aggregate proxy names its thunks
+    /// `_wireEnterScope_<Subject>`, so the name alone is not one).
+    private func bridgingProxy(
+        _ name: String,
+        seed: String,
+        subject: String,
+        yields: [String] = []
+    ) -> DiscoveredBinding {
         .scopeBound(
             DiscoveredScopeBoundType(
                 typeName: name,
@@ -336,10 +342,11 @@ struct DeadBindingDiagnosticsTests {
                 dependencies: [
                     DependencyParameter(
                         name: contributorProxyScopeEntryFieldName,
-                        type: contributorScopeEntryThunkType(seed: seed, subject: subject),
-                        kind: .injectProperty,
+                        type: scopeEntryDescriptor(seed: seed, subject: subject, yields: yields).thunkType,
+                        kind: .scopeEntryThunk,
                         location: mockLocation("\(name).swift"),
-                        keyIdentifier: nil
+                        keyIdentifier: nil,
+                        scopeEntry: scopeEntryDescriptor(seed: seed, subject: subject, yields: yields)
                     )
                 ],
                 location: mockLocation("\(name).swift"),
@@ -361,6 +368,26 @@ struct DeadBindingDiagnosticsTests {
             warnedFiles([
                 bridgingProxy("_WireRouteContributor_Probe", seed: "HTTPRequest", subject: "ProbeController"),
                 singleton("ProbeController"),
+            ]).isEmpty
+        )
+    }
+
+    @Test func aYieldedBindingIsLiveThroughTheSameThunk() {
+        // The sharper form of the case above, and the one a yield is *guaranteed* to hit: the whole point
+        // of yielding a binding is that it leaves the scope through the thunk, so by construction nothing
+        // inside the scope depends on it. Without reading the thunk's yields, every yielded binding would
+        // warn as dead — and both halves of the advice ("delete it, or mark it allowUnused:") would be
+        // wrong.
+        #expect(
+            warnedFiles([
+                bridgingProxy(
+                    "_WireRouteContributor_Probe",
+                    seed: "HTTPRequest",
+                    subject: "ProbeController",
+                    yields: ["AuthorizedDocument"]
+                ),
+                singleton("ProbeController"),
+                singleton("AuthorizedDocument"),
             ]).isEmpty
         )
     }

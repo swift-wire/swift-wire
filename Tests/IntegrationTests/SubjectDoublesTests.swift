@@ -21,7 +21,9 @@ struct SubjectDoublesTests {
         let doubles = _SubjectDoublesFixture_bindBoth_SubjectAlphaControllerDoubles(subjectAlphaBackend: alpha)
 
         let proxy = Wire.bootstrapSubjectDoublesFixture_bindBoth_SubjectAlphaControllerContributor(wireGraph: graph)
-        let (subject, teardown) = try await proxy._wireEnterScope(SubjectSeed(id: "x"), doubles)
+        let entered = try await proxy._wireEnterScope(SubjectSeed(id: "x"), doubles)
+        let subject = entered._wireSubject
+        let teardown = entered._wireScopeTeardown
 
         // The mock reached the subject through the transitive hop the BFS had to walk to include it.
         #expect(subject.tag() == "mock-alpha:x")
@@ -42,7 +44,9 @@ struct SubjectDoublesTests {
         let doubles = _SubjectDoublesFixture_bindBoth_SubjectBetaControllerDoubles(subjectBetaBackend: beta)
 
         let proxy = Wire.bootstrapSubjectDoublesFixture_bindBoth_SubjectBetaControllerContributor(wireGraph: graph)
-        let (subject, teardown) = try await proxy._wireEnterScope(SubjectSeed(id: "y"), doubles)
+        let entered = try await proxy._wireEnterScope(SubjectSeed(id: "y"), doubles)
+        let subject = entered._wireSubject
+        let teardown = entered._wireScopeTeardown
 
         #expect(subject.tag() == "mock-beta:y")
         #expect(beta.recordedCalls == ["y"])
@@ -59,7 +63,9 @@ struct SubjectDoublesTests {
         let doubles = _SubjectDoublesFixture_bindBoth_SubjectPlainControllerDoubles()
 
         let proxy = Wire.bootstrapSubjectDoublesFixture_bindBoth_SubjectPlainControllerContributor(wireGraph: graph)
-        let (subject, teardown) = try await proxy._wireEnterScope(SubjectSeed(id: "z"), doubles)
+        let entered = try await proxy._wireEnterScope(SubjectSeed(id: "z"), doubles)
+        let subject = entered._wireSubject
+        let teardown = entered._wireScopeTeardown
 
         #expect(subject.tag() == "plain:z")
 

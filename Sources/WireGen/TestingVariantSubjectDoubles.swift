@@ -46,7 +46,7 @@ extension WireGen {
         for proxy in productionProxies {
             guard
                 let scopeEntry = proxy.dependencies.first(where: { $0.name == contributorProxyScopeEntryFieldName }),
-                let parsed = parsedContributorScopeEntryThunkType(scopeEntry.type),
+                let parsed = scopeEntry.scopeEntry,
                 let scope = scopeBySeed[parsed.seed]
             else { continue }
             let subjectTypeName = bareTypeName(parsed.subject)

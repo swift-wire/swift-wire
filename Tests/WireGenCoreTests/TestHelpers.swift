@@ -13,3 +13,28 @@ func mockLocation(_ file: String, line: Int = 1, column: Int = 1) -> SourceLocat
 /// required non-optional `String`, so tests model the real build by
 /// always providing one.
 let testModule = "TestModule"
+
+/// A `ScopeEntryDescriptor` for a test fixture, named exactly as the synthesis names it. Tests that hand-
+/// build a bridging proxy need the descriptor *and* the type it renders to stay in step — they are two
+/// views of one thing, and a fixture that set only the type would be describing a proxy the synthesis
+/// cannot produce.
+func scopeEntryDescriptor(
+    seed: String,
+    subject: String,
+    yields: [String] = [],
+    doubles: String? = nil,
+    genericParameterNames: [String] = [],
+    genericParameterConstraints: [String: String] = [:],
+    genericWhereClause: String? = nil
+) -> ScopeEntryDescriptor {
+    ScopeEntryDescriptor(
+        seed: seed,
+        subject: subject,
+        yields: yields,
+        doubles: doubles,
+        entryStructName: scopeEntryStructName(subjectTypeName: String(subject.prefix { $0 != "<" })),
+        genericParameterNames: genericParameterNames,
+        genericParameterConstraints: genericParameterConstraints,
+        genericWhereClause: genericWhereClause
+    )
+}

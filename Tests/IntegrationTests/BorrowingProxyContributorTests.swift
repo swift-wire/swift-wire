@@ -13,7 +13,9 @@ struct BorrowingProxyContributorTests {
         let doubles = _BorrowFixture_bindMock_BorrowRouteControllerDoubles(borrowRepository: mock)
 
         let proxy = Wire.bootstrapBorrowFixture_bindMock_BorrowRouteControllerContributor(wireGraph: graph)
-        let (subject, teardown) = try await proxy._wireEnterScope(BorrowRequestSeed(id: "req-1"), doubles)
+        let entered = try await proxy._wireEnterScope(BorrowRequestSeed(id: "req-1"), doubles)
+        let subject = entered._wireSubject
+        let teardown = entered._wireScopeTeardown
 
         // Mock reached, keyed by the borrowed app singleton's value ("store").
         #expect(subject.tag() == "mock:store")

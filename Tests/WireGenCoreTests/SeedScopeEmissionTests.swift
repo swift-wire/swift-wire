@@ -180,7 +180,7 @@ struct SeedScopeEmissionTests {
             seedScopeOrders: [scope]
         )
 
-        let thunkType = contributorScopeEntryThunkType(seed: "RequestSeed", subject: "SessionController")
+        let thunkType = scopeEntryDescriptor(seed: "RequestSeed", subject: "SessionController").thunkType
         let thunkLocal = identifierName(forType: thunkType, key: nil)
         // The thunk closure builds the controller from the seed, the borrow resolving to the captured
         // singleton local (`todoRepository`), not `_wireGraph.todoRepository`.
@@ -193,7 +193,11 @@ struct SeedScopeEmissionTests {
         // The thunk returns the subject alongside the scope's teardown closure (M5.4.5) — here empty, since
         // no scope binding carries a @Teardown.
         #expect(output.contains("let _wireScopeTeardown: @Sendable () async -> [any Error] = {"))
-        #expect(output.contains("return (sessionController, _wireScopeTeardown)"))
+        #expect(
+            output.contains(
+                "return _WireScopeEntry_SessionController(_wireSubject: sessionController, _wireScopeTeardown: _wireScopeTeardown)"
+            )
+        )
         // The proxy's `_wireEnterScope` argument wires to the thunk local.
         #expect(output.contains("_WireRouteContributor_SessionController(_wireEnterScope: \(thunkLocal))"))
         // The borrow is never re-constructed as a local inside the thunk.

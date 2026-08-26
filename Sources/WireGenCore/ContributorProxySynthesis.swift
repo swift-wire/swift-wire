@@ -22,7 +22,8 @@
 package func applyContributorProxies(
     to allBindings: [Partition: [DiscoveredBinding]],
     annotations: [DiscoveredAdapterAnnotation],
-    useSites: [ContributionAliasUseSite]
+    useSites: [ContributionAliasUseSite],
+    scopeYieldCandidates: [ScopeYieldCandidate] = []
 ) -> (
     bindings: [Partition: [DiscoveredBinding]],
     useSites: [ContributionAliasUseSite],
@@ -30,6 +31,7 @@ package func applyContributorProxies(
 ) {
     let directiveBySubject = contributorProxyDirectives(annotations: annotations, useSites: useSites)
     let aggregates = aggregateProxyDirectives(annotations: annotations, useSites: useSites)
+    let candidatesBySubject = Dictionary(grouping: scopeYieldCandidates, by: \.targetIdentity)
     guard !directiveBySubject.isEmpty || !aggregates.isEmpty else { return (allBindings, useSites, []) }
 
     // Synthesise a proxy beside each proxied subject, recording subject identity → proxy identity. The
@@ -49,7 +51,12 @@ package func applyContributorProxies(
                 for: subject,
                 key: directive.key,
                 prefix: directive.prefix,
-                proxyScope: directive.proxyScope
+                proxyScope: directive.proxyScope,
+                yields: scopeYields(
+                    for: subject,
+                    candidates: candidatesBySubject[identity] ?? [],
+                    inScopeWith: bindings
+                )
             )
             proxyBySubject[identity] = proxy.qualifiedTypeName
             let target = proxyPartition(directive.proxyScope, subjectPartition: partition)
@@ -80,7 +87,22 @@ package func applyContributorProxies(
             for: subjects.map(\.subject),
             key: aggregate.key,
             typeName: aggregate.typeName,
-            proxyScope: aggregate.proxyScope
+            proxyScope: aggregate.proxyScope,
+            // Keyed by subject identity, not by proxy: an aggregate bridges into one scope per seeded
+            // subject, so each thunk yields what *its own* subject's annotations asked for.
+            yieldsBySubject: Dictionary(
+                subjects.map { entry in
+                    (
+                        entry.subject.typeName,
+                        scopeYields(
+                            for: entry.subject,
+                            candidates: candidatesBySubject[entry.identity] ?? [],
+                            inScopeWith: allBindings[entry.partition] ?? []
+                        )
+                    )
+                },
+                uniquingKeysWith: { first, _ in first }
+            )
         )
         for entry in subjects {
             proxyBySubject[entry.identity] = proxy.qualifiedTypeName
@@ -175,6 +197,38 @@ private func reattributingInputEdges(
     }
 }
 
+/// The bindings `subject`'s scope entry hands back alongside it — the parameter attributes on its methods
+/// that name a binding **in its own scope**.
+///
+/// Nothing declares these and nothing annotates for them. The rule is exact rather than heuristic: an
+/// attribute name and a type name are the same identifier in Swift, so `@AuthorizedDocument` on a
+/// parameter *is* `AuthorizedDocument` the binding. `@Path` and `@JSONBody` are types that are no binding
+/// at all, so they never match, and the filter needs no list of what to ignore.
+///
+/// `bindings` is the subject's **own partition** — its seed scope — which is what makes "in its own scope"
+/// the whole test. A binding of the same name at app scope, or in a sibling seed, is not in this list and
+/// is not yielded; `scopeYieldDiagnostics` reports the ones that were plainly meant to be.
+///
+/// Sorted by type name and deduplicated. The sort is for a stable emitted file, not for correctness — the
+/// entry struct names its fields, so a re-order could not silently misread. Two routes naming the same
+/// binding ask for one value.
+func scopeYields(
+    for subject: DiscoveredScopeBoundType,
+    candidates: [ScopeYieldCandidate],
+    inScopeWith bindings: [DiscoveredBinding]
+) -> [String] {
+    guard !candidates.isEmpty, subject.scopeKey != nil else { return [] }
+    let inScope = Set(bindings.map { canonicalTypeName($0.boundType) })
+    var matched: Set<String> = []
+    for candidate in candidates where inScope.contains(canonicalTypeName(candidate.typeName)) {
+        // A subject never yields *itself*: it is already the entry's first field, and a controller whose
+        // own route took it as a parameter would otherwise be constructed twice.
+        guard canonicalTypeName(candidate.typeName) != canonicalTypeName(subject.typeName) else { continue }
+        matched.insert(candidate.typeName)
+    }
+    return matched.sorted()
+}
+
 /// The proxy binding for one `.contributesProxy` subject — a scope-bound `<prefix><Subject>` generic
 /// exactly as the subject is, contributing to the directive's key. The proxy lives at `proxyScope`
 /// (always `.singleton` today — collated into the app graph), and swift-wire compares that against the
@@ -192,6 +246,7 @@ func contributorProxyBinding(
     key: String?,
     prefix: String,
     proxyScope: DiscoveredProxyScope,
+    yields: [String] = [],
     doubles: String? = nil
 ) -> DiscoveredScopeBoundType {
     let subjectDependencyType =
@@ -205,16 +260,29 @@ func contributorProxyBinding(
     let subjectIsNarrower = proxyScope == .singleton && subject.scopeKey != nil
     let primaryDependency: DependencyParameter
     if subjectIsNarrower, let seed = subject.scopeKey?.seed {
+        // A test-graph variant threads its `_<Key>Doubles` in alongside the seed, so the thunk (and this
+        // field) takes `(Seed, Doubles)`; `doubles == nil` is the production proxy (seed only).
+        let descriptor = ScopeEntryDescriptor(
+            seed: seed,
+            subject: subjectDependencyType,
+            yields: yields,
+            doubles: doubles,
+            entryStructName: scopeEntryStructName(subjectTypeName: subject.typeName),
+            // A per-subject proxy is generic exactly as its subject, so these are the proxy's own
+            // parameters too — the distinction only shows up on an aggregate.
+            genericParameterNames: subject.genericParameterNames,
+            genericParameterConstraints: subject.genericParameterConstraints,
+            genericWhereClause: subject.genericWhereClause
+        )
         primaryDependency = DependencyParameter(
             name: contributorProxyScopeEntryFieldName,  // labelled — stored/inited as `_wireEnterScope`
-            // A test-graph variant threads its `_<Key>Doubles` in alongside the seed, so the thunk (and
-            // this field) takes `(Seed, Doubles)`; `doubles == nil` is the production proxy (seed only).
-            type: contributorScopeEntryThunkType(seed: seed, subject: subjectDependencyType, doubles: doubles),
+            type: descriptor.thunkType,
             // Emission-only: emitted as the proxy's `_wireEnterScope` field/arg, but not graph-resolved
             // (synthesised inline as the capturing thunk). Ordering comes from `.scopeCapture` deps the
             // linking pass adds.
             kind: .scopeEntryThunk,
-            location: subject.location
+            location: subject.location,
+            scopeEntry: descriptor
         )
     } else {
         primaryDependency = DependencyParameter(

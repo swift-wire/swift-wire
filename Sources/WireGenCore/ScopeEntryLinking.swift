@@ -69,7 +69,7 @@ package func linkingScopeEntryCaptures(
         var seen: Set<String> = []
         var captures: [DependencyParameter] = []
         for thunk in proxy.dependencies where thunk.kind == .scopeEntryThunk {
-            guard let (seed, _, _) = parsedContributorScopeEntryThunkType(thunk.type),
+            guard let seed = thunk.scopeEntry?.seed,
                 let scopeCaptures = capturesBySeed[seed]
             else { continue }
             for capture in scopeCaptures where seen.insert("\(capture.type)|\(capture.keyIdentifier ?? "")").inserted {

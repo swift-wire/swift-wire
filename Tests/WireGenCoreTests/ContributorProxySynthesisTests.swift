@@ -162,7 +162,7 @@ struct ContributorProxySynthesisTests {
         #expect(primary?.name == "_wireEnterScope")
         #expect(
             primary?.type
-                == "@Sendable (RequestSeed) async throws -> (SessionController<Repository>, @Sendable () async -> [any Error])"
+                == "@Sendable (RequestSeed) async throws -> _WireScopeEntry_SessionController<Repository>"
         )
         #expect(proxy?.contributions.first?.keyReference == key)
 

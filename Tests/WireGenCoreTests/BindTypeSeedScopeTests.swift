@@ -97,7 +97,11 @@ struct BindTypeSeedScopeTests {
         // The consumer is wired to it.
         #expect(output.contains("let todoController = TodoController(repo: backendRepository)"))
         // The subject is returned alongside the scope teardown.
-        #expect(output.contains("return (todoController, _wireScopeTeardown)"))
+        #expect(
+            output.contains(
+                "return _WireScopeEntry_TodoController(_wireSubject: todoController, _wireScopeTeardown: _wireScopeTeardown)"
+            )
+        )
         // The proxy's `_wireEnterScope` field type carries the doubles parameter.
         #expect(proxy.dependencies[0].type.contains("(RequestSeed, \(doublesType)) async throws"))
     }
