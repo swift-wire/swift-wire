@@ -1,8 +1,7 @@
 # Remaining surface work — the sequence, and where it stands
 
-> **Status:** live sequencing note, revised 2026-08-26 against all four repositories. **Phases 0, 1 and 2
-> are done; Phase 5 is about half done; Phase 3 has two of its three items done, with `auth-abac` left;
-> Phase 4 is blocked upstream.** Each phase
+> **Status:** live sequencing note, revised 2026-08-26 against all four repositories. **Phases 0, 1, 2 and
+> 3 are done; Phase 5 is about half done; Phase 4 is blocked upstream.** Each phase
 > carries its own status and the PRs that closed it, and where a phase's *argument* was overturned by what
 > shipped, the note says so rather than quietly agreeing with the outcome.
 >
@@ -32,9 +31,9 @@ which holds the gap list M6 exists to close, nor
 six-item backlog — which includes behaviour a 1.0 router is expected to have.
 
 So "what remains in M6" had two defensible answers that differed by an order of magnitude. This note took
-the larger one and sequenced it. **Two of the three tracks in that larger answer have since closed** — the
-router backlog entirely, the streaming migration entirely — which is the answer to whether the larger
-reading was the right one to work from. What is left is the parity examples, one blocked tier, and an
+the larger one and sequenced it. **All three tracks in that larger answer have since closed** — the router
+backlog entirely, the streaming migration entirely, and now the parity examples — which is the answer to
+whether the larger reading was the right one to work from. What is left is one blocked tier and an
 allocation pass. Whether that becomes an M6e or an explicitly post-M6 track is still open at the end; the
 sequence holds either way.
 
@@ -43,7 +42,7 @@ sequence holds either way.
 | Source | What it contributes |
 |---|---|
 | [`ROADMAP.md`](../../ROADMAP.md) M6d | task-cluster migration; upstreaming the generator access change |
-| [`HummingbirdExamplesParity.md`](https://github.com/tachyonics/wire-mvc-examples/blob/main/Documentation/Notes/HummingbirdExamplesParity.md) | the parity track (5 items) and the streaming track (3), with their internal ordering already argued — **the parity track is what remains** |
+| [`HummingbirdExamplesParity.md`](https://github.com/tachyonics/wire-mvc-examples/blob/main/Documentation/Notes/HummingbirdExamplesParity.md) | the parity track (5 items) and the streaming track (3), with their internal ordering already argued — **the parity track is now closed**; that note carries the per-item record behind each |
 | [`StreamingResponseTier.md`](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/StreamingResponseTier.md) | the tier shipped, and migrating SSE and multipart off `@RawRoute` — "the larger part of the payoff" — is **now done**, Phase 1 |
 | [`WireMVCRouter.md`](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/WireMVCRouter.md) | the six-item router backlog, **all six shipped**; that note carries the per-item record and the prior-art surveys behind each decision |
 | [`PendingIssues/14`](../../PendingIssues/14-typed-tier-duplex-routes.md) | the duplex story: what spikes 31–33 already measured, and the upstream bug the typed tier waits on |
@@ -209,11 +208,14 @@ both constructing their not-found responder internally. The two hosts reach the 
 which matters if anyone proposes closing the gap: Hummingbird *has* the information and declines to use it,
 while Vapor cannot tell the cases apart at all, the method being the first path component of its lookup.
 
-### Phase 3 — parity examples — **two done, one left**
+### Phase 3 — parity examples — **done**
 
 In the parity note's own order, which this note does not change. Each is an example rather than framework
 work, so they are individually droppable and individually schedulable — and with Phases 1 and 2 closed,
-this is where the remaining example-facing work is.
+this was where the remaining example-facing work was. All three landed, and each one turned out to be about
+something other than its title: the file-serving item was about a middleware answering over the fallback,
+the jobs item was about durability rather than about background work, and `auth-abac` overturned the half
+of its own sentence that said *route-scope*.
 
 1. ~~**File serving / s3-file-provider**~~ — **done**, and restated on the way, as this note asked. The
    item was never "file serving": `AssetsController` (#57) already served a tree through `@Get("/{path*}")`,
@@ -325,8 +327,98 @@ this is where the remaining example-facing work is.
    wire-mvc-examples'
    [`HummingbirdExamplesParity.md`](https://github.com/tachyonics/wire-mvc-examples/blob/main/Documentation/Notes/HummingbirdExamplesParity.md),
    item 3.
-3. **auth-abac / auth-permissions** — policy objects as bindings, composed by route-scope middleware. The
-   existing API-key gate is a toy next to this. **The last item in this phase.**
+3. ~~**auth-abac / auth-permissions**~~ — **done**, and the "composed by route-scope middleware" half of
+   the item is what it overturned. Seven rules, each an ordinary `@Singleton` contributed to one
+   `CollectedKey<any AccessPolicy>`, combined by a `PolicyEngine` that names none of them
+   (deny-overrides, then permit-required); `/documents` in the shared `Controllers` package is the
+   resource. **No per-runtime binding anywhere** — the policy set, the engine, the gate and the store are
+   all portable — which makes it the only feature in that repository whose arrival on a runtime costs that
+   runtime nothing, where `TodoRepository`, `SessionManager` and `JobStore` each cost a binding.
+
+   **Once policy is a set of bindings, the annotation stops carrying policy.** A route-scope placement
+   would say "this route is the one that needs screening", which is a second, hand-maintained encoding of a
+   decision the set already makes. So there is one *controller*-scope gate, the action attribute comes from
+   the request method, and where the annotation sits says nothing. That is the real contrast with the
+   API-key gate, and it is not strictness: the toy encodes its rule in the placement, so reading the app's
+   policy means grepping for annotations.
+
+   **Three structural findings, all about what a middleware is not told** — and per-route policy could not
+   have been expressed by placement anyway, which is the first of them:
+
+   - **A middleware does not know which route it is on.** The box carries the request, the context, the
+     reader and the sender; the matched template and the path parameters stay in the generated register
+     closure. A genuinely per-route rule needs its own key and its own middleware type.
+   - **A middleware cannot reach a request-scoped binding**, for two independent reasons, each established
+     by compiling the alternative. A `@Factory` template's `@Inject` deps resolve **once**, into the
+     synthesised `_WireFactory_<key>`, which is an app `@Singleton`; and the fold is entered before
+     `_wireEnterScope`, which happens inside the fold's own terminal, so there is no scope in existence
+     when `create` is called. The gate therefore resolves the subject from the request and the
+     request-scoped `Caller` resolves it again — two dictionary reads there, two round trips against a real
+     identity provider.
+   - **There is no channel from a middleware to the handler**, so the first resolution cannot be handed
+     forward even in principle: the terminal destructures the box and discards the context. A
+     context-transforming middleware, which the box does support, therefore reaches no handler either.
+
+   **A swift-wire diagnostic bug fell out of the first of those, and belonged to this repository** —
+   [#16](../../CompletedIssues/16-factory-template-scope-hint.md), **since fixed**. Injecting
+   a scoped binding into a factory template reports `no binding produces 'Caller'` with a guided note —
+   *"scope `_WireFactory_ControllerMiddleware_screenAccess` to `@Scoped(seed: HTTPRequest.self)` too, or
+   extract the scope-bound concern into a wrapper bound at the wider scope"*. The first half cannot be
+   written: `@Scoped` and `@Factory` both synthesise an `init`, so together they are an `invalid
+   redeclaration`, and with the `init` supplied by hand the plugin ignores the scope macro and diagnoses
+   the template as a singleton anyway. The text is the generic scope-mismatch guidance and a factory
+   template is the case it does not fit — so it sent a reader at a combination that has no spelling.
+   Closed by the step below: the combination is now refused outright as two lifetime macros on one
+   declaration, and the note names the *template* and the moves that exist.
+
+   **The double resolution turned out to be a smaller item than it first looked.** Its *cost* is closable
+   in the application by caching the lookup, which a deployment with a real identity provider does anyway,
+   and the two resolutions cannot diverge because both go through one method — so what a framework change
+   buys is only agreement by construction. The obvious fix is also the wrong one: folding inside the scope
+   destroys the pre-authorisation property (a gate refusal currently skips scope construction entirely) and
+   drops every contributed header field from the `401`. The likelier answer leaves the gate where it is and
+   moves authorisation into the *argument*, via a `RequestBound` with graph access — a seam that already
+   sits after scope entry. wire-mvc's
+   [`ScopeAwareMiddlewareAndBindings.md`](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/ScopeAwareMiddlewareAndBindings.md)
+   carries the designs, the four costs of the obvious reordering, the prior-art survey behind each, and a
+   sequence with a forcing case per step — including a decision to keep middleware **app-lifetime
+   permanently** rather than build a scoped tier, since the prior art is unanimous on that and the tier's
+   only remaining charter is served more cheaply by carrying route identity on the box. **This repository
+   owns two steps of it.** The first — naming `@Factory` as a lifetime in its own right and diagnosing it
+   as one — is **done (2026-08-27)**: no source migration, since `@Factory(K)` was already written
+   correctly everywhere; what changed is that a scope macro beside it is refused as the contradiction it
+   is, and that the cross-scope note says something true. The second, a seeded scope yielding more than its
+   subject, is still open and is what the argument seam needs.
+
+   **So the decision splits in two, and the split is the item.** "Can subject S do action A on resource R"
+   turns on the resource, which no middleware has loaded — so the same set is consulted at two tiers by two
+   callers with different attributes in hand, and a rule that needs the resource returns `.notApplicable`
+   when there is none. A third tier falls out: `GET /documents` neither gates nor refuses, it *filters*, on
+   the same decision function the item route uses, which is what stops a list from disagreeing with a read.
+
+   **The gate must answer *deny or undecided*, never permit** — the one thing here that would be a security
+   bug rather than a missed optimisation. Every resource-reading rule abstains at the gate, so a query
+   without a resource is missing an unknown number of the rules that would have denied it, while the
+   resource-independent `ReadGrant` permits every read. `screen` returns `AccessDenial?` rather than a
+   decision, so the mistake is unwriteable rather than discouraged.
+
+   Two smaller things the implementation settled. **The tiers are distinguishable from outside with no
+   test-only instrumentation**, because they answer differently by construction: the gate writes its own
+   response and carries a body naming the rule, while `@ErrorResponse(E.self, .status)` produces a bodiless
+   status — the same observation channel `NoRoute` gives the static-file seam, arrived at by accident
+   twice. And **a `@Scoped` controller under a keyed test suite needs `withClient(supplying:)` even when it
+   substitutes nothing**: the doubles struct is empty, but an uncorrelated request still gets the harness's
+   explicit `500`, and the failure is *partial* — gate-refused requests never reach the terminal and pass —
+   so it reads as a broken policy tier rather than an uncorrelated request. That sits beside the jobs
+   item's `@BindType`-cannot-reach-a-background-service rule.
+
+   The exhaustive caller × action × resource matrix is a table in a unit suite rather than a request each,
+   for the reason that suite states: an authorisation bug does not throw, it answers `200`, and it answers
+   `200` only for the caller nobody drove a request as. The runtime suites assert what only a driven route
+   can — that the decision reaches the response, and that the two tiers are two — on all three hosts. The
+   per-item record is in wire-mvc-examples'
+   [`HummingbirdExamplesParity.md`](https://github.com/tachyonics/wire-mvc-examples/blob/main/Documentation/Notes/HummingbirdExamplesParity.md),
+   item 4.
 4. ~~**upload**~~ — **covered, and the item wants striking or restating.** `UploadController` (#46/#47)
    already runs both shapes: `POST /upload` binds `@MultipartSummary` on the `.readerBody` tier and
    `POST /upload/stream` binds `@MultipartStream` on the `.bodyStream` tier, neither ever holding the
@@ -894,7 +986,8 @@ which also answers what the ceiling costs on each of the four routes out of it.
 **Where this lives in the roadmap.** Half-answered since this was written: `ROADMAP.md`'s M6 entry now
 links this note and names the open question, so M6 can at least say where its remaining work is enumerated.
 The other half — which milestone that work *is* — is still unstated, and now matters less than it did,
-since two of the three tracks have closed. Two options, unchanged:
+since the parity track has closed too and only Phase 5 and the upstream-blocked duplex tier are left. Two
+options, unchanged:
 
 - **M6e**, naming what is left as a sub-milestone under the link that already exists — accurate to M6's
   stated purpose ("unblock the last examples"), at the cost of a milestone that grows after being nearly
@@ -904,7 +997,7 @@ since two of the three tracks have closed. Two options, unchanged:
   milestone boundary, at the cost of M6 having not quite met its own definition.
 
 Either is fine. Leaving it unstated is not, which is what this note exists to fix. **What is left to place
-is now small enough to describe in a sentence**, which it was not before: the parity examples (Phase 3), the
-router path's four allocation groups and the registry's ownership question (Phase 5), the lent-binding
-validation step, and one upstream pull request. Everything else is either shipped or waiting on
+is now small enough to describe in a sentence**, which it was not before, and Phase 3 closing shortened it
+again: the router path's four allocation groups and the registry's ownership question (Phase 5), the
+lent-binding validation step, and one upstream pull request. Everything else is either shipped or waiting on
 [swiftlang/swift#91473](https://github.com/swiftlang/swift/issues/91473).

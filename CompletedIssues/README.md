@@ -1,11 +1,14 @@
-# Completed Issues — variant app graph / mock-consuming factories
+# Completed Issues
 
-Resolved counterparts to [../PendingIssues/](../PendingIssues/README.md) — gaps surfaced while building the
-variant-app-graph testing story (M6a) that have since been **fixed or worked around**. Kept for the record;
-the individual write-ups are point-in-time (their internal "pending merge" notes predate the merges), and
-everything here is now merged/resolved. #01, #08, #09 and #10 were forced by Phase C (the wire-mvc-examples
-mocked-suite un-gate) and proven by that suite going green Docker-free; #04 was not — it was reproduced and
-fixed later, from a fixture written for the purpose.
+Resolved counterparts to [../PendingIssues/](../PendingIssues/README.md) — gaps that have since been
+**fixed or worked around**. Kept for the record; the individual write-ups are point-in-time (their internal
+"pending merge" notes predate the merges), and everything here is now merged/resolved.
+
+Most came from building the variant-app-graph testing story (M6a). #01, #08, #09 and #10 were forced by
+Phase C (the wire-mvc-examples mocked-suite un-gate) and proven by that suite going green Docker-free; #04
+was not — it was reproduced and fixed later, from a fixture written for the purpose. **#16 is different in
+kind**: a *diagnostic* bug rather than a graph one, surfaced by Phase 3's `auth-abac` item and fixed by
+naming `@Factory` as the lifetime it already was.
 
 | # | Title | Repo(s) | Resolution |
 |---|-------|---------|-----------|
@@ -14,5 +17,6 @@ fixed later, from a fixture written for the purpose.
 | [08](08-generic-seed-scoped-subject-harness.md) | Generic seed-scoped subject — doubles field ordering | wire-mvc | Fixed — the doubles construction is sorted to match WireGen's alphabetical struct order (the old `@TaskLocal` symptom was already gone post-M6a). |
 | [09](09-raw-route-variant-witness.md) | Raw route ignores the variant subject expression | wire-mvc | Fixed — `rawRouteBlock` dispatches on `subjectExpression` + the scope-entry prologue, like the typed path. |
 | [10](10-bindtype-cannot-name-macro-generated-mock.md) | `@BindType` can't name a macro-generated mock directly | Swift compiler (example workaround) | Worked around — `@BindType` names a plain `typealias` onto the `@Smock`-generated mock, since a macro can't name another macro's output as its argument. |
+| [16](16-factory-template-scope-hint.md) | The cross-scope fix-it names a synthesised factory the user cannot annotate | swift-wire | Fixed — `@Factory` is diagnosed as a lifetime macro (dissolving the `invalid redeclaration of init` and the double discovery behind it), and the cross-scope note names the *template* and offers only moves that can be written. No source migration. |
 
 See [../PendingIssues/](../PendingIssues/README.md) for what's still outstanding.

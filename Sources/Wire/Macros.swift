@@ -82,6 +82,34 @@ public macro Scoped<Seed>(seed: Seed.Type, allowUnused: Bool = false) =
 ///   template's `@Inject` deps once and injecting the factory where it's
 ///   consumed.
 ///
+/// ## Lifetime
+///
+/// `@Factory` is the third lifetime macro, alongside `@Singleton` and
+/// `@Scoped(seed:)`, and the one that names **no scope at all**. Two
+/// objects are involved and they have different lifetimes, which is what
+/// makes the question confusing until it is spelled out:
+///
+/// - The **factory** — the `_WireFactory_<key>` the plugin synthesises —
+///   is a graph binding with app lifetime, constructed once per graph
+///   that uses it.
+/// - The **template** — the type this attribute is written on — is
+///   constructed **per `create` call**, and is not a binding.
+///
+/// The consequence is the one that bites in practice: a template's
+/// `@Inject` members are resolved **once, where the factory is
+/// constructed**, not per `create`. So a `@Scoped(seed:)` binding cannot
+/// be one of them — not because the template is in the wrong scope, but
+/// because it has none, and the resolution happens at the factory's.
+///
+/// Because it names a lifetime, `@Factory` is **mutually exclusive with
+/// `@Singleton` and `@Scoped(seed:)`**; a declaration has one lifetime,
+/// and Wire refuses the combination rather than letting it surface as
+/// two synthesised initialisers colliding. There is nothing to scope: the
+/// template has no lifetime for a scope macro to change, and the factory
+/// that does have one is not a declaration you wrote. Dagger, which this
+/// vocabulary is borrowed from, states the same rule outright —
+/// "@AssistedInject types cannot be scoped".
+///
 ///     extension MyMiddleware {
 ///         static let session = FactoryKey()
 ///     }

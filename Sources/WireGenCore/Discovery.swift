@@ -208,6 +208,15 @@ package struct DiscoveredScopeBoundType: Sendable {
     /// name, or a dependency's name under composition). See
     /// `DiscoveredBinding.originModule`.
     package let originModule: String
+    /// The `@Factory` template this binding was synthesised *for*, when it is a `_WireFactory_<key>`
+    /// rather than a declaration the user wrote — carrying the template's name (`ScreenAccess`).
+    /// `nil` for every user-written binding.
+    ///
+    /// It exists so a diagnostic can tell the two apart. The synthesised factory is the only consumer
+    /// kind with no declaration to annotate, so advice of the form "put an annotation on the consumer"
+    /// is not a move for it — and the name a user would recognise is the template's, not the
+    /// `_WireFactory_` type they never wrote. See `CrossScopeHints.fixItSuggestion`.
+    package let factoryTemplateName: String?
 
     package var sourcePath: String { location.file }
 
@@ -230,7 +239,8 @@ package struct DiscoveredScopeBoundType: Sendable {
         allowUnused: Bool = false,
         teardown: TeardownAction? = nil,
         isReplacer: Bool = false,
-        originModule: String
+        originModule: String,
+        factoryTemplateName: String? = nil
     ) {
         self.typeName = typeName
         // Default to the simple name so existing call sites that pass
@@ -254,6 +264,7 @@ package struct DiscoveredScopeBoundType: Sendable {
         self.teardown = teardown
         self.isReplacer = isReplacer
         self.originModule = originModule
+        self.factoryTemplateName = factoryTemplateName
     }
 }
 

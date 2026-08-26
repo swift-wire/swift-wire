@@ -39,6 +39,13 @@ final class WireDiagnosticTests: XCTestCase {
         )
     }
 
+    func test_multipleLifetimeMacros_diagnosticID() {
+        XCTAssertEqual(
+            WireDiagnostic.multipleLifetimeMacros(this: "Factory", first: "Singleton").diagnosticID,
+            MessageID(domain: "Wire", id: "multiple-lifetime-macros")
+        )
+    }
+
     func test_allDiagnosticsHaveErrorSeverity() {
         // Every Wire diagnostic is an error today. If a future warning-
         // severity case is added, this test prompts a deliberate update
@@ -48,6 +55,7 @@ final class WireDiagnosticTests: XCTestCase {
             .multipleInjectInits,
             .unmarkedUserInit,
             .injectOnInitAndProperty,
+            .multipleLifetimeMacros(this: "Factory", first: "Singleton"),
         ]
         for diagnostic in cases {
             XCTAssertEqual(diagnostic.severity, .error, "\(diagnostic) was not .error")
