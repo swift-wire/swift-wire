@@ -479,6 +479,14 @@ sender stopped a `@RawRoute` declaring `consuming sending Sender` (Phase 3, item
 saving is a side payment, and a larger one than the lazy-allocation idea this table proposed: lazy would
 have made the *uncontributed* case free, where linearity makes every case free.
 
+**And it bought no time at all, which is the phase's thesis holding rather than a disappointment.**
+Socketed, the header-mechanism row is unchanged within noise — but socketed noise there is ±1.6 µs, which
+cannot resolve six allocations either way. The in-process pair can, at ~0.05 µs: `courier-headers` −
+`routed-match` measures **+0.41 µs before the change and +0.41 µs after**, p50 identical to the hundredth
+across three reps of each binary. Six allocations per request, zero measurable time. Allocations here are
+real and countable; latency is already at parity, and anyone reaching for this phase as a *performance*
+fix is reaching for the wrong thing.
+
 **Two lessons worth more than the six.** The estimate in this table was 1, from reading the type — a
 `final class` is one instance, so one allocation. It was six, and why it is six is *still not attributed*:
 an extra async frame does not explain it, since `WireMVCContextHandler` is untouched and the after-figure
