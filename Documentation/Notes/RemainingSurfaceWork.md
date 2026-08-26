@@ -1,8 +1,8 @@
 # Remaining surface work — the sequence, and where it stands
 
-> **Status:** live sequencing note, revised 2026-08-25 against all four repositories. **Phases 0, 1 and 2
-> are done; Phase 5 is about half done; Phase 3 has its first item done and two left; Phase 4 is blocked
-> upstream.** Each phase
+> **Status:** live sequencing note, revised 2026-08-26 against all four repositories. **Phases 0, 1 and 2
+> are done; Phase 5 is about half done; Phase 3 has two of its three items done, with `auth-abac` left;
+> Phase 4 is blocked upstream.** Each phase
 > carries its own status and the PRs that closed it, and where a phase's *argument* was overturned by what
 > shipped, the note says so rather than quietly agreeing with the outcome.
 >
@@ -209,7 +209,7 @@ both constructing their not-found responder internally. The two hosts reach the 
 which matters if anyone proposes closing the gap: Hummingbird *has* the information and declines to use it,
 while Vapor cannot tell the cases apart at all, the method being the first path component of its lookup.
 
-### Phase 3 — parity examples — **item 1 done, two left**
+### Phase 3 — parity examples — **two done, one left**
 
 In the parity note's own order, which this note does not change. Each is an example rather than framework
 work, so they are individually droppable and individually schedulable — and with Phases 1 and 2 closed,
@@ -283,10 +283,50 @@ this is where the remaining example-facing work is.
    `consuming` value", where both box destructures declare `consuming sending`; both now say that plain
    `consuming` is simply the permissive spelling.
 
-2. **jobs** — a queue as a graph-hosted `ServiceLifecycle` service plus a route that enqueues. Nothing
-   currently shows work outliving the request.
+2. ~~**jobs**~~ — **done**, in the shared `Controllers` package rather than in one runtime, so all three
+   serve it. Two bindings, not one: a per-runtime `JobStore` holding the records, and a `JobWorker` that
+   owns an in-process handoff, drains it, and *is* what the route talks to — bound
+   `@Singleton(as: JobProcessor.self) @BackgroundService`, so the graph constructs one instance and hands
+   it both to `JobsController` and to the app's `ServiceGroup`. `POST /jobs` awaits the store write before
+   answering `202`, so the record is durable when the response is written.
+
+   **The first cut kept the records in memory, and the write-up of it here was wrong**: it said the durable
+   version "changes one line — where `submit` writes". It does not, and what it hid is most of what the
+   item was worth. Giving the records a real store added a startup sweep, a double-delivery bug and the
+   conditional claim that fixes it, an explicit at-least-once contract, and a rule about which test
+   substitution primitive can reach a background service at all.
+
+   - **The sweep exposed a bug that had nothing to do with persistence.** A route is reachable before its
+     own service's `run()` has begun — nothing on any runtime orders serving after the `ServiceGroup`
+     starts — so a job submitted in that window is handed to the loop by `submit` *and* found by the sweep,
+     and it ran twice. Fixed at the claim, by re-reading the record and skipping a terminal one, which the
+     serial loop makes sufficient. Pinned by a test that fails without it.
+   - **`@BindType` cannot reach a background service.** It sources its instance from a `doubles` value
+     threaded into a scope at entry, and an app-scoped service reading its store *before the first request*
+     has no scope to be threaded through. So a service's collaborators are `@Replaces` territory — the
+     mocked suite supersedes the CouchDB store with an in-memory one and stays Docker-free. This is the
+     first `@Replaces` in wire-mvc-examples, and the rule is worth knowing generally.
+   - **`@Singleton(as:)` combined with `@Contributes` had no consumer anywhere**, generic or otherwise —
+     every contributor in swift-wire's own harnesses is a plain `@Singleton`. It composes correctly: one
+     construction, two consumers.
+   - **Vapor was discarding the collated services**, and had been since the collation existed, invisible
+     while that runtime bound none. Vapor 4 has no ServiceLifecycle integration at all, so the app now
+     builds the `ServiceGroup` itself in a `LifecycleHandler` — registered after the teardown handler, and
+     implementing the synchronous `didBoot` because `app.testing()` boots through the non-async path.
+   - **The drain is why the worker is a `Service` and not a `Task`**, and a failure after acceptance is a
+     record rather than a status, since `@ErrorResponse` cannot reach a response already written.
+
+   Three claims are measured rather than argued: substituting `cancelOnGracefulShutdown()` for the drain
+   fails the drain test on 37–41 of fifty accepted jobs across three runs (a range, because it is a race);
+   substituting `didBootAsync` leaves Vapor's `202` intact with nothing ever running the job; and removing
+   the conditional claim makes a job submitted before the sweep run twice.
+
+   The per-item record, including where the three backends stop being interchangeable, is in
+   wire-mvc-examples'
+   [`HummingbirdExamplesParity.md`](https://github.com/tachyonics/wire-mvc-examples/blob/main/Documentation/Notes/HummingbirdExamplesParity.md),
+   item 3.
 3. **auth-abac / auth-permissions** — policy objects as bindings, composed by route-scope middleware. The
-   existing API-key gate is a toy next to this.
+   existing API-key gate is a toy next to this. **The last item in this phase.**
 4. ~~**upload**~~ — **covered, and the item wants striking or restating.** `UploadController` (#46/#47)
    already runs both shapes: `POST /upload` binds `@MultipartSummary` on the `.readerBody` tier and
    `POST /upload/stream` binds `@MultipartStream` on the `.bodyStream` tier, neither ever holding the
