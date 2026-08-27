@@ -1,8 +1,8 @@
 import SwiftSyntax
 
-// `@Provides` extraction — the producer half of discovery, split out of `BindingDiscovery.swift` (which was
-// at its length budget). A `@Provides` property or function is a binding in its own right, captured with
-// its access path rather than a type name, which is what separates it from the scope-bound path next door.
+// `@Provides` extraction — the producer half of discovery. A `@Provides` property or function is a binding
+// in its own right, captured with its access path rather than a type name, which is what separates it from
+// the scope-bound path next door.
 
 extension BindingDiscovery {
     func extractProvidesProperty(_ node: VariableDeclSyntax) {
