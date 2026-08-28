@@ -14,6 +14,11 @@ import Wire
 /// the concrete subject, and that it does so for a subject over an opaque backend, which is the case that
 /// motivated the protocol. WireOpenAPI's `noSubject` helper is this function, emitted into a generated
 /// conformer for a field whose type it could not otherwise spell.
+///
+/// The teardown is *not* a requirement, and the reason is a cross-module one worth knowing: a protocol
+/// requirement spelled `@Sendable () async -> [any Error]` means `@concurrent` in swift-wire and
+/// `nonisolated(nonsending)` in a consumer that enables `NonisolatedNonsendingByDefault` — which every
+/// adapter here does — so a conformance would fail on a type that prints the same in both.
 @Suite("Scope entry projection")
 struct ScopeEntryProjectionTests {
     /// WireOpenAPI's helper, verbatim in shape: a typed `nil` whose type is read off the thunk. The thunk
@@ -41,20 +46,5 @@ struct ScopeEntryProjectionTests {
         slot = entered._wireSubject
         #expect(slot?.tag() == "mock:routed")
         _ = await entered._wireScopeTeardown()
-    }
-
-    @Test func theTeardownIsReachableThroughTheProtocolToo() async throws {
-        // Generic code holding an entry it cannot name still has to end the scope it opened, which is why
-        // the teardown is a requirement rather than left to the concrete type.
-        func endScope(_ entry: some WireScopeEntry) async -> [any Error] {
-            await entry._wireScopeTeardown()
-        }
-        let graph = try await Wire.bootstrapGenProxyFixture_bindMock()
-        let proxy = Wire.bootstrapGenProxyFixture_bindMock_GenProxyRouteControllerContributor(wireGraph: graph)
-        let doubles = _GenProxyFixture_bindMock_GenProxyRouteControllerDoubles(
-            genProxyRepository: MockGenProxyRepository()
-        )
-        let entered = try await proxy._wireEnterScope(GenProxyRequestSeed(id: "teardown"), doubles)
-        #expect(await endScope(entered).isEmpty)
     }
 }
