@@ -77,6 +77,13 @@ the match is identity rather than a heuristic. A parameter attribute that names 
 (`@Path`, an ordinary property wrapper) matches nothing, which is why the rule needs no
 vocabulary of what to ignore and Wire still never learns what a route is.
 
+The entry a bridged proxy's thunk returns is a synthesised `_WireScopeEntry_<Subject>` struct, and an
+adapter's codegen normally receives one and reads its fields concretely. The exception is an adapter
+emitting a *generic* declaration over a request-scoped subject, which has no name for that subject at all:
+`WireScopeEntry` is the protocol the struct conforms to so `Entry.Subject` recovers it. That was structural
+while the thunk returned a tuple; a named struct does not decompose, so the projection is carried
+explicitly.
+
 It was briefly a declared capability taking `@X(T.self)`. That is what an adapter author
 would reach for, and it was wrong for the *consumer*: the annotation did nothing for the
 person writing it, existed only to make the internals work, and was an error to omit while

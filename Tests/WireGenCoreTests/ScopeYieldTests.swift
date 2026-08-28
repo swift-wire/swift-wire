@@ -90,7 +90,7 @@ struct ScopeYieldTests {
         )
         #expect(
             renderScopeEntryStructDeclaration(descriptor) == """
-                struct _WireScopeEntry_DocumentsController: Sendable {
+                struct _WireScopeEntry_DocumentsController: Sendable, WireScopeEntry {
                     let _wireSubject: DocumentsController
                     let authorizedDocument: AuthorizedDocument
                     let caller: Caller
@@ -114,7 +114,7 @@ struct ScopeYieldTests {
         )
         #expect(
             renderScopeEntryStructDeclaration(descriptor) == """
-                struct _WireScopeEntry_MeController<Repository: TodoRepository, Manager: SessionManager>: Sendable {
+                struct _WireScopeEntry_MeController<Repository: TodoRepository, Manager: SessionManager>: Sendable, WireScopeEntry {
                     let _wireSubject: MeController<Repository, Manager>
                     let _wireScopeTeardown: @Sendable () async -> [any Error]
                 }
