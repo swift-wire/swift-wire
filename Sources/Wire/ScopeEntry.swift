@@ -23,6 +23,16 @@
 /// `Sendable` because an entry crosses an async boundary out of the `@Sendable` thunk that built it; every
 /// synthesised entry is.
 ///
+/// **The subject is the only requirement, and the teardown deliberately is not** — though it looked like
+/// the obvious companion, since entering a scope and ending it are one contract. A protocol requirement
+/// spelled `@Sendable () async -> [any Error]` does not mean the same thing in two modules that disagree
+/// about `NonisolatedNonsendingByDefault`: it is `@concurrent` where this protocol is declared and
+/// `nonisolated(nonsending)` where an adapter's graph file is emitted, and the conformance then fails on a
+/// type that prints identically in both. Pinning either spelling would silently change the isolation of
+/// every scope teardown in whichever set of consumers did not already agree. So the protocol carries no
+/// function type at all, which makes it immune to the question; the teardown is read off the concrete
+/// entry, which every caller has.
+///
 /// > Note: the requirements are spelled with their leading underscores because they *are* the generated
 /// > field names — the protocol describes a synthesised type rather than proposing a convention, and a
 /// > tidier spelling here would be one the emitted struct does not satisfy. (Write neither the linter's
@@ -32,22 +42,13 @@ public protocol WireScopeEntry: Sendable {
     /// The subject the scope entry constructed — the type an adapter cannot otherwise name.
     associatedtype Subject
 
-    // The two requirements below keep their leading underscores because they *are* the synthesised
-    // struct's field names: a tidier spelling would be one the emitted type does not satisfy. Disabled as
-    // a region rather than per declaration, so each doc comment stays adjacent to what it documents.
+    // The requirement keeps its leading underscore because it *is* the synthesised struct's field name: a
+    // tidier spelling would be one the emitted type does not satisfy. Disabled as a region rather than for
+    // the next line, so the doc comment below stays attached to what it documents.
     // swiftlint:disable identifier_name
 
     /// The constructed subject.
     var _wireSubject: Subject { get }
-
-    /// The scope's teardown, to run after the response. Collects errors rather than throwing, matching the
-    /// graph's own `teardown()`; a caller that ignores the result discards them deliberately.
-    ///
-    /// Exposed alongside the subject rather than left to the concrete type because entering a scope and
-    /// tearing it down are one contract: generic code holding an entry it cannot name still has to be able
-    /// to end the scope it opened. A yield, by contrast, is per-subject and has no place in a protocol —
-    /// it is read off the concrete entry, whose fields the adapter's codegen does know.
-    var _wireScopeTeardown: @Sendable () async -> [any Error] { get }
 
     // swiftlint:enable identifier_name
 }

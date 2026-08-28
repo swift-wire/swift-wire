@@ -2,6 +2,24 @@
 import CompilerPluginSupport
 import PackageDescription
 
+// Applied to every Swift target in this package.
+//
+// **`NonisolatedNonsendingByDefault`** is here for *agreement*, not for anything swift-wire needs on its
+// own. Every adapter downstream — wire-mvc, wire-open-api — already enables it, and until now swift-wire
+// did not, so a bare `@Sendable () async -> …` meant `@concurrent` in a `Wire` declaration and
+// `nonisolated(nonsending)` in the generated file an adapter compiles. A protocol requirement of that
+// shape is then unsatisfiable by a type that prints identically to it, which is exactly how it was found:
+// `WireScopeEntry` shipped with a teardown requirement, swift-wire's own suite passed (a package agrees
+// with itself), and WireOpenAPI's fixtures refused the emitted conformance.
+//
+// Enabling it costs nothing measurable here — the package builds warning-free and every test passes — and
+// it is the default in Swift 7 regardless. It is not, on its own, sufficient: a protocol carrying no
+// function type at all is immune whether or not a given consumer agrees, which is why `WireScopeEntry`
+// requires only the subject.
+let wireSettings: [SwiftSetting] = [
+    .enableUpcomingFeature("NonisolatedNonsendingByDefault")
+]
+
 let package = Package(
     name: "swift-wire",
     platforms: [
@@ -41,14 +59,16 @@ let package = Package(
     targets: [
         .target(
             name: "Wire",
-            dependencies: ["WireMacrosImpl"]
+            dependencies: ["WireMacrosImpl"],
+            swiftSettings: wireSettings
         ),
         // The test-graph vocabulary. Depends on `Wire` for `BindingKey` (the keyed `@BindType` overload names
         // it) and on the same macro plugin — `@BindType` is a marker macro, so which module *declares* it is
         // free, and declaring it here is what makes the dependency visible in a consumer's manifest.
         .target(
             name: "WireTesting",
-            dependencies: ["Wire", "WireMacrosImpl"]
+            dependencies: ["Wire", "WireMacrosImpl"],
+            swiftSettings: wireSettings
         ),
         .macro(
             name: "WireMacrosImpl",
@@ -56,7 +76,8 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
                 .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
-            ]
+            ],
+            swiftSettings: wireSettings
         ),
         // Test-only macro plugin: hosts `@RouteController` (a stand-in adapter marker) so swift-wire's
         // IntegrationTests can induce a contributor proxy. Only `WireTestLibrary` depends on it, so it is
@@ -67,18 +88,21 @@ let package = Package(
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
                 .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
-            ]
+            ],
+            swiftSettings: wireSettings
         ),
         .target(
             name: "WireGenCore",
             dependencies: [
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
-            ]
+            ],
+            swiftSettings: wireSettings
         ),
         .executableTarget(
             name: "WireGen",
-            dependencies: ["WireGenCore"]
+            dependencies: ["WireGenCore"],
+            swiftSettings: wireSettings
         ),
         .plugin(
             name: "WireBuildPlugin",
@@ -87,18 +111,21 @@ let package = Package(
         ),
         .testTarget(
             name: "WireTests",
-            dependencies: ["Wire", "WireTesting"]
+            dependencies: ["Wire", "WireTesting"],
+            swiftSettings: wireSettings
         ),
         .testTarget(
             name: "WireMacrosImplTests",
             dependencies: [
                 "WireMacrosImpl",
                 .product(name: "SwiftSyntaxMacrosTestSupport", package: "swift-syntax"),
-            ]
+            ],
+            swiftSettings: wireSettings
         ),
         .testTarget(
             name: "WireGenCoreTests",
-            dependencies: ["WireGenCore"]
+            dependencies: ["WireGenCore"],
+            swiftSettings: wireSettings
         ),
         // A same-package, Wire-aware library the IntegrationTests target
         // composes via cross-target source reading (iteration 7c). It opts
@@ -107,13 +134,15 @@ let package = Package(
         // re-parses its sources.
         .target(
             name: "WireTestLibrary",
-            dependencies: ["Wire", "WireTestMacrosImpl"]
+            dependencies: ["Wire", "WireTestMacrosImpl"],
+            swiftSettings: wireSettings
         ),
         .testTarget(
             name: "IntegrationTests",
             // `WireTesting` for the `TestingKey`/`@BindType` fixtures — a test target takes it explicitly,
             // which is the whole point of the split.
             dependencies: ["Wire", "WireTesting", "WireTestLibrary"],
+            swiftSettings: wireSettings,
             plugins: [.plugin(name: "WireBuildPlugin")]
         ),
     ]
