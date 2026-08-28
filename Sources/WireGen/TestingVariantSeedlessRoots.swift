@@ -286,15 +286,26 @@ extension WireGen {
         doublesType: String,
         factoryRetypes: [String: String]
     ) -> DiscoveredScopeBoundType {
-        let thunkType = seedlessScopeEntryThunkType(subject: subjectDepType, doubles: doublesType)
+        let descriptor = seedlessScopeEntryDescriptor(
+            subject: subjectDepType,
+            doubles: doublesType,
+            entryStructName: scopeEntryStructName(
+                subjectTypeName: bareTypeName(subjectDepType),
+                variant: variantName
+            ),
+            genericParameterNames: proxy.genericParameterNames,
+            genericParameterConstraints: proxy.genericParameterConstraints,
+            genericWhereClause: proxy.genericWhereClause
+        )
         let dependencies = proxy.dependencies.map { dependency -> DependencyParameter in
             if dependency.name == nil {
                 // The unlabelled `_wireSubject` → the seedless `_wireEnterScope(doubles)` scope-entry thunk.
                 return DependencyParameter(
                     name: contributorProxyScopeEntryFieldName,
-                    type: thunkType,
+                    type: descriptor.thunkType,
                     kind: .scopeEntryThunk,
-                    location: dependency.location
+                    location: dependency.location,
+                    scopeEntry: descriptor
                 )
             }
             // A mock-consuming lifted factory → its variant factory type; other lifted deps carry unchanged.

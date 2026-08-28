@@ -523,6 +523,10 @@ package struct DependencyParameter: Sendable {
     /// points at it. Doesn't affect resolution or codegen. See
     /// `OptionalMatchingAndCycles.md`.
     package let nonOwningInitForm: NonOwningInitForm?
+    /// What this `.scopeEntryThunk` dependency enters and hands back, or `nil` for every other kind.
+    /// Present ⇒ `type` is a rendering of this and nothing needs to read it back; see
+    /// ``ScopeEntryDescriptor``, which says why the contract stopped living in the type string.
+    package let scopeEntry: ScopeEntryDescriptor?
 
     package init(
         name: String?,
@@ -531,7 +535,8 @@ package struct DependencyParameter: Sendable {
         location: SourceLocation,
         keyIdentifier: String? = nil,
         nonOwningInitForm: NonOwningInitForm? = nil,
-        injectionRewrite: InjectionRewriteSite? = nil
+        injectionRewrite: InjectionRewriteSite? = nil,
+        scopeEntry: ScopeEntryDescriptor? = nil
     ) {
         self.name = name
         self.type = type
@@ -540,6 +545,7 @@ package struct DependencyParameter: Sendable {
         self.keyIdentifier = keyIdentifier
         self.nonOwningInitForm = nonOwningInitForm
         self.injectionRewrite = injectionRewrite
+        self.scopeEntry = scopeEntry
     }
 }
 
@@ -734,6 +740,8 @@ package struct SourceFileDiscovery: Sendable {
     /// Contribution-alias candidates (every type-decl attribute) found in this
     /// file. Aggregated and classified against declared aliases.
     package let aliasUseSites: [ContributionAliasUseSite]
+    /// Parameter attributes on member methods, by enclosing type — see ``ScopeYieldCandidate``.
+    package let scopeYieldCandidates: [ScopeYieldCandidate]
     /// `@Factory(key)` factory templates found in this file. Aggregated across
     /// the module by `WireGen`; consumer-driven synthesis (`@Middleware(key)`)
     /// turns each demanded key into one concrete factory binding. See
@@ -771,6 +779,7 @@ package struct SourceFileDiscovery: Sendable {
         bindingKeys: [DiscoveredBindingKey] = [],
         adapterAnnotations: [DiscoveredAdapterAnnotation] = [],
         aliasUseSites: [ContributionAliasUseSite] = [],
+        scopeYieldCandidates: [ScopeYieldCandidate] = [],
         factoryTemplates: [DiscoveredFactoryTemplate] = [],
         resultBuilders: [DiscoveredResultBuilder] = [],
         graphConformances: [DiscoveredGraphConformance] = [],
@@ -789,6 +798,7 @@ package struct SourceFileDiscovery: Sendable {
         self.bindingKeys = bindingKeys
         self.adapterAnnotations = adapterAnnotations
         self.aliasUseSites = aliasUseSites
+        self.scopeYieldCandidates = scopeYieldCandidates
         self.factoryTemplates = factoryTemplates
         self.resultBuilders = resultBuilders
         self.graphConformances = graphConformances
@@ -852,6 +862,7 @@ package func discover(
         bindingKeys: visitor.bindingKeys,
         adapterAnnotations: visitor.adapterAnnotations,
         aliasUseSites: visitor.aliasUseSites,
+        scopeYieldCandidates: visitor.scopeYieldCandidates,
         factoryTemplates: visitor.factoryTemplates,
         resultBuilders: visitor.resultBuilders,
         graphConformances: visitor.graphConformances,

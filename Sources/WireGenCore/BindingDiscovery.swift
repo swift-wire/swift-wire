@@ -25,7 +25,10 @@ import SwiftSyntax
 /// dependency no binding satisfies.
 
 /// One enclosing-type frame on `BindingDiscovery.scopes`.
-private struct VisitorScope {
+// Internal rather than file-private: the `@Provides` extractors live in a sibling file
+// (`BindingDiscovery+Provides.swift`), as the `@TestScopable` scan already does, and read the scope stack
+// to build their access paths.
+struct VisitorScope {
     /// Type name of this enclosing declaration. Joined with `.` to
     /// produce qualified type names and `@Provides` access paths.
     let typeName: String
@@ -110,6 +113,10 @@ final class BindingDiscovery: SyntaxVisitor {
     /// Contribution-alias candidates — every type-decl attribute, classified
     /// against declared aliases after aggregation. See `ContributionAliasResolution`.
     var aliasUseSites: [ContributionAliasUseSite] = []
+    /// Parameter attributes on member methods, by enclosing type — the raw material a bridged subject's
+    /// scope yields are matched from. See `ScopeYieldCandidate`.
+    private(set) var scopeYieldCandidates: [ScopeYieldCandidate] = []
+
     /// `@Factory(key)` factory templates found in this file, in source order.
     /// The producer side of the factory model — consumer-driven synthesis
     /// (`@Middleware(key)`) turns each demanded key into one concrete factory.
@@ -138,7 +145,7 @@ final class BindingDiscovery: SyntaxVisitor {
     /// enclosing declaration; an empty stack means module scope.
     /// Bundling each frame's dimensions into one value keeps push/pop
     /// atomic — there's no way to forget to update one on the way out.
-    private var scopes: [VisitorScope] = []
+    var scopes: [VisitorScope] = []
 
     init(sourcePath: String, converter: SourceLocationConverter, module: String) {
         self.sourcePath = sourcePath
@@ -488,9 +495,18 @@ final class BindingDiscovery: SyntaxVisitor {
             // *enclosing type*'s binding (methods aren't bindings), so its adapter use-sites attribute
             // to that type. `scopes` already holds the enclosing type here. `@Provides` funcs are their
             // own bindings, captured with their access path, so they're excluded.
-            recordAdapterUseSites(
-                targetIdentity: scopes.map(\.typeName).joined(separator: "."),
-                attributes: node.attributes
+            let enclosing = scopes.map(\.typeName).joined(separator: ".")
+            recordAdapterUseSites(targetIdentity: enclosing, attributes: node.attributes)
+            // A method's *parameter* attributes attribute to the same enclosing type, for the same reason:
+            // a scope entry is built for the type, and a parameter naming a scope binding is how a route
+            // asks for one. Recorded unfiltered — which of these are bindings is not a syntax question.
+            scopeYieldCandidates.append(
+                contentsOf: WireGenCore.scopeYieldCandidates(
+                    targetIdentity: enclosing,
+                    parameters: node.signature.parameterClause.parameters,
+                    sourcePath: sourcePath,
+                    converter: converter
+                )
             )
         }
         warnings.append(contentsOf: producerlessMarkerDiagnostics(in: node.attributes))
@@ -587,7 +603,7 @@ extension BindingDiscovery {
     /// with its identity — a qualified type name for a type, or a `@Provides`
     /// access path for a provider function/property (so `@X` aliases resolve on
     /// providers, not just types).
-    private func recordAdapterUseSites(targetIdentity: String, attributes: AttributeListSyntax) {
+    func recordAdapterUseSites(targetIdentity: String, attributes: AttributeListSyntax) {
         aliasUseSites.append(
             contentsOf: scanContributionAliasUseSites(
                 targetIdentity: targetIdentity,
@@ -612,7 +628,7 @@ extension BindingDiscovery {
 extension BindingDiscovery {
     /// Resolve the 1-based file/line/col of a syntax node's start
     /// position. Used by everything that needs a `SourceLocation`.
-    private func location(of node: some SyntaxProtocol) -> SourceLocation {
+    func location(of node: some SyntaxProtocol) -> SourceLocation {
         let position = node.startLocation(converter: converter)
         return SourceLocation(
             file: sourcePath,
@@ -626,7 +642,7 @@ extension BindingDiscovery {
     /// scope axis comes from the binding's own scope identity (non-nil for
     /// `@Scoped(seed:)`). Bindings are already stamped with the discovery
     /// module at construction.
-    private func record(_ binding: DiscoveredBinding) {
+    func record(_ binding: DiscoveredBinding) {
         let scopeKey: ScopeKey? =
             switch binding {
             case .scopeBound(let scopeBound): scopeBound.scopeKey
@@ -834,163 +850,4 @@ extension BindingDiscovery {
         )
     }
 
-    fileprivate func extractProvidesProperty(_ node: VariableDeclSyntax) {
-        // Multi-binding declarations (`let a = 1, b = 2`) are skipped:
-        // they're a rare style and supporting them complicates the
-        // `accessPath` story for no real-world gain.
-        guard node.bindings.count == 1, let binding = node.bindings.first else { return }
-        guard let pattern = binding.pattern.as(IdentifierPatternSyntax.self) else { return }
-
-        guard let boundType = providesPropertyBoundType(binding) else {
-            // Can't determine the bound type without running type
-            // inference. Skip silently — same posture as `@Inject`
-            // properties without annotations.
-            return
-        }
-
-        let propertyName = pattern.identifier.text
-        let accessPath = (scopes.map(\.typeName) + [propertyName]).joined(separator: ".")
-        recordAdapterUseSites(targetIdentity: accessPath, attributes: node.attributes)
-        let providesAttribute = attribute(in: node.attributes, named: "Provides")
-        let key = providesAttribute.flatMap { keyIdentifier(from: $0) }
-        let scopeKey = scopes.last?.seedScope
-        let providerLocation = location(of: pattern.identifier)
-        // Computed properties (`@Provides var x: T { get async throws { … } }`)
-        // can carry effect specifiers on the `get` accessor. Stored
-        // `@Provides let` bindings can't, so the flags stay `false`
-        // for those.
-        let propertyEffects = computedPropertyEffectFlags(binding)
-        let providerAccess = accessLevel(from: node.modifiers)
-        if let diagnostic = declarationTooPrivateDiagnostic(
-            surfaceLabel: "@Provides declaration",
-            name: propertyName,
-            ownAccess: providerAccess,
-            enclosing: scopes.map { ($0.typeName, $0.access) },
-            location: providerLocation
-        ) {
-            warnings.append(diagnostic)
-        }
-        let teardown = providerTeardownAction(
-            in: node.attributes,
-            sourcePath: sourcePath,
-            converter: converter
-        )
-        warnings.append(contentsOf: teardown.diagnostics)
-        record(
-            .provider(
-                DiscoveredProvider(
-                    boundType: boundType,
-                    accessPath: accessPath,
-                    form: .property,
-                    dependencies: [],
-                    genericParameterNames: [],
-                    location: providerLocation,
-                    keyIdentifier: key,
-                    isAsync: propertyEffects.isAsync,
-                    isThrowing: propertyEffects.isThrowing,
-                    accessLevel: providerAccess,
-                    scopeKey: scopeKey,
-                    contributions: contributions(
-                        in: node.attributes,
-                        sourcePath: sourcePath,
-                        converter: converter
-                    ),
-                    allowUnused: providesAttribute.map { allowUnusedFlag(from: $0) } ?? false,
-                    teardown: teardown.action,
-                    isReplacer: hasReplacesMarker(in: node.attributes),
-                    originModule: module
-                )
-            )
-        )
-        unannotatedExtensionProvides.append(
-            contentsOf: unannotatedExtensionProvidesCandidates(
-                providerName: propertyName,
-                location: providerLocation,
-                extendedType: scopes.last?.unannotatedExtensionTarget
-            )
-        )
-    }
-
-    fileprivate func extractProvidesFunction(_ node: FunctionDeclSyntax) {
-        guard let returnClause = node.signature.returnClause else {
-            // Void-returning `@Provides func` produces nothing
-            // injectable. Silently skip.
-            return
-        }
-        let functionName = node.name.text
-        let accessPath = (scopes.map(\.typeName) + [functionName]).joined(separator: ".")
-        recordAdapterUseSites(targetIdentity: accessPath, attributes: node.attributes)
-        let dependencies = node.signature.parameterClause.parameters.map { parameter in
-            // Per-parameter `@Bind(<key>)` lets a consumer name the keyed
-            // binding it wants (`@Inject` is a peer macro, so it can't
-            // attach to a parameter). A bare parameter (no attribute) is
-            // an unkeyed dep, resolved by type — the common case, since
-            // `@Provides func` parameters are implicitly deps.
-            let parameterKey = parameterKeyIdentifier(from: parameter)
-            return DependencyParameter(
-                name: parameterName(parameter),
-                type: parameter.type.trimmedDescription,
-                kind: .providerFunctionParameter,
-                location: location(of: parameter.firstName),
-                keyIdentifier: parameterKey,
-                injectionRewrite: parameterInjectionRewrite(from: parameter)
-            )
-        }
-        let genericParameterNames =
-            node.genericParameterClause?.parameters.map { $0.name.text } ?? []
-        let providesAttribute = attribute(in: node.attributes, named: "Provides")
-        let key = providesAttribute.flatMap { keyIdentifier(from: $0) }
-        let scopeKey = scopes.last?.seedScope
-        let providerLocation = location(of: node.name)
-        unannotatedExtensionProvides.append(
-            contentsOf: unannotatedExtensionProvidesCandidates(
-                providerName: functionName,
-                location: providerLocation,
-                extendedType: scopes.last?.unannotatedExtensionTarget
-            )
-        )
-        let effects = functionEffectFlags(node.signature.effectSpecifiers)
-        let providerAccess = accessLevel(from: node.modifiers)
-        if let diagnostic = declarationTooPrivateDiagnostic(
-            surfaceLabel: "@Provides function",
-            name: functionName,
-            ownAccess: providerAccess,
-            enclosing: scopes.map { ($0.typeName, $0.access) },
-            location: providerLocation
-        ) {
-            warnings.append(diagnostic)
-        }
-        let teardown = providerTeardownAction(
-            in: node.attributes,
-            sourcePath: sourcePath,
-            converter: converter
-        )
-        warnings.append(contentsOf: teardown.diagnostics)
-        record(
-            .provider(
-                DiscoveredProvider(
-                    boundType: returnClause.type.trimmedDescription,
-                    accessPath: accessPath,
-                    form: .function,
-                    dependencies: dependencies,
-                    genericParameterNames: genericParameterNames,
-                    location: providerLocation,
-                    keyIdentifier: key,
-                    isAsync: effects.isAsync,
-                    isThrowing: effects.isThrowing,
-                    accessLevel: providerAccess,
-                    scopeKey: scopeKey,
-                    contributions: contributions(
-                        in: node.attributes,
-                        sourcePath: sourcePath,
-                        converter: converter
-                    ),
-                    allowUnused: providesAttribute.map { allowUnusedFlag(from: $0) } ?? false,
-                    teardown: teardown.action,
-                    isReplacer: hasReplacesMarker(in: node.attributes),
-                    originModule: module
-                )
-            )
-        )
-    }
 }

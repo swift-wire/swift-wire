@@ -15,7 +15,9 @@ struct ScopableRouteContributorTests {
 
         let proxy = Wire.bootstrapAppScopedFixture_bindMock_AppScopedControllerContributor(wireGraph: graph)
         // Seedless entry — the doubles are the only argument (no seed); the controller is rebuilt on demand.
-        let (subject, teardown) = try await proxy._wireEnterScope(doubles)
+        let entered = try await proxy._wireEnterScope(doubles)
+        let subject = entered._wireSubject
+        let teardown = entered._wireScopeTeardown
 
         // The mock reaches the rebuilt subject; the non-mock `AppScopedLog` is borrowed from the variant graph.
         #expect(subject.tag() == "mock:routed:log")
@@ -46,7 +48,9 @@ struct ScopableRouteContributorTests {
         let doubles = _GenAppScopedFixture_bindMock_GenAppControllerDoubles(genAppBackend: mock)
 
         let proxy = Wire.bootstrapGenAppScopedFixture_bindMock_GenAppControllerContributor(wireGraph: graph)
-        let (subject, teardown) = try await proxy._wireEnterScope(doubles)
+        let entered = try await proxy._wireEnterScope(doubles)
+        let subject = entered._wireSubject
+        let teardown = entered._wireScopeTeardown
         #expect(subject.note() == "mock:routed")
 
         // The generic mock-consuming factory concretized to `GenAppAudit<MockGenAppBackend>`: its

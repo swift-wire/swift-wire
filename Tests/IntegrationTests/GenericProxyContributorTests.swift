@@ -13,7 +13,9 @@ struct GenericProxyContributorTests {
         let doubles = _GenProxyFixture_bindMock_GenProxyRouteControllerDoubles(genProxyRepository: mock)
 
         let proxy = Wire.bootstrapGenProxyFixture_bindMock_GenProxyRouteControllerContributor(wireGraph: graph)
-        let (subject, teardown) = try await proxy._wireEnterScope(GenProxyRequestSeed(id: "req-1"), doubles)
+        let entered = try await proxy._wireEnterScope(GenProxyRequestSeed(id: "req-1"), doubles)
+        let subject = entered._wireSubject
+        let teardown = entered._wireScopeTeardown
 
         #expect(subject.tag() == "mock:routed")
         let errors = await teardown()
@@ -31,7 +33,9 @@ struct GenericProxyContributorTests {
         let doubles = _GenProxyFixture_bindMock_GenPartialRouteControllerDoubles(genProxyRepository: mock)
 
         let proxy = Wire.bootstrapGenProxyFixture_bindMock_GenPartialRouteControllerContributor(wireGraph: graph)
-        let (subject, teardown) = try await proxy._wireEnterScope(GenPartialRequestSeed(id: "req-1"), doubles)
+        let entered = try await proxy._wireEnterScope(GenPartialRequestSeed(id: "req-1"), doubles)
+        let subject = entered._wireSubject
+        let teardown = entered._wireScopeTeardown
 
         #expect(subject.tag() == "mock:partial:else")
         let errors = await teardown()

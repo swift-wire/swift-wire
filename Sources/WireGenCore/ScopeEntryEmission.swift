@@ -37,8 +37,14 @@ func scopeEntryThunkLines(
     // which `async throws` needs — so the emitted thunk's type, local name, and return match the proxy's
     // specialised construction argument, not the raw generic form (whose bare `Repository` isn't in scope
     // in `_wireBootstrap`). A non-generic proxy is not a lift node, so its thunk type is unchanged.
-    let lines = scopeEntries.flatMap { entry in
-        scopeEntryThunkLines(thunkType: liftSpecialised(entry.type, in: binding), scopes: scopes) ?? []
+    let lines = scopeEntries.flatMap { entry -> [String] in
+        guard let descriptor = entry.scopeEntry else { return [] }
+        return scopeEntryThunkLines(
+            descriptor: descriptor,
+            thunkType: liftSpecialised(entry.type, in: binding),
+            specialising: { liftSpecialised($0, in: binding) },
+            scopes: scopes
+        ) ?? []
     }
     return lines.isEmpty ? nil : lines
 }
@@ -57,15 +63,27 @@ func liftSpecialised(_ type: String, in binding: DiscoveredBinding) -> String {
 }
 
 private func scopeEntryThunkLines(
+    descriptor: ScopeEntryDescriptor,
     thunkType: String,
+    specialising liftSpecialised: (String) -> String,
     scopes: [String: SeedScopeEmission]
 ) -> [String]? {
-    guard let (seed, subject, doubles) = parsedContributorScopeEntryThunkType(thunkType),
-        let scope = scopes[seed]
-    else { return nil }
+    guard let scope = scopes[descriptor.seed] else { return nil }
+    let seed = descriptor.seed
+    let doubles = descriptor.doubles
+    // The *construction locals* are named from the lift-specialised spelling (`MeController<some
+    // TodoRepository>`), because that is what the bootstrap body binds them under. The entry struct's
+    // *field* names come from the unspecialised descriptor, since the declaration is written once against
+    // the proxy's own generic parameters. The two diverge only for a lift node — which is exactly the case
+    // that would otherwise pair a field name with a local nothing bound.
     let thunkLocal = identifierName(forType: thunkType, key: nil)
     let seedLocal = identifierName(forType: seed, key: nil)
-    let subjectLocal = identifierName(forType: subject, key: nil)
+    let subjectLocal = identifierName(forType: liftSpecialised(descriptor.subject), key: nil)
+    // A `.yieldsFromScope` binding is returned alongside the subject, so it is a construction root as much
+    // as the subject is: nothing else in the scope depends on it, and pruning from the subject alone would
+    // drop it and everything under it. Its local is named the same way every other binding's is, so the
+    // `return` below references the line the loop already emits.
+    let yieldLocals = descriptor.yields.map { identifierName(forType: liftSpecialised($0), key: nil) }
 
     // Emit the closure with its parameter, effects, and `@Sendable` inline, letting Swift infer the return
     // type from the body — rather than annotating the `let` with the return type. A subject generic over
@@ -75,9 +93,10 @@ private func scopeEntryThunkLines(
     // so the proxy's construction argument resolves to it by identity.)
     // Per-root reachability (M5.4.6): construct — and, below, tear down — only the bindings reachable from
     // the routed controller, so two controllers sharing a seed don't build each other's subgraphs. `nil`
-    // means no pruning (the scope carried no edges, or the subject binding wasn't found): whole-scope, the
-    // pre-M5.4.6 behaviour.
-    let reachable = reachableBindings(from: subjectLocal, in: scope)
+    // means no pruning (the scope carried no edges, or no root binding was found): whole-scope, the
+    // pre-M5.4.6 behaviour. Yields widen the root *set* rather than replacing it — a yielded binding and
+    // the subject are two independent entry points into the same scope, and the union is what both need.
+    let reachable = reachableBindings(from: [subjectLocal] + yieldLocals, in: scope)
 
     // Rule 3 — existential aliases for the promotions this thunk actually constructs, so the pruned
     // set never binds an alias for a controller it doesn't serve. A promoted *borrowed* producer is
@@ -121,7 +140,16 @@ private func scopeEntryThunkLines(
     // runs against each binding's concrete instance. Returned alongside the subject; the witness runs it
     // after the response (M5.4.5). Consistent with the graph's captured `_wireTeardown`.
     lines.append(contentsOf: scopeTeardownClosureLines(scope, local: scopeTeardownLocalName, reachable: reachable))
-    lines.append("        return (\(subjectLocal), \(scopeTeardownLocalName))")
+    // The entry struct, constructed with labels. Its generic arguments are *inferred* from these values
+    // rather than written: a subject over an opaque backend has no spellable name here, and annotating it
+    // fails with two identically-printed opaque types refusing to convert to each other.
+    let arguments =
+        ([(scopeEntrySubjectFieldName, subjectLocal)]
+        + zip(descriptor.yields, yieldLocals).map { (identifierName(forType: $0, key: nil), $1) }
+        + [(scopeTeardownLocalName, scopeTeardownLocalName)])
+        .map { "\($0): \($1)" }
+        .joined(separator: ", ")
+    lines.append("        return \(descriptor.entryStructName)(\(arguments))")
     lines.append("    }")
     return lines
 }
@@ -134,11 +162,28 @@ private func scopeEntryThunkLines(
 /// "which doubles does *this* controller consume" is this set intersected with the scope's doubles-sourced
 /// bindings.
 package func reachableBindings(from subjectLocal: String, in scope: SeedScopeEmission) -> Set<BindingIdentity>? {
-    guard !scope.edges.isEmpty,
-        let subject = scope.topologicalOrder.first(where: { propertyName(for: $0) == subjectLocal })
-    else { return nil }
+    reachableBindings(from: [subjectLocal], in: scope)
+}
+
+/// The multi-root form: the union of what is reachable from each root. A scope entry that yields bindings
+/// alongside its subject has several independent entry points — nothing in the scope depends on a yielded
+/// binding, so it is a root in its own right and pruning from the subject alone would drop it.
+///
+/// A root that names no binding in this scope is **skipped rather than fatal**: the union of the rest is
+/// still the right construction set, and a yield naming an unbound type is reported by
+/// `scopeYieldDiagnostics`, which can say something useful about it. Failing here would trade one good
+/// diagnostic for whole-scope construction and a compile error in generated code.
+///
+/// `nil` (no pruning at all) when the scope carries no edges or *no* root was found, which is the
+/// single-root behaviour unchanged.
+package func reachableBindings(from roots: [String], in scope: SeedScopeEmission) -> Set<BindingIdentity>? {
+    guard !scope.edges.isEmpty else { return nil }
+    let rootIdentities = roots.compactMap { root in
+        scope.topologicalOrder.first(where: { propertyName(for: $0) == root })?.identity
+    }
+    guard !rootIdentities.isEmpty else { return nil }
     var reachable: Set<BindingIdentity> = []
-    var queue = [subject.identity]
+    var queue = rootIdentities
     while let identity = queue.popLast() {
         guard reachable.insert(identity).inserted else { continue }
         queue.append(contentsOf: scope.edges[identity] ?? [])
@@ -158,11 +203,15 @@ func reachableBorrows(
     scopes: [String: SeedScopeEmission]
 ) -> [(property: String, accessPath: String)] {
     guard case .scopeBound(let proxy) = binding,
-        let scopeEntry = proxy.dependencies.first(where: { $0.name == contributorProxyScopeEntryFieldName }),
-        let parsed = parsedContributorScopeEntryThunkType(liftSpecialised(scopeEntry.type, in: binding)),
-        let scope = scopes[parsed.seed]
+        let descriptor = proxy.scopeEntryDependencies.first?.scopeEntry,
+        let scope = scopes[descriptor.seed]
     else { return [] }
-    let reachable = reachableBindings(from: identifierName(forType: parsed.subject, key: nil), in: scope)
+    // The same root set the thunk itself prunes with — a borrow reached only through a yielded binding is
+    // still referenced by the emitted body, so the facade must bind a local for it.
+    let roots = ([descriptor.subject] + descriptor.yields).map {
+        identifierName(forType: liftSpecialised($0, in: binding), key: nil)
+    }
+    let reachable = reachableBindings(from: roots, in: scope)
     var borrows: [(property: String, accessPath: String)] = []
     for scopeBinding in scope.topologicalOrder {
         let property = propertyName(for: scopeBinding)

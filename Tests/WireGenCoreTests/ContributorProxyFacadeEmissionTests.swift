@@ -176,7 +176,11 @@ struct ContributorProxyFacadeEmissionTests {
         // (c) Teardown — the scope's own reachable `@Teardown` binding is torn down; the thunk returns it.
         #expect(facade.contains("let _wireScopeTeardown: @Sendable () async -> [any Error] = {"))
         #expect(facade.contains("await aResource.close()"))
-        #expect(facade.contains("return (aController, _wireScopeTeardown)"))
+        #expect(
+            facade.contains(
+                "return _WireScopeEntry_AController(_wireSubject: aController, _wireScopeTeardown: _wireScopeTeardown)"
+            )
+        )
         // (d) The facade returns the constructed variant proxy, entered with `_wireEnterScope(seed, doubles:)`.
         #expect(facade.contains("return _MyTests_bindMock_WireRouteContributor_AController(_wireEnterScope:"))
     }
@@ -294,9 +298,10 @@ struct ContributorProxyFacadeEmissionTests {
             dependencies: [
                 DependencyParameter(
                     name: contributorProxyScopeEntryFieldName,
-                    type: contributorScopeEntryThunkType(seed: seed, subject: "AController", doubles: doublesType),
+                    type: scopeEntryDescriptor(seed: seed, subject: "AController", doubles: doublesType).thunkType,
                     kind: .scopeEntryThunk,
-                    location: mockLocation("A.swift")
+                    location: mockLocation("A.swift"),
+                    scopeEntry: scopeEntryDescriptor(seed: seed, subject: "AController", doubles: doublesType)
                 ),
                 DependencyParameter(
                     name: "_wireFactory_Keys_probe",

@@ -27,12 +27,16 @@ struct AggregateProxyContributorTests {
         let graph = try await Wire.bootstrap()
         let aggregate = graph._WireAggregateContributor_alphaOfSomeAggregateSearchBackend
 
-        let (first, firstTeardown) = try await aggregate._wireEnterScope_AggregateTaskController(
+        let enteredA = try await aggregate._wireEnterScope_AggregateTaskController(
             AggregateRequestSeed(id: "bridge-a")
         )
-        let (second, secondTeardown) = try await aggregate._wireEnterScope_AggregateTaskController(
+        let first = enteredA._wireSubject
+        let firstTeardown = enteredA._wireScopeTeardown
+        let enteredB = try await aggregate._wireEnterScope_AggregateTaskController(
             AggregateRequestSeed(id: "bridge-b")
         )
+        let second = enteredB._wireSubject
+        let secondTeardown = enteredB._wireScopeTeardown
 
         // Hold vs bridge is decided per subject: the bridged subject is rebuilt per entry, carrying that
         // entry's seed…
@@ -75,12 +79,12 @@ struct AggregateProxyContributorTests {
         // M5.4.6 — the aggregate's scope entry constructs only the subgraph reachable from its own
         // bridged subject, so a seed-scoped sibling the subject can't reach is never built.
         let graph = try await Wire.bootstrap()
-        let (subject, _) =
+        let entered =
             try await graph
             ._WireAggregateContributor_alphaOfSomeAggregateSearchBackend
             ._wireEnterScope_AggregateTaskController(AggregateRequestSeed(id: "pruning"))
 
-        #expect(subject.identity.userID == "user-pruning")
+        #expect(entered._wireSubject.identity.userID == "user-pruning")
         #expect(AggregateConstructionLog.shared.count("unreachable-pruning") == 0)
     }
 }

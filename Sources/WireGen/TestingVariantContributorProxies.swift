@@ -44,7 +44,7 @@ extension WireGen {
         for proxy in productionProxies {
             guard
                 let scopeEntry = proxy.dependencies.first(where: { $0.name == contributorProxyScopeEntryFieldName }),
-                let parsed = parsedContributorScopeEntryThunkType(scopeEntry.type),
+                let parsed = scopeEntry.scopeEntry,
                 coveredSeeds.contains(parsed.seed)
             else { continue }
             let transforms = variantFactoryTransforms(
@@ -91,14 +91,13 @@ extension WireGen {
         for proxy in productionProxies.sorted(by: { $0.typeName < $1.typeName }) {
             guard
                 let scopeEntry = proxy.dependencies.first(where: { $0.name == contributorProxyScopeEntryFieldName }),
-                let parsed = parsedContributorScopeEntryThunkType(scopeEntry.type),
+                let parsed = scopeEntry.scopeEntry,
                 let scope = scopeBySeed[parsed.seed]
             else { continue }
             let factoryTransforms = factoryTransformsByProxy[proxy.typeName] ?? []
             let variantProxy = variantContributorProxy(
                 from: proxy,
-                seed: parsed.seed,
-                subject: parsed.subject,
+                descriptor: parsed,
                 key: key,
                 factoryRetypes: Dictionary(
                     factoryTransforms.map { ($0.productionDepName, $0.variantType) },
@@ -129,24 +128,42 @@ extension WireGen {
     /// alongside the seed. Contributes to nothing — it is reached only through the generated facade, never a
     /// production multibinding. A mock-consuming lifted factory is re-typed to its variant factory (named by
     /// `factoryRetypes`); every other dependency carries through unchanged.
+    ///
+    /// `yields` carry through verbatim from the production thunk: a variant threads doubles *in*, which is
+    /// a parameter-list change, and says nothing about what the scope hands back. A variant whose thunk
+    /// yielded less than production's would give the adapter's generated code a different tuple to
+    /// destructure under test than in production, which is the one difference a test harness must not have.
     fileprivate static func variantContributorProxy(
         from proxy: DiscoveredScopeBoundType,
-        seed: String,
-        subject: String,
+        descriptor: ScopeEntryDescriptor,
         key: DiscoveredTestingKey,
         factoryRetypes: [String: String]
     ) -> DiscoveredScopeBoundType {
         let variantName = variantName(for: key)
-        let doublesThunkType = contributorScopeEntryThunkType(
-            seed: seed,
-            subject: subject,
+        // The production descriptor with a `doubles` parameter threaded in and its entry struct renamed
+        // under the variant — everything else carries through, including the yields. A variant threads
+        // doubles *in*, which says nothing about what the scope hands back; a variant whose thunk returned
+        // a different shape than production's would give the adapter's generated code a different struct
+        // to read under test than in production, which is the one difference a test harness must not have.
+        let variantDescriptor = ScopeEntryDescriptor(
+            seed: descriptor.seed,
+            subject: descriptor.subject,
+            yields: descriptor.yields,
             doubles: subjectDoublesStructTypeName(
                 variantName: variantName,
-                subjectTypeName: bareTypeName(subject)
-            )
+                subjectTypeName: bareTypeName(descriptor.subject)
+            ),
+            entryStructName: scopeEntryStructName(
+                subjectTypeName: bareTypeName(descriptor.subject),
+                variant: variantName
+            ),
+            genericParameterNames: descriptor.genericParameterNames,
+            genericParameterConstraints: descriptor.genericParameterConstraints,
+            genericWhereClause: descriptor.genericWhereClause
         )
+        let doublesThunkType = variantDescriptor.thunkType
         let dependencies = proxy.dependencies.map { dependency -> DependencyParameter in
-            guard dependency.name == contributorProxyScopeEntryFieldName else {
+            guard dependency.kind == .scopeEntryThunk else {
                 guard let name = dependency.name, let variantType = factoryRetypes[name] else { return dependency }
                 return DependencyParameter(
                     name: name,
@@ -163,7 +180,8 @@ extension WireGen {
                 kind: dependency.kind,
                 location: dependency.location,
                 keyIdentifier: dependency.keyIdentifier,
-                nonOwningInitForm: dependency.nonOwningInitForm
+                nonOwningInitForm: dependency.nonOwningInitForm,
+                scopeEntry: variantDescriptor
             )
         }
         return DiscoveredScopeBoundType(

@@ -384,11 +384,17 @@ of its own sentence that said *route-scope*.
    sequence with a forcing case per step — including a decision to keep middleware **app-lifetime
    permanently** rather than build a scoped tier, since the prior art is unanimous on that and the tier's
    only remaining charter is served more cheaply by carrying route identity on the box. **This repository
-   owns two steps of it.** The first — naming `@Factory` as a lifetime in its own right and diagnosing it
-   as one — is **done (2026-08-27)**: no source migration, since `@Factory(K)` was already written
-   correctly everywhere; what changed is that a scope macro beside it is refused as the contradiction it
-   is, and that the cross-scope note says something true. The second, a seeded scope yielding more than its
-   subject, is still open and is what the argument seam needs.
+   owned two steps of it, and both are now done (2026-08-27).** The first — naming `@Factory` as a lifetime
+   in its own right and diagnosing it as one — needed no source migration, since `@Factory(K)` was already
+   written correctly everywhere; what changed is that a scope macro beside it is refused as the
+   contradiction it is, and that the cross-scope note says something true. The second — a seeded scope
+   yielding more than its subject — took the scope-entry thunk's return from a tuple to a named
+   `_WireScopeEntry_<Subject>` struct, and made the extra bindings *inferred* rather than declared: a
+   bridged subject's entry hands back every binding in its scope that its method parameters name. A yielded
+   binding is a construction root in its own right, since nothing inside the scope depends on something
+   whose whole purpose is to leave it. Nothing in this repository consumes a yield yet; it is what
+   wire-mvc's argument seam needs. **The struct is a break for the one consumer that exists**: a scope
+   entry now returns one value rather than a pair, so wire-mvc's generated terminal changes with it.
 
    **So the decision splits in two, and the split is the item.** "Can subject S do action A on resource R"
    turns on the resource, which no middleware has loaded — so the same set is consulted at two tiers by two

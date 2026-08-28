@@ -109,7 +109,8 @@ func aggregateProxyBinding(
     for subjects: [DiscoveredScopeBoundType],
     key: String,
     typeName: String,
-    proxyScope: DiscoveredProxyScope
+    proxyScope: DiscoveredProxyScope,
+    yieldsBySubject: [String: [String]] = [:]
 ) -> DiscoveredScopeBoundType {
     let single = subjects.count == 1
     var takenParameters: Set<String> = []
@@ -144,7 +145,8 @@ func aggregateProxyBinding(
                 for: subject,
                 proxyScope: proxyScope,
                 renaming: renaming,
-                labelled: !single
+                labelled: !single,
+                yields: yieldsBySubject[subject.typeName] ?? []
             )
         )
     }
@@ -170,20 +172,43 @@ func aggregateSubjectDependency(
     for subject: DiscoveredScopeBoundType,
     proxyScope: DiscoveredProxyScope,
     renaming: [String: String],
-    labelled: Bool
+    labelled: Bool,
+    yields: [String] = []
 ) -> DependencyParameter {
     let parameters = subject.genericParameterNames.map { renaming[$0] ?? $0 }
     let subjectType =
         parameters.isEmpty ? subject.typeName : "\(subject.typeName)<\(parameters.joined(separator: ", "))>"
 
     if proxyScope == .singleton, let seed = subject.scopeKey?.seed {
+        // A yield is asked for on a *subject*, and each aggregate member bridges into its own scope, so
+        // these are this subject's alone. A held subject has no thunk and so nothing to yield through —
+        // the diagnostics say so rather than dropping the annotation silently.
+        //
+        // The entry struct is generic over *this member's* parameters, in their renamed form. The proxy is
+        // generic over the union of every member's, and a struct declared with a parameter none of its
+        // fields mention could not be inferred where the thunk constructs it.
+        let descriptor = ScopeEntryDescriptor(
+            seed: seed,
+            subject: subjectType,
+            yields: yields,
+            entryStructName: scopeEntryStructName(subjectTypeName: subject.typeName),
+            genericParameterNames: parameters,
+            genericParameterConstraints: Dictionary(
+                subject.genericParameterConstraints.map { (renaming[$0.key] ?? $0.key, $0.value) },
+                uniquingKeysWith: { first, _ in first }
+            ),
+            genericWhereClause: subject.genericWhereClause.map {
+                renaming.isEmpty ? $0 : substitutingIdentifierTokens($0, renaming)
+            }
+        )
         return DependencyParameter(
             name: labelled
                 ? "\(contributorProxyScopeEntryFieldName)_\(subject.typeName)"
                 : contributorProxyScopeEntryFieldName,
-            type: contributorScopeEntryThunkType(seed: seed, subject: subjectType),
+            type: descriptor.thunkType,
             kind: .scopeEntryThunk,
-            location: subject.location
+            location: subject.location,
+            scopeEntry: descriptor
         )
     }
     return DependencyParameter(

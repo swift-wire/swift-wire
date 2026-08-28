@@ -50,63 +50,91 @@ extension DiscoveredScopeBoundType {
 /// string (no generic parameters), so it is stripped verbatim when recovering the subject.
 package let scopeEntryTeardownType = "@Sendable () async -> [any Error]"
 
-/// The type of a bridging proxy's scope-entry thunk: `@Sendable (Seed) async throws -> (Subject,
-/// @Sendable () async -> [any Error])` — the constructed subject **and** a closure that tears its scope
-/// down (M5.4.5, consistent with the graph's `teardown()`). One builder shared by the synthesis (which
-/// types the `_wireEnterScope` dependency) and the emission (which types the emitted closure and finds its
-/// target scope), so the seed/subject contract lives in one place.
+/// Everything a bridging proxy's scope-entry thunk is, as a value rather than as a parsed string.
 ///
-/// A test-graph variant threads a `doubles` value in alongside the seed: the thunk's parameter list grows
-/// to `(Seed, Doubles)` and a `@BindType`d binding resolves to a field on it. `doubles` names the variant's
-/// `_<Key>Doubles` struct; `nil` is the production thunk (seed only).
-package func contributorScopeEntryThunkType(seed: String, subject: String, doubles: String? = nil) -> String {
-    let parameters = doubles.map { "\(seed), \($0)" } ?? seed
-    return "@Sendable (\(parameters)) async throws -> (\(subject), \(scopeEntryTeardownType))"
-}
+/// The thunk used to encode all of this in its own *type* — `@Sendable (Seed) async throws -> (Subject,
+/// teardown)` — and every consumer parsed it back out. That worked while the return was a tuple of two
+/// known things, and stopped working the moment the return became a named struct: a struct name can carry
+/// the subject (it is derived from it) but not the yields, and not what the thunk is generic over. Rather
+/// than re-encode a growing contract in a string, the contract rides beside the dependency and the type
+/// string becomes only what is emitted.
+///
+/// Carried on ``DependencyParameter/scopeEntry``, alongside the `.scopeEntryThunk` dependency it
+/// describes — the same shape `injectionRewrite` uses for its own kind of site.
+package struct ScopeEntryDescriptor: Sendable, Equatable {
+    /// The seed the thunk takes — which scope it enters.
+    package let seed: String
+    /// The subject it constructs, spelled with this proxy's generic parameters (an aggregate renames a
+    /// subject's parameters where they collide with an earlier member's, and this is the renamed form).
+    package let subject: String
+    /// The `.yieldsFromScope` bindings handed back alongside the subject, sorted by type name.
+    ///
+    /// The sort is for *determinism of the emitted file*, not for correctness: the entry struct names its
+    /// fields, so a reader is never reading by position and a re-order could not silently misread.
+    package let yields: [String]
+    /// The test-variant `_<Key>Doubles` threaded in alongside the seed, or `nil` for a production thunk.
+    package let doubles: String?
+    /// The struct the thunk returns — `_WireScopeEntry_<Subject>`, or the variant-prefixed form.
+    package let entryStructName: String
+    /// The entry struct's own generic parameters, taken from the **subject** rather than the proxy.
+    ///
+    /// An aggregate proxy is generic over the union of its members' parameters, and a struct declared with
+    /// a parameter none of its fields mention could not be inferred at the construction site — so the
+    /// thunk's return type would be ambiguous. Taking them from the subject gives exactly the parameters
+    /// its fields use. For a per-subject proxy (generic exactly as its subject) this is the same list.
+    package let genericParameterNames: [String]
+    package let genericParameterConstraints: [String: String]
+    package let genericWhereClause: String?
 
-/// Recover `(seed, subject, doubles?)` from a thunk type built by `contributorScopeEntryThunkType` — the
-/// inverse the emission uses to locate the target seed scope, name the subject it returns, and (for a test
-/// variant) name the `doubles` parameter. The subject is the tuple's first element; the teardown-closure
-/// suffix is a fixed string stripped verbatim (so a subject with its own generic-argument commas is
-/// recovered intact). The parameter list is `Seed` or `Seed, Doubles`; the seed/doubles split is the single
-/// top-level comma (`doubles` is a bare `_<Key>Doubles` name, so a generic seed's own commas stay nested).
-/// `nil` for a string not in that shape.
-package func parsedContributorScopeEntryThunkType(
-    _ type: String
-) -> (seed: String, subject: String, doubles: String?)? {
-    let opening = "@Sendable ("
-    let middle = ") async throws -> ("
-    let closing = ", \(scopeEntryTeardownType))"
-    guard type.hasPrefix(opening), type.hasSuffix(closing), let middleRange = type.firstRange(of: middle)
-    else { return nil }
-    let parameters = String(
-        type[type.index(type.startIndex, offsetBy: opening.count)..<middleRange.lowerBound]
-    )
-    let subject = String(type[middleRange.upperBound..<type.index(type.endIndex, offsetBy: -closing.count)])
-    guard !parameters.isEmpty, !subject.isEmpty else { return nil }
-    let (seed, doubles) = splitSeedAndDoubles(parameters)
-    guard !seed.isEmpty else { return nil }
-    return (seed, subject, doubles)
-}
-
-/// Split a thunk parameter list into `(seed, doubles?)` at its single top-level comma. Commas nested inside
-/// a generic seed's `<…>` stay with the seed (depth-aware); a bare list is seed-only.
-private func splitSeedAndDoubles(_ parameters: String) -> (seed: String, doubles: String?) {
-    var depth = 0
-    for index in parameters.indices {
-        switch parameters[index] {
-        case "<", "(", "[": depth += 1
-        case ">", ")", "]": depth -= 1
-        case "," where depth == 0:
-            let seed = String(parameters[parameters.startIndex..<index])
-            let doubles = String(parameters[parameters.index(after: index)...])
-                .drop(while: { $0 == " " })
-            return (seed, doubles.isEmpty ? nil : String(doubles))
-        default: break
-        }
+    package init(
+        seed: String,
+        subject: String,
+        yields: [String] = [],
+        doubles: String? = nil,
+        entryStructName: String,
+        genericParameterNames: [String] = [],
+        genericParameterConstraints: [String: String] = [:],
+        genericWhereClause: String? = nil
+    ) {
+        self.seed = seed
+        self.subject = subject
+        self.yields = yields
+        self.doubles = doubles
+        self.entryStructName = entryStructName
+        self.genericParameterNames = genericParameterNames
+        self.genericParameterConstraints = genericParameterConstraints
+        self.genericWhereClause = genericWhereClause
     }
-    return (parameters, nil)
+
+    /// The entry struct as written at a use site — `_WireScopeEntry_MeController<Repository, Manager>`.
+    package var entryStructReference: String {
+        genericParameterNames.isEmpty
+            ? entryStructName
+            : "\(entryStructName)<\(genericParameterNames.joined(separator: ", "))>"
+    }
+
+    /// The thunk's type: `@Sendable (Seed[, Doubles]) async throws -> <EntryStruct>`.
+    ///
+    /// The return is a single named type rather than a tuple, which is what lets a yield be *added*
+    /// without changing the shape anything already reads. The closure that satisfies it still infers its
+    /// own return type — annotating it is what makes a subject over an opaque backend unspellable, and the
+    /// two opaque types then fail to convert to each other by name.
+    package var thunkType: String {
+        let parameters = doubles.map { "\(seed), \($0)" } ?? seed
+        return "@Sendable (\(parameters)) async throws -> \(entryStructReference)"
+    }
 }
+
+/// The entry struct's name for a subject — `_WireScopeEntry_MeController`. `variant` prefixes a
+/// test-graph variant's, so a variant proxy's struct cannot collide with the production one it is derived
+/// from (both are emitted into the same module).
+package func scopeEntryStructName(subjectTypeName: String, variant: String? = nil) -> String {
+    variant.map { "_WireScopeEntry_\($0)_\(subjectTypeName)" } ?? "_WireScopeEntry_\(subjectTypeName)"
+}
+
+/// The field name the entry struct holds the constructed subject under — the same `_wireSubject` a
+/// *holding* proxy stores it as, so one name means "the subject" whichever side of the bridge you are on.
+package let scopeEntrySubjectFieldName = contributorProxySubjectFieldName
 
 /// Render the structural declaration for one contributor-proxy binding — the `struct` with its stored
 /// fields + initialiser + `Sendable`, generic exactly as the subject, with a body hole (no conformance,
@@ -130,6 +158,10 @@ private func splitSeedAndDoubles(_ parameters: String) -> (seed: String, doubles
 // a `public` proxy couldn't expose that library's (public) controller / factory types. `internal`
 // sidesteps that — an internal declaration may freely reference internally-imported types.
 package func renderContributorProxyDeclaration(_ proxy: DiscoveredScopeBoundType) -> String {
+    // Each bridged subject's entry struct is emitted *with* the proxy that returns it, so every caller —
+    // the graph file, and both test-variant emitters — gets them without having to remember to ask.
+    let entryStructs = proxy.scopeEntryDependencies.compactMap(\.scopeEntry)
+        .map(renderScopeEntryStructDeclaration)
     let genericClause = renderProxyGenericClause(
         names: proxy.genericParameterNames,
         constraints: proxy.genericParameterConstraints
@@ -178,7 +210,9 @@ package func renderContributorProxyDeclaration(_ proxy: DiscoveredScopeBoundType
     // Body hole: the witness method (and the adapter-protocol conformance) are emitted by the domain
     // codegen tool as an `extension` on this type, in the same module, referencing the fields above.
     lines.append("}")
-    return lines.joined(separator: "\n")
+    // The entry structs come first: each is the return type of a field declared below it, and a reader
+    // following `_wireEnterScope` should meet the shape before the thing that hands it back.
+    return (entryStructs + [lines.joined(separator: "\n")]).joined(separator: "\n\n")
 }
 
 /// Render the structural declaration for every synthesised contributor proxy, once each — the plugin's
@@ -204,6 +238,42 @@ package func renderContributorProxyTypes(
     return proxiesByName.values
         .sorted { $0.typeName < $1.typeName }
         .map(renderContributorProxyDeclaration)
+}
+
+/// The entry struct a bridging proxy's scope-entry thunk returns — one per scope-entry dependency, so a
+/// per-subject proxy declares one and an aggregate declares one per bridged member.
+///
+///     struct _WireScopeEntry_MeController<Repository: TodoRepository, Manager: SessionManager>: Sendable {
+///         let _wireSubject: MeController<Repository, Manager>
+///         let authorizedDocument: AuthorizedDocument
+///         let _wireScopeTeardown: @Sendable () async -> [any Error]
+///     }
+///
+/// **A struct rather than a tuple**, because the thunk's return is a contract read by an adapter's
+/// generated code. A tuple is read by position, so adding a yield moves every element after it and the
+/// reader goes on compiling while reading the wrong one; named fields make an addition additive. It also
+/// dissolves the need for yields to be *ordered* at all, which a positional return made load-bearing.
+///
+/// **`Sendable`**, because the thunk is `@Sendable` and this crosses an async boundary out of it.
+///
+/// **No explicit initialiser.** The implicit memberwise one is `internal`, which is this struct's own
+/// access level and the module it is constructed in — and leaving it implicit is what lets the generic
+/// arguments be *inferred* at the construction site. Writing them is not an option for a subject over an
+/// opaque backend: the two `some P` types print identically and refuse to convert to one another.
+package func renderScopeEntryStructDeclaration(_ descriptor: ScopeEntryDescriptor) -> String {
+    let genericClause = renderProxyGenericClause(
+        names: descriptor.genericParameterNames,
+        constraints: descriptor.genericParameterConstraints
+    )
+    let whereClause = descriptor.genericWhereClause.map { " where \($0)" } ?? ""
+    var lines = ["struct \(descriptor.entryStructName)\(genericClause): Sendable\(whereClause) {"]
+    lines.append("    let \(scopeEntrySubjectFieldName): \(descriptor.subject)")
+    for yield in descriptor.yields {
+        lines.append("    let \(identifierName(forType: yield, key: nil)): \(yield)")
+    }
+    lines.append("    let \(scopeTeardownLocalName): \(scopeEntryTeardownType)")
+    lines.append("}")
+    return lines.joined(separator: "\n")
 }
 
 /// The proxy's generic-parameter clause restated from the subject's parameters and per-parameter

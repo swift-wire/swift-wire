@@ -12,10 +12,30 @@
 // lookup), and a seedless `(Doubles)` thunk is indistinguishable from a production seed-only `(Seed)` one, so
 // this is a distinct emitter rather than an overload — the seed path stays byte-for-byte unchanged.
 
-/// The type of a seedless reconstruction thunk: `@Sendable (Doubles) async throws -> (Subject, teardown)` —
-/// the doubles-only companion to `contributorScopeEntryThunkType`.
-package func seedlessScopeEntryThunkType(subject: String, doubles: String) -> String {
-    "@Sendable (\(doubles)) async throws -> (\(subject), \(scopeEntryTeardownType))"
+/// The descriptor for a seedless reconstruction thunk — `@Sendable (Doubles) async throws -> EntryStruct`,
+/// the doubles-only companion to the seeded scope entry.
+///
+/// It returns the **same entry struct** the seeded path does, which is the point: a variant harness reads
+/// one shape whichever path built the subject, and an adapter's generated code needs no branch. The
+/// `seed` slot carries the *doubles* type here — the thunk's sole parameter, and the key
+/// `seedlessScopeKey` registers its reconstruction scope under, so the borrow-reachability lookup
+/// resolves. There is no seed: this path exists precisely because the subject is app-scoped.
+package func seedlessScopeEntryDescriptor(
+    subject: String,
+    doubles: String,
+    entryStructName: String,
+    genericParameterNames: [String] = [],
+    genericParameterConstraints: [String: String] = [:],
+    genericWhereClause: String? = nil
+) -> ScopeEntryDescriptor {
+    ScopeEntryDescriptor(
+        seed: doubles,
+        subject: subject,
+        entryStructName: entryStructName,
+        genericParameterNames: genericParameterNames,
+        genericParameterConstraints: genericParameterConstraints,
+        genericWhereClause: genericWhereClause
+    )
 }
 
 /// Render the `Wire.bootstrap<Variant>_<Subject>Contributor(wireGraph:)` facade for a seedless variant proxy —
@@ -84,8 +104,8 @@ private func seedlessScopeKey(_ scope: SeedScopeEmission) -> [String: SeedScopeE
 }
 
 /// The seedless `_wireEnterScope` thunk body — `{ @Sendable (doubles: Doubles) async throws in … }`
-/// reconstructing the scope's bindings (borrows resolve to the captured locals bound outside), then returning
-/// `(subject, teardown)`. The doubles-only analog of `scopeEntryThunkLines`.
+/// reconstructing the scope's bindings (borrows resolve to the captured locals bound outside), then
+/// returning the entry struct. The doubles-only analog of `scopeEntryThunkLines`.
 private func seedlessScopeEntryThunkLines(
     proxy: DiscoveredScopeBoundType,
     scope: SeedScopeEmission,
@@ -94,8 +114,8 @@ private func seedlessScopeEntryThunkLines(
     // The thunk local is named by the thunk *type*'s identity form (as the bridge path does), so the proxy
     // construction — which passes `_wireEnterScope: <that local>` — resolves to it. A generic proxy is a lift
     // node, so the type is lift-specialised (`Backend` → `some GenAppBackend`) to match the construction's.
-    let rawThunkType = proxy.dependencies.first(where: { $0.name == contributorProxyScopeEntryFieldName })?.type ?? ""
-    let thunkType = liftSpecialised(rawThunkType, in: .scopeBound(proxy))
+    let scopeEntry = proxy.scopeEntryDependencies.first
+    let thunkType = liftSpecialised(scopeEntry?.type ?? "", in: .scopeBound(proxy))
     let thunkLocal = identifierName(forType: thunkType, key: nil)
     // The subject is read out of the thunk's own return type, as the seeded path does. It used to be
     // taken positionally — `topologicalOrder.last` — on the assumption that the routed controller is
@@ -103,8 +123,8 @@ private func seedlessScopeEntryThunkLines(
     // after it and silently become the returned value: an injection rewrite (`@ConfigProperty`) did
     // exactly that, and the thunk returned a config string where a controller belonged.
     let subjectLocal =
-        parsedContributorScopeEntryThunkType(thunkType)
-        .map { identifierName(forType: $0.subject, key: nil) }
+        scopeEntry?.scopeEntry
+        .map { identifierName(forType: liftSpecialised($0.subject, in: .scopeBound(proxy)), key: nil) }
         ?? scope.topologicalOrder.last.map { propertyName(for: $0) } ?? ""
 
     var lines: [String] = ["    let \(thunkLocal) = { @Sendable (doubles: \(doublesType)) async throws in"]
@@ -118,7 +138,19 @@ private func seedlessScopeEntryThunkLines(
     lines.append(
         contentsOf: scopeTeardownClosureLines(scope, local: scopeTeardownLocalName, reachable: nil)
     )
-    lines.append("        return (\(subjectLocal), \(scopeTeardownLocalName))")
+    // Returns the same entry struct the seeded path does — a variant harness reads one shape, whichever
+    // path built the subject, and the adapter's generated code needs no branch between them.
+    guard let descriptor = scopeEntry?.scopeEntry else { return lines }
+    let arguments =
+        ([(scopeEntrySubjectFieldName, subjectLocal)]
+        + descriptor.yields.map {
+            let field = identifierName(forType: $0, key: nil)
+            return (field, identifierName(forType: liftSpecialised($0, in: .scopeBound(proxy)), key: nil))
+        }
+        + [(scopeTeardownLocalName, scopeTeardownLocalName)])
+        .map { "\($0): \($1)" }
+        .joined(separator: ", ")
+    lines.append("        return \(descriptor.entryStructName)(\(arguments))")
     lines.append("    }")
     return lines
 }

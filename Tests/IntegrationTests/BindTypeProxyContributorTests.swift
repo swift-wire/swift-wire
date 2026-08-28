@@ -21,7 +21,9 @@ struct BindTypeProxyContributorTests {
         // Build the variant proxy once (like production), then enter request scope with the doubles.
         let proxy = Wire.bootstrapWireProxyFixture_bindMock_ProxyRouteControllerContributor(wireGraph: graph)
         // `_wireEnterScope` is a stored closure, so the seed and doubles are passed positionally (no labels).
-        let (subject, teardown) = try await proxy._wireEnterScope(ProxyRequestSeed(id: "req-1"), doubles)
+        let entered = try await proxy._wireEnterScope(ProxyRequestSeed(id: "req-1"), doubles)
+        let subject = entered._wireSubject
+        let teardown = entered._wireScopeTeardown
 
         // (a) Init-time mock — the lifted `@Singleton` controller was reconstructed in the scope, and its
         // `init` read the supplied mock (`"mock:init"`, not the production `"real:init"`). The distinguishing
