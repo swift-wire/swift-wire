@@ -254,7 +254,10 @@ package func renderContributorProxyTypes(
 /// reader goes on compiling while reading the wrong one; named fields make an addition additive. It also
 /// dissolves the need for yields to be *ordered* at all, which a positional return made load-bearing.
 ///
-/// **`Sendable`**, because the thunk is `@Sendable` and this crosses an async boundary out of it.
+/// **`Sendable`**, because the thunk is `@Sendable` and this crosses an async boundary out of it — and
+/// **`WireScopeEntry`**, whose whole purpose is to let an adapter emitting a *generic* declaration recover
+/// this subject's type without naming it. That was structural while the thunk returned a tuple and is not
+/// once it returns a named struct, so the struct carries the projection. `Subject` infers from the field.
 ///
 /// **No explicit initialiser.** The implicit memberwise one is `internal`, which is this struct's own
 /// access level and the module it is constructed in — and leaving it implicit is what lets the generic
@@ -266,7 +269,9 @@ package func renderScopeEntryStructDeclaration(_ descriptor: ScopeEntryDescripto
         constraints: descriptor.genericParameterConstraints
     )
     let whereClause = descriptor.genericWhereClause.map { " where \($0)" } ?? ""
-    var lines = ["struct \(descriptor.entryStructName)\(genericClause): Sendable\(whereClause) {"]
+    var lines = [
+        "struct \(descriptor.entryStructName)\(genericClause): Sendable, WireScopeEntry\(whereClause) {"
+    ]
     lines.append("    let \(scopeEntrySubjectFieldName): \(descriptor.subject)")
     for yield in descriptor.yields {
         lines.append("    let \(identifierName(forType: yield, key: nil)): \(yield)")
