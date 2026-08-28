@@ -335,13 +335,7 @@ struct WireGen {
             across: aggregate.allBindings,
             resolvedByContainer: resolvedBindingsByContainer
         )
-        // A route parameter naming a scope binding its subject's scope cannot construct. Answered from the
-        // discovered bindings alone — "is this type bound in that partition" needs no built graph — so the
-        // report lands at the parameter rather than as a missing field on a generated struct.
-        diagnostics += scopeYieldDiagnostics(
-            bindings: aggregate.allBindings,
-            candidates: aggregate.scopeYieldCandidates
-        )
+        diagnostics += scopeYieldDiagnostics(in: aggregate)
         diagnostics += graphInputsDiagnostics(aggregate.graphInputs, externalModules: aggregate.externalModules)
         diagnostics += deadFactoryDiagnostics(
             templates: aggregate.factoryTemplates,
@@ -854,6 +848,23 @@ private func applyPreGraphBindingPasses(
         factories: synthesis.factories,
         proxyIdentities: proxied.proxyIdentities,
         rewrites: rewrites.synthesized
+    )
+}
+
+/// A route parameter naming a scope binding its subject's scope cannot construct — directly, or through
+/// the one hop the attribute's own declaration declares.
+///
+/// Answered from the discovered bindings alone, since "is this type bound in that partition" needs no built
+/// graph, so the report lands at the parameter rather than as a missing field on a generated struct. A free
+/// function rather than another line in `WireGen`, which is at its type-body budget.
+private func scopeYieldDiagnostics(in aggregate: DiscoveryAggregate) -> [Diagnostic] {
+    scopeYieldDiagnostics(
+        bindings: aggregate.allBindings,
+        candidates: aggregate.scopeYieldCandidates,
+        hops: scopeYieldHops(
+            annotations: aggregate.adapterAnnotations,
+            useSites: aggregate.aliasUseSites
+        )
     )
 }
 

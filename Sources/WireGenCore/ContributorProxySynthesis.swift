@@ -32,6 +32,7 @@ package func applyContributorProxies(
     let directiveBySubject = contributorProxyDirectives(annotations: annotations, useSites: useSites)
     let aggregates = aggregateProxyDirectives(annotations: annotations, useSites: useSites)
     let candidatesBySubject = Dictionary(grouping: scopeYieldCandidates, by: \.targetIdentity)
+    let yieldHops = scopeYieldHops(annotations: annotations, useSites: useSites)
     guard !directiveBySubject.isEmpty || !aggregates.isEmpty else { return (allBindings, useSites, []) }
 
     // Synthesise a proxy beside each proxied subject, recording subject identity → proxy identity. The
@@ -55,6 +56,7 @@ package func applyContributorProxies(
                 yields: scopeYields(
                     for: subject,
                     candidates: candidatesBySubject[identity] ?? [],
+                    hops: yieldHops,
                     inScopeWith: bindings
                 )
             )
@@ -97,6 +99,7 @@ package func applyContributorProxies(
                         scopeYields(
                             for: entry.subject,
                             candidates: candidatesBySubject[entry.identity] ?? [],
+                            hops: yieldHops,
                             inScopeWith: allBindings[entry.partition] ?? []
                         )
                     )
@@ -209,24 +212,71 @@ private func reattributingInputEdges(
 /// the whole test. A binding of the same name at app scope, or in a sibling seed, is not in this list and
 /// is not yielded; `scopeYieldDiagnostics` reports the ones that were plainly meant to be.
 ///
+/// **Or the graph value that type declares a dependency on.** A parameter attribute is not always the
+/// binding itself: a type that is spellable as an attribute is often a wrapper — a shape the language
+/// requires at the use site — and the thing that does the work is a different type it names. So when the
+/// attribute is not itself a binding, one hop is followed through its own `.injectsFromGraph` declaration:
+///
+///     @X(Worker.self) @propertyWrapper struct Attribute { … }   // Attribute → Worker
+///     func route(@Attribute value: V)                           // parameter → Attribute → Worker
+///
+/// That is `.injectsFromGraph`'s existing meaning — *"`@X(argument)` makes the annotated thing depend on
+/// the graph value `argument` names"* — read one level out from where the parameter pointed. Nothing here
+/// learns what the attribute is *for*; it follows a dependency the attribute's author declared. One hop
+/// only: a chain would be a graph of its own, and no case asks for it.
+///
 /// Sorted by type name and deduplicated. The sort is for a stable emitted file, not for correctness — the
 /// entry struct names its fields, so a re-order could not silently misread. Two routes naming the same
 /// binding ask for one value.
 func scopeYields(
     for subject: DiscoveredScopeBoundType,
     candidates: [ScopeYieldCandidate],
+    hops: [String: String] = [:],
     inScopeWith bindings: [DiscoveredBinding]
 ) -> [String] {
     guard !candidates.isEmpty, subject.scopeKey != nil else { return [] }
     let inScope = Set(bindings.map { canonicalTypeName($0.boundType) })
     var matched: Set<String> = []
-    for candidate in candidates where inScope.contains(canonicalTypeName(candidate.typeName)) {
+    for candidate in candidates {
+        // Direct first: an attribute that *is* a binding needs no hop, and preferring the hop would let a
+        // wrapper's declaration silently redirect a name that already resolved.
+        guard
+            let resolved = [candidate.typeName, hops[candidate.typeName]]
+                .compactMap({ $0 })
+                .first(where: { inScope.contains(canonicalTypeName($0)) })
+        else { continue }
         // A subject never yields *itself*: it is already the entry's first field, and a controller whose
         // own route took it as a parameter would otherwise be constructed twice.
-        guard canonicalTypeName(candidate.typeName) != canonicalTypeName(subject.typeName) else { continue }
-        matched.insert(candidate.typeName)
+        guard canonicalTypeName(resolved) != canonicalTypeName(subject.typeName) else { continue }
+        matched.insert(resolved)
     }
     return matched.sorted()
+}
+
+/// Attribute type → the graph value its declaration names, for every `.injectsFromGraph` use-site whose
+/// argument is a `T.self` reference.
+///
+/// Built from the use-sites **before** input-edge reattribution, since that re-points a proxied subject's
+/// use-sites onto its proxy and this needs where they were written. A use-site whose target is an ordinary
+/// binding is in here too and simply never looked up: the map is consulted by *candidate type name*, and a
+/// binding is not one.
+package func scopeYieldHops(
+    annotations: [DiscoveredAdapterAnnotation],
+    useSites: [ContributionAliasUseSite]
+) -> [String: String] {
+    let injecting = Set(
+        annotations.filter { $0.capability == .injectsFromGraph }.map(\.annotationName)
+    )
+    guard !injecting.isEmpty else { return [:] }
+    var hops: [String: String] = [:]
+    for site in useSites where injecting.contains(site.annotationName) {
+        guard let argument = site.argument, argument.hasSuffix(".self") else { continue }
+        let type = String(argument.dropLast(".self".count))
+        guard !type.isEmpty else { continue }
+        // First-seen wins, matching how a proxy directive resolves a subject annotated twice.
+        if hops[site.targetIdentity] == nil { hops[site.targetIdentity] = type }
+    }
+    return hops
 }
 
 /// The proxy binding for one `.contributesProxy` subject — a scope-bound `<prefix><Subject>` generic

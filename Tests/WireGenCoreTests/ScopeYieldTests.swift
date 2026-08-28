@@ -365,6 +365,131 @@ struct ScopeYieldTests {
         #expect(!thunk.contains("Caller("))
     }
 
+    // MARK: - One hop, through the attribute's own declaration
+
+    /// The adapter annotation a wrapper's declaration carries — `@RequestBinding(Worker.self)` in
+    /// wire-mvc's spelling. `.injectsFromGraph` is the capability it declares, and its ordinary meaning is
+    /// the hop: *the annotated thing depends on the graph value named here*.
+    private var injectingAnnotation: DiscoveredAdapterAnnotation {
+        DiscoveredAdapterAnnotation(
+            annotationName: "RequestBinding",
+            capability: .injectsFromGraph,
+            location: mockLocation("Adapter.swift"),
+            originModule: testModule
+        )
+    }
+
+    private func attributeDeclaration(_ attribute: String, names worker: String) -> ContributionAliasUseSite {
+        ContributionAliasUseSite(
+            annotationName: "RequestBinding",
+            targetIdentity: attribute,
+            argument: "\(worker).self",
+            arguments: ["\(worker).self"],
+            argumentLabels: [nil],
+            location: mockLocation("\(attribute).swift"),
+            originModule: testModule
+        )
+    }
+
+    @Test func anAttributeThatIsNotABindingYieldsWhatItsDeclarationNames() {
+        // The case the split exists for. A parameter attribute has to be a property wrapper — the language
+        // allows nothing else there — and a wrapper cannot also be a graph binding, because the two need
+        // different initialisers to be total. So the wrapper names the worker, and the hop finds it.
+        let hops = scopeYieldHops(
+            annotations: [injectingAnnotation],
+            useSites: [attributeDeclaration("AuthorizedNote", names: "NoteAuthorizer")]
+        )
+        #expect(hops["AuthorizedNote"] == "NoteAuthorizer")
+
+        let yields = scopeYields(
+            for: subjectDeclaration("NotesController", seed: "RequestSeed"),
+            candidates: [candidate("AuthorizedNote", on: "NotesController")],
+            hops: hops,
+            inScopeWith: [scoped("NoteAuthorizer", seed: "RequestSeed")]
+        )
+        #expect(yields == ["NoteAuthorizer"], "the worker is yielded, not the wrapper")
+    }
+
+    @Test func aDirectMatchIsPreferredOverTheHop() {
+        // An attribute that *is* a binding needs no hop, and taking one would let a declaration silently
+        // redirect a name that already resolved — a wrapper pointing elsewhere while the graph holds a
+        // binding of the attribute's own name.
+        let hops = scopeYieldHops(
+            annotations: [injectingAnnotation],
+            useSites: [attributeDeclaration("AuthorizedNote", names: "Elsewhere")]
+        )
+        let yields = scopeYields(
+            for: subjectDeclaration("NotesController", seed: "RequestSeed"),
+            candidates: [candidate("AuthorizedNote", on: "NotesController")],
+            hops: hops,
+            inScopeWith: [
+                scoped("AuthorizedNote", seed: "RequestSeed"),
+                scoped("Elsewhere", seed: "RequestSeed"),
+            ]
+        )
+        #expect(yields == ["AuthorizedNote"])
+    }
+
+    @Test func theHopIsFollowedOnlyOnce() {
+        // A chain would be a graph of its own, and nothing asks for one. `A → B → C` yields nothing when
+        // only `C` is a binding, rather than quietly resolving two levels out.
+        let hops = scopeYieldHops(
+            annotations: [injectingAnnotation],
+            useSites: [
+                attributeDeclaration("A", names: "B"),
+                attributeDeclaration("B", names: "C"),
+            ]
+        )
+        #expect(
+            scopeYields(
+                for: subjectDeclaration("NotesController", seed: "RequestSeed"),
+                candidates: [candidate("A", on: "NotesController")],
+                hops: hops,
+                inScopeWith: [scoped("C", seed: "RequestSeed")]
+            ).isEmpty
+        )
+    }
+
+    @Test func anArgumentThatIsNotATypeReferenceIsNoHop() {
+        // `@RequestBinding(.body)` — the shape almost every binding declaration has. An obligation is not
+        // a graph value, and reading one as a type name is how a rule like this starts matching nonsense.
+        let hops = scopeYieldHops(
+            annotations: [injectingAnnotation],
+            useSites: [
+                ContributionAliasUseSite(
+                    annotationName: "RequestBinding",
+                    targetIdentity: "FormBody",
+                    argument: ".body",
+                    arguments: [".body"],
+                    argumentLabels: [nil],
+                    location: mockLocation("FormBody.swift"),
+                    originModule: testModule
+                )
+            ]
+        )
+        #expect(hops.isEmpty)
+    }
+
+    @Test func aHoppedBindingInTheWrongScopeNamesBothTypes() {
+        // The diagnostic the hop makes necessary: the parameter says `@AuthorizedNote`, and the binding
+        // being complained about is `NoteAuthorizer`, which the route never mentions. Saying only one of
+        // the two would send a reader to a file with nothing wrong in it.
+        var bindings = partitioned(seed: "OtherSeed", [scoped("NoteAuthorizer", seed: "OtherSeed")])
+        bindings[Partition(container: nil, scope: ScopeKey(seed: "RequestSeed"))] = [
+            scoped("NotesController", seed: "RequestSeed")
+        ]
+        let diagnostics = scopeYieldDiagnostics(
+            bindings: bindings,
+            candidates: [candidate("AuthorizedNote", on: "NotesController")],
+            hops: scopeYieldHops(
+                annotations: [injectingAnnotation],
+                useSites: [attributeDeclaration("AuthorizedNote", names: "NoteAuthorizer")]
+            )
+        )
+        #expect(diagnostics.count == 1)
+        #expect(diagnostics.first?.message.contains("'NoteAuthorizer' (named by '@AuthorizedNote')") == true)
+    }
+
     // MARK: - End to end, from source
 
     @Test func aRouteParameterIsDetectedThroughDiscoveryAndSynthesis() throws {
