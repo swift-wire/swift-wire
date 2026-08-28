@@ -24,7 +24,8 @@
 /// so a yield that did not happen is a compile failure somewhere less legible.
 package func scopeYieldDiagnostics(
     bindings: [Partition: [DiscoveredBinding]],
-    candidates: [ScopeYieldCandidate]
+    candidates: [ScopeYieldCandidate],
+    hops: [String: String] = [:]
 ) -> [Diagnostic] {
     guard !candidates.isEmpty else { return [] }
 
@@ -50,8 +51,19 @@ package func scopeYieldDiagnostics(
     var diagnostics: [Diagnostic] = []
     var reported: Set<String> = []
     for candidate in candidates {
-        let type = canonicalTypeName(candidate.typeName)
+        // Reported against whichever of the two actually names a scope binding — the attribute itself, or
+        // the graph value its declaration points at. An attribute that names neither is not a yield
+        // attempt at all and stays silent, which is almost every parameter attribute ever written.
+        let hopped = hops[candidate.typeName]
+        let direct = canonicalTypeName(candidate.typeName)
+        let type = scopedPartitions[direct] != nil ? direct : hopped.map(canonicalTypeName) ?? direct
         guard let boundIn = scopedPartitions[type] else { continue }
+        // Named as the author wrote it, and — when a hop was followed — saying so, since the parameter
+        // does not mention the binding being complained about.
+        let named =
+            type == direct
+            ? "'\(candidate.typeName)'"
+            : "'\(hopped ?? type)' (named by '@\(candidate.typeName)')"
         guard let subjectPartition = subjectPartitions[candidate.targetIdentity] else { continue }
         guard subjectPartition.scope == nil || !boundIn.contains(subjectPartition) else { continue }
         // One report per (subject, binding): several routes taking the same argument is one mistake.
@@ -62,7 +74,7 @@ package func scopeYieldDiagnostics(
                 Diagnostic(
                     location: candidate.location,
                     message:
-                        "'\(candidate.typeName)' is bound in \(describeScopeYieldPartition(boundIn[0])), but '\(subject)' is not scoped — its contributor proxy holds it directly and enters no scope, so there is nothing to construct '\(candidate.typeName)' in. Mark '\(subject)' @Scoped(seed:) with the same seed.",
+                        "\(named) is bound in \(describeScopeYieldPartition(boundIn[0])), but '\(subject)' is not scoped — its contributor proxy holds it directly and enters no scope, so there is nothing to construct it in. Mark '\(subject)' @Scoped(seed:) with the same seed.",
                     severity: .error
                 )
             )
@@ -71,7 +83,7 @@ package func scopeYieldDiagnostics(
                 Diagnostic(
                     location: candidate.location,
                     message:
-                        "'\(candidate.typeName)' is bound in \(describeScopeYieldPartition(boundIn[0])), but '\(subject)' is in \(describeScopeYieldPartition(subjectPartition)) — sibling seeded scopes are isolated by design, so its scope entry constructs only its own. Bind '\(candidate.typeName)' in \(describeScopeYieldPartition(subjectPartition)), or move '\(subject)' to the other seed.",
+                        "\(named) is bound in \(describeScopeYieldPartition(boundIn[0])), but '\(subject)' is in \(describeScopeYieldPartition(subjectPartition)) — sibling seeded scopes are isolated by design, so its scope entry constructs only its own. Bind it in \(describeScopeYieldPartition(subjectPartition)), or move '\(subject)' to the other seed.",
                     severity: .error
                 )
             )
