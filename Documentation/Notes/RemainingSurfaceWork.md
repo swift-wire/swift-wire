@@ -1,15 +1,21 @@
 # Remaining surface work — the sequence, and where it stands
 
 > **Status:** live sequencing note, revised 2026-08-30 against all four repositories. **Phases 0, 1, 2 and
-> 3 are done; Phase 5 is down to one group worth taking; Phase 4 is blocked upstream.** Each phase
+> 3 are done; Phase 5 is down to one group, half of which now has a deadline rather than a task; Phase 4
+> is blocked upstream except for its validation step, which shipped.** Each phase
 > carries its own status and the PRs that closed it, and where a phase's *argument* was overturned by what
 > shipped, the note says so rather than quietly agreeing with the outcome.
 >
+> **This note is now the named successor to M6**, which closed at M6d — the *Open decision* at the end is
+> answered, and `ROADMAP.md`'s *After M6* section is the other half of the answer. Nothing about the
+> sequence changed with that; what changed is that it is no longer unstated which milestone owns it.
+>
 > It assembled into one order the surface work that was spread across five documents in three repositories,
 > and introduced no new work — every item already existed somewhere; the note was about *order*, and about
-> the fact that most of these items were not tracked by the milestone whose job they are. That second half
-> is now half-fixed: `ROADMAP.md`'s M6 entry links this note, so M6 can at least say where its remaining
-> work is enumerated. *Which* milestone it belongs to is still open — see the end.
+> the fact that most of these items were not tracked by the milestone whose job they are. **That second
+> half is now fixed.** `ROADMAP.md`'s M6 entry links this note, and M6 has since closed at M6d with this
+> note named as the successor track — so both halves of the question, where the work is enumerated and
+> which milestone owns it, have answers. See *Open decision* at the end.
 >
 > **Two items were removed on first assembly**, both from the parity note's streaming track, because
 > `PendingIssues/14` records them already measured: the Hummingbird/Vapor duplex question (answered, spikes
@@ -19,9 +25,10 @@
 
 ## Why this exists
 
-M6 is defined in [`ROADMAP.md`](../../ROADMAP.md) as *"features that make idiomatic apps expressible and
-unblock the last examples."* Read against its own sub-milestones, M6 is one-and-a-half items from done:
-M6a/M6b complete, M6c built, M6d built with task-cluster unmigrated.
+M6 was defined in [`ROADMAP.md`](../../ROADMAP.md) as *"features that make idiomatic apps expressible and
+unblock the last examples."* Read against its own sub-milestones, M6 looked one-and-a-half items from done
+when this note was assembled: M6a/M6b complete, M6c built, M6d built with task-cluster unmigrated. All four
+have since shipped and M6 has closed.
 
 Read against the documents that actually enumerate the last examples, it was not close when this note was
 assembled. The roadmap referenced neither
@@ -34,8 +41,9 @@ So "what remains in M6" had two defensible answers that differed by an order of 
 the larger one and sequenced it. **All three tracks in that larger answer have since closed** — the router
 backlog entirely, the streaming migration entirely, and now the parity examples — which is the answer to
 whether the larger reading was the right one to work from. What is left is one blocked tier and an
-allocation pass. Whether that becomes an M6e or an explicitly post-M6 track is still open at the end; the
-sequence holds either way.
+allocation pass. That became an explicitly post-M6 track rather than an M6e — see *Open decision* at the
+end, now answered; the sequence holds either way, which is why the question could be left until it was
+cheap.
 
 ## Sources
 
@@ -486,7 +494,8 @@ waits on the same bug under the roadmap's *Known blockers (1.0)*, so the surface
 only if an adopter has a real duplex route `@RawRoute` cannot serve — a capability argument rather than a
 consistency one, and it should be recorded as such rather than treated as this item arriving early.
 
-**Two pieces of it are not blocked and should not wait:**
+**Two pieces of it were not blocked and did not wait — both are now shipped, which leaves this phase
+waiting on nothing but the compiler:**
 
 - ~~**The sequential case**~~ — **shipped**, wire-mvc #113. A `.readerBody` binding on a
   *streaming-response* route: reduce the body without buffering, then stream. It went in as the third
@@ -496,12 +505,32 @@ consistency one, and it should be recorded as such rather than treated as this i
   becomes a status through `@ErrorResponse` instead of escaping as a truncated response.
   `readerBodyOnStreamingResponse` is now `bodyStreamOnStreamingResponse`, refusing only the duplex shape it
   was always about.
-- **The lent-binding validation step — still open.** Duplex is the first shape where the handler runs
-  *after* the head, so `MultipartParts.init`'s deferred content-type check would truncate a response
-  instead of mapping to 415. Fixing that changes a **public binding protocol**, which is cheaper before 1.0
-  than after — so it wants doing on 1.0's schedule, not on #91473's, even though the feature it serves is
-  paused. Still a spelling rather than a protocol today: `RequestBinding.swift:38` calls the
-  `MultipartParts(request:reader:)` init "a spelling, not a protocol", which is exactly the gap.
+- ~~**The lent-binding validation step**~~ — **shipped**, on 1.0's schedule rather than #91473's, which
+  is the whole of why it did not wait. Duplex is the first shape where the handler runs *after* the head,
+  so `MultipartParts.init`'s deferred content-type check would have truncated a response instead of
+  mapping to 415. That is a **public binding protocol** change — cheap as a sweep before 1.0, a break
+  after — and it was reachable with the feature it serves still paused.
+
+  What landed is `LentBodyStream` in WireMVC, with one defaulted requirement, `borrowing func
+  validateRequest() throws`; the generated terminal emits `try parts.validateRequest()` immediately after
+  `let parts = MultipartParts(request: request, reader: reader)`, inside `building` and before the handler
+  is given the stream. `MultipartParts` conforms and moves its content-type check there.
+
+  **The split this drew is the useful part.** `RequestBinding.swift` called the construction "a spelling,
+  not a protocol" and that reasoning is still exactly right — the stream's type depends on the reader, so
+  no `associatedtype` can express it. What the note (and that comment) had not separated is that the
+  reasoning covers the *initialiser only*. Refusing a request needs no reader, so it could always have
+  been a requirement; the tier simply had nowhere to state one. So this was less a fix than a missing
+  half.
+
+  Two things fell out that were not the point. The check is an **instance** method because a static
+  `validate(request:)` cannot be called from a witness — the stream type is spelled with no type argument,
+  which is what lets a witness name it at all, so `Reader` stays uninferred. And `MultipartParts` now
+  reports the content type it saw, where the deferred check had only a `nil` boundary left to report by
+  the time it ran — matching what the sibling `.readerBody` binding already reported. Nothing observable
+  changed on today's tiers, which is the expected result and is pinned as such: the runtime test asserts
+  the status did not move, and the *ordering* is pinned in wire-mvc's codegen tests, the only place it is
+  visible.
 
 ### Phase 5 — allocation reduction in the native request path — **one group left worth taking**
 
@@ -627,13 +656,27 @@ quantum of ~0.04 µs, so the evidence is the separation holding across replicate
 figure, and it changes nothing about the phase's framing: this is still a phase about allocations, and a
 tenth of a microsecond against a bridge costing 16–47 µs is not a reason to do anything.
 
-**#2 follows the same shape, and is now the whole of what is left.** Values are collected positionally
-into an array, then built into a `[String: Substring]` via
+**#2 follows the same shape, is the whole of what is left, and has since split in two.** Values are
+collected positionally into an array, then built into a `[String: Substring]` via
 `Dictionary(zip(route.parameterNames, values))`. Most routes bind nought to two
 parameters. An inline buffer would carry them without heap, and the handler's by-name lookup could resolve
 against `parameterNames` directly. Note this cost arrived *with* a correctness fix — per-route parameter
 naming (wire-mvc #121, Phase 2 item 5), which removed a registration-order dependency — so the inline
 version recovers what that cost rather than undoing it.
+
+**The two halves have different deadlines, which is why they are now tracked apart.** The `[Substring]`
+of values collected during the walk is internal to `WireMVCRouter`, takes the same `InlineArray`
+treatment #135 gave the registry, and needs no decision — it can land whenever. The **dictionary** cannot
+be changed quietly: `[String: Substring]` is written into `HTTPServerRouteBuilder.register`'s handler
+shape and into `RequestBound.bind`, the protocol every `@RequestBinding` conforms to, user-written ones
+included — sixteen signature sites in wire-mvc alone. That makes it the same pre-1.0 trade #148 spent on
+the response-header registry, and it is [`PendingIssues/17`](../../PendingIssues/17-path-parameter-shape.md)
+rather than a line in this phase. Reading the consumers is what forced the split: two of them look up
+**by name at runtime** (`bind` takes a name; `RouteContext` is read by middleware that does not know the
+route template), so the replacement is a view over `parameterNames` and the positional values rather than
+anything positional — and it has to abstract over a dictionary case besides, since a bridged runtime's
+parameters arrive as `metadata.pathParameters` and converting them would cost *more* than today. The
+allocation is the smaller half of why it matters; the deadline is the rest.
 
 **#3 is the one to leave alone for now.** Four allocations to build and write a response body is the least
 suspicious group: producing bytes and handing them to a sender is the work itself. Attributing them
@@ -944,10 +987,11 @@ Two M6d items that do not belong to either track and should not gate them:
 - **task-cluster migration.** The forcing case still runs M3's adapter. Sequenced by task-cluster's own
   needs, not by this list.
 - **Upstreaming the generator access change.** Not fully in our control: it depends on upstream review.
-  The roadmap currently reads *"wants upstreaming, or at least pinning to a revision"* — the pin is
-  **already done** (`wire-open-api/Fixtures/Package.swift`, revision `9e655e0`, with the reasoning that a
-  branch reference on a fork nobody else watches is exactly the kind that moves quietly). Only upstreaming
-  remains, and the roadmap wants correcting on that point.
+  The pin is **already done** (`wire-open-api/Fixtures/Package.swift`, revision `9e655e0`, with the
+  reasoning that a branch reference on a fork nobody else watches is exactly the kind that moves quietly),
+  so only upstreaming remains. The roadmap read *"wants upstreaming, or at least pinning to a revision"*
+  and wanted correcting on that; it has been corrected, and both this bullet and M6d's entry now say the
+  same thing.
 
 ## Deferred, with reasons
 
@@ -1077,23 +1121,27 @@ where `ServerTransport` costs +16.5 µs and 41. See
 [Mounting on Hummingbird and Vapor](#mounting-on-hummingbird-and-vapor-four-options-and-why-there-are-four),
 which also answers what the ceiling costs on each of the four routes out of it.
 
-## Open decision
+## Open decision — answered
 
-**Where this lives in the roadmap.** Half-answered since this was written: `ROADMAP.md`'s M6 entry now
-links this note and names the open question, so M6 can at least say where its remaining work is enumerated.
-The other half — which milestone that work *is* — is still unstated, and now matters less than it did,
-since the parity track has closed too and only Phase 5 and the upstream-blocked duplex tier are left. Two
-options, unchanged:
+**Where this lives in the roadmap.** The answer is **an explicitly post-M6 track**: `ROADMAP.md` closes M6
+at M6d and names this note as the successor, in its *After M6* section. The two options were:
 
-- **M6e**, naming what is left as a sub-milestone under the link that already exists — accurate to M6's
+- **M6e**, naming what is left as a sub-milestone under the link that already existed — accurate to M6's
   stated purpose ("unblock the last examples"), at the cost of a milestone that grows after being nearly
-  closed. Cheaper now than when this was written, since what would be added is one track and two loose
-  ends rather than three tracks.
+  closed.
 - **An explicitly post-M6 track**, with M6 closed at M6d and this note named as the successor — a cleaner
   milestone boundary, at the cost of M6 having not quite met its own definition.
 
-Either is fine. Leaving it unstated is not, which is what this note exists to fix. **What is left to place
-is now small enough to describe in a sentence**, which it was not before, and Phase 3 closing shortened it
-again: the router path's remaining allocation group and the registry's ownership question (Phase 5), the
-lent-binding validation step, and one upstream pull request. Everything else is either shipped or waiting on
-[swiftlang/swift#91473](https://github.com/swiftlang/swift/issues/91473).
+**The stated cost of the option taken turned out not to be one**, and that is what decided it. M6e's case
+rested on the remaining items serving M6's purpose; by the time the decision was made they did not. All
+three tracks in the larger reading of that purpose had closed — the router backlog, the streaming
+migration, the parity examples — so M6 met its definition in substance rather than falling short of it,
+and what was left over is an upstream-blocked tier and an allocation group that no example is waiting on.
+Growing a milestone to hold work that no longer belongs to it is a worse record than closing it.
+
+The point this section was written to make stands and is now discharged: leaving it unstated was the only
+outcome that was not fine. **What is left to place was small enough to describe in a sentence** by the
+end, which it was not at the start — the router path's remaining allocation group, half of which is now
+[`PendingIssues/17`](../../PendingIssues/17-path-parameter-shape.md), and one upstream pull request. The
+lent-binding validation step, which this sentence used to name, has shipped. Everything else is either
+done or waiting on [swiftlang/swift#91473](https://github.com/swiftlang/swift/issues/91473).

@@ -322,7 +322,10 @@ modification.
    declarations as static members. Probably falls out cleanly
    from SwiftSyntax's access-level inspection but worth a test.
 3. **Macro-generated symbols.** Wire's macros generate `init`
-   declarations, `_wireRegister` functions, setter extensions
+   declarations, adapter witnesses (this was written when adapters
+   registered through a generated `_wireRegister` member; M2's
+   contribution-alias contract retired it — see
+   [AdapterModel.md](AdapterModel.md)), setter extensions
    for actor weak vars, etc. These derive their visibility from
    the host type. Confirm Wire's discovery walks the source-level
    declarations (not macro-expanded output) so the visibility

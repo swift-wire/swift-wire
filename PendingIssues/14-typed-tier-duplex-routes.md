@@ -91,11 +91,16 @@ All in `swift-wire-spikes`, on 6.4-dev unless noted:
 - **The typed client emits the path shim only**, as for `@RawRoute`. A buffering client would make the one
   property a duplex route has untestable while looking like coverage. A real duplex client belongs with the
   `WireMVCTesting` redesign in wire-mvc's `Documentation/TestingArchitecture.md`, not ahead of it.
-- **Lent bindings need a throwing validation step.** Forced by the static head: `MultipartParts.init` is
-  non-throwing on purpose, deferring its content-type check to `withParts` because "the failure [stays]
-  inside the handler — still before any response head is written". Duplex is the first shape where the
-  handler runs *after* the head, so without a validation step a non-multipart `Content-Type` would truncate
-  instead of mapping to 415. This is a change to a public binding protocol, so it is cheaper pre-1.0.
+- **Lent bindings need a throwing validation step — decided, and since shipped**, ahead of the rest of
+  this issue. Forced by the static head: `MultipartParts.init` is non-throwing on purpose, deferring its
+  content-type check to `withParts` because "the failure [stays] inside the handler — still before any
+  response head is written". Duplex is the first shape where the handler runs *after* the head, so without
+  a validation step a non-multipart `Content-Type` would truncate instead of mapping to 415. Being a change
+  to a public binding protocol, it was cheaper pre-1.0 and was taken on 1.0's schedule rather than this
+  issue's: WireMVC declares `LentBodyStream` with a defaulted `borrowing func validateRequest() throws`,
+  and the generated terminal calls it on the constructed stream, before the handler and inside the mapped
+  region. **So when this issue un-pauses, the validation step is already there** — the duplex terminal
+  inherits it rather than having to introduce it alongside a new route shape.
 
 ## Not blocked by this
 

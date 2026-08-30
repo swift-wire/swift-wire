@@ -371,7 +371,10 @@ Because a generic `@Singleton` just exists (like every singleton), nothing
 needs to *demand* it into the graph by spelling its concrete type. Consumers —
 including adapter sinks (`@RoutedBy`) — **read** the constructed member; they
 don't drive its construction. That is why the adapter chain resolves without a
-CompositionRoot: the controller is already a node; `_wireRegister` consumes it.
+CompositionRoot: the controller is already a node; the adapter consumes it.
+(Written when that consumption was a generated `_wireRegister` member; M2's
+contribution-alias contract made it collation instead, which does not change the
+argument — a consumer still reads a constructed member rather than driving it.)
 
 `CompositionRoot` in task-cluster, and today's generated bootstrap spelling
 `DynamoDBTaskRepository<InMemoryDynamoDBCompositePrimaryKeyTable>(table:)`, are
