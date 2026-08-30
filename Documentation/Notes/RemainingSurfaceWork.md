@@ -774,8 +774,9 @@ and 3. **All three are now closed: #135 built the inline buffer, #148 made the r
 option 3 shipped whole.** What is worth keeping is that it shipped for a reason this section never named.
 
 `ResponseHeaderRegistry` is a `~Copyable` struct (`ResponseHeaderRegistry.swift:47`) holding
-`InlineArray<4, Registration?>` with an overflow `Array` past four, `add`/`onSend` `mutating` and `drain`
-`borrowing`. The courier no longer instantiates a class per request on any runtime — item #4, closed. Only
+`InlineArray<4, Registration?>` with an overflow `Array` past four, `add`/`onSend` `mutating` and both
+`drain` spellings **`consuming`** — `drain(into:)` since #159, and `drain()` since the terminals took
+ownership of the drain, which is the entry below. The courier no longer instantiates a class per request on any runtime — item #4, closed. Only
 `onSend`'s escaping closure still allocates a payload, and that is inherent.
 
 **The forcing reason was soundness, and it is none of the three arguments below.** A `@RawRoute` could not
@@ -838,6 +839,17 @@ survived a `200` and vanished from every `@ErrorResponse` status, which is backw
 its `Access-Control-Allow-Origin` and a `401` without its `WWW-Authenticate` are the responses that need
 them most. Fixed in #155, seven commits after the redesign, found from an examples spike rather than from
 the redesign's own review. The keyed-harness variant paths are still untraced.
+
+**It paid out a second time, on the mirror image of the same asymmetry.** #155 gave the mapped path a drain
+of its own, which left a typed terminal draining in *both* branches of a `do`/`catch` that are not
+exclusive — so a deferred `onSend` contribution that threw part-way had its already-succeeded siblings run
+again by the `catch`. Not duplicated header fields: the second drain's result is discarded wholesale, so
+the observable defect was a contribution's **side effects happening twice**, on closures deliberately kept
+non-`@Sendable` precisely so they can capture per-request state. Filed as PendingIssues #18 and fixed in
+wire-mvc by giving the drain to the terminals — which is also what finally made `drain()` `consuming`,
+the property #148 was argued on and did not deliver. Both halves of the pair were found by *pulling on the
+ownership annotation*: #155 by re-walking the contribution sites this caveat named, #18 by trying to write
+`consuming` and reading the refusal. Neither came from review of the diff that introduced it.
 
 ## Response framing
 
