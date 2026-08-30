@@ -2,7 +2,7 @@
 
 > **Status:** live sequencing note, revised 2026-08-26 against all four repositories, with Phase 5's registry
 > section re-checked against wire-mvc on 2026-08-30. **Phases 0, 1, 2 and 3 are done; Phase 5 is two thirds
-> done, and nothing left in it is schedule-bound; Phase 4 is blocked upstream.** Each phase carries its own
+> done, with half of one item still scheduled by 1.0; Phase 4 is blocked upstream.** Each phase carries its own
 > status and the PRs that closed it, and where a phase's *argument* was overturned by what shipped, the note
 > says so rather than quietly agreeing with the outcome.
 >
@@ -801,15 +801,30 @@ read above the fold. The registry also lives in `pending` only; `responded` carr
 `responded(request:)`, which killed a claim the box had carried since the registry was a class — that
 holding it in both states let an always-run observer further in still contribute. It never did.
 
-**The deadline is spent.** Option 3 changed the public shape as predicted — every contributing
+**This registry's deadline is spent.** Option 3 changed the public shape as predicted — every contributing
 middleware's `input.responseHeaders.add(…)` became `input.contributing { headers in … } then: { … }` — and
-that was the only item in Phase 5 scheduled by 1.0 rather than by value. It is now on the far side of that
-deadline rather than approaching it. Six allocations and 1536 bytes per request, and no measurable time at all: see
-*#4* above for the measurement and Phase 3, item 1 for the break.
+it is now on the far side of that date rather than approaching it. Six allocations and 1536 bytes per
+request, and no measurable time at all: see *#4* above for the measurement and Phase 3, item 1 for the
+break.
 
-**Sequencing.** What is left of Phase 5 is #1 and #2, internal to `WireMVCRouter` and doable any time — and
-being native-path-only, they are worth exactly as much as the native path is — with #3 parked until it can
-be attributed by an allocation list rather than a counter. Nothing in the phase is schedule-bound now.
+**Sequencing, and a claim this note carried that was wrong.** It said #1 and #2 are "internal to
+`WireMVCRouter` and can be done any time". That holds for #1 and for **half** of #2. The `[Substring]` of
+parameter values is internal and can take the same `InlineArray` treatment #135 gave the registry. The
+`Dictionary` is not: `[String: Substring]` is written into `HTTPServerRouteBuilder.register`'s handler
+shape (`Routing.swift:36`), whose own comment says **"WireMVC owns this shape"** — so removing it is not an
+upstream ask, but it *is* a public break across every conforming builder including user-written ones, every
+codegen emission of `{ request, requestContext, pathParameters, reader, responseSender in }`, and both
+adapters. It is therefore the same pre-1.0/post-1.0 trade the registry just spent, and **the registry was
+not the last item in Phase 5 scheduled by 1.0** — half of #2 still is.
+
+A constraint on that decision, not previously recorded: on a bridged runtime the parameters arrive as
+`metadata.pathParameters`, which the proposal types as `[String: Substring]`. So a positional replacement
+either has to be constructible from a dictionary — bridged pays what it pays today — or the shape has to
+abstract over both, which is a larger change than the two allocations justify on their own.
+
+The rest is unconstrained: #1 is internal, and #3 stays parked until it can be attributed by an allocation
+list rather than a counter. All of it is native-path-only, so it is worth exactly as much as the native
+path is.
 
 **Caveat on the analysis.** The four groups are measured; the identity of every individual allocation
 within groups 2 and 3 is inferred from the code rather than observed. Confirming those needs an allocation
