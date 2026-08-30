@@ -113,8 +113,8 @@ package struct DynamoDBTaskRepository<Table: DynamoDBCompositePrimaryKeyTable & 
 `Sources/TaskClusterApp/TaskController.swift`:
 
 ```swift
-@Scoped(seed: HBRequestSeed.self)                   // request-scoped: one per HTTP request
-@RoutedBy(Router<BasicRequestContext>.self)         // adapter annotation from WireOpenAPI
+@Scoped(seed: HTTPRequest.self)                     // request-scoped: one per HTTP request
+@OpenAPIController                                  // adapter annotation from WireOpenAPI
 package struct TaskController<Repository: TaskRepository>: APIProtocol {
     @Inject var repository: Repository              // singleton — fine to inject from request scope
     @Inject var requestLogger: RequestLogger        // same scope — direct injection, no wrapper
@@ -125,53 +125,57 @@ package struct TaskController<Repository: TaskRepository>: APIProtocol {
 `Sources/TaskClusterApp/RequestLogger.swift` (new — but task-cluster *should* have this):
 
 ```swift
-@Scoped(seed: HBRequestSeed.self)
+@Scoped(seed: HTTPRequest.self)
 struct RequestLogger {
     @Inject var baseLogger: Logger
-    @Inject var requestID: RequestID         // provided by WireHummingbird's request scope
+    @Inject var request: HTTPRequest         // the seed itself, injectable like any scoped value
 
     var logger: Logger {
         var l = baseLogger
-        l[metadataKey: "request-id"] = "\(requestID.value)"
+        l[metadataKey: "path"] = "\(request.path ?? "")"
         return l
     }
 }
 ```
 
-`HBRequestSeed` is the seed type that `WireHummingbird` publishes for the HTTP request scope. Two `@Scoped(seed: HBRequestSeed.self)` types share a request scope: both are constructed fresh per request, both can inject the seed and any other request-scoped value directly, and singletons (the repository, base logger) inject through unchanged.
+The HTTP request scope is seeded on `HTTPRequest` — the request *is* the seed, so there is no adapter-published wrapper type to learn. Two `@Scoped(seed: HTTPRequest.self)` types share a request scope: both are constructed fresh per request, both can inject the seed and any other request-scoped value directly, and singletons (the repository, base logger) inject through unchanged.
 
-`Sources/TaskCluster/TaskCluster.swift`:
+`Sources/TaskCluster/Bootstrap.swift`:
 
 ```swift
 import Wire
-import WireHummingbird
+import WireMVC
 import WireOpenAPI
 
 @Provides let logger = Logger(label: "TaskCluster")
 @Provides let table = InMemoryDynamoDBCompositePrimaryKeyTable()
 
-@main
-struct TaskCluster {
-    static func main() async throws {
-        let config = ConfigReader(provider: EnvironmentVariablesProvider())
+@Singleton                                          // it is a graph binding like any other
+@WireMVCBootstrap                                   // …and the program entry point is generated from it
+struct AppBootstrap {
+    @Inject let config: ServerConfig
 
-        try await Wire.hummingbird()                // WireHummingbird is implied by the builder
-            .port(config.int(forKey: "HTTP_PORT", default: 8080))
-            .health("/health")
-            .run()
-        // TaskController and DynamoDBTaskRepository are picked up automatically
-        // (sibling targets in the same Package.swift); WireOpenAPI's @RoutedBy
-        // support is composed because WireOpenAPI is a dependency of this target
-        // — depending on a Wire-aware library is what activates it, no call needed.
+    func createServer() throws -> NIOHTTPServer {
+        NIOHTTPServer(logger: Logger(label: "TaskCluster"), configuration: try .init(
+            bindTarget: .hostAndPort(host: config.host, port: config.port),
+            supportedHTTPVersions: [.http1_1],
+            transportSecurity: .plaintext
+        ))
+    }
+
+    func createRouteBuilder<Server: HTTPServer>(for server: borrowing Server) -> some ... {
+        TrieRouteBuilder(for: server)
     }
 }
 ```
+
+There is no `main.swift` and no hand-written `@main`: `swift run TaskCluster` bootstraps the graph, constructs `AppBootstrap`, registers every collated controller onto its route builder, and serves. `TaskController` and `DynamoDBTaskRepository` are picked up automatically (sibling targets in the same `Package.swift`), and `WireOpenAPI`'s `@OpenAPIController` support is composed because `WireOpenAPI` is a dependency of this target — depending on a Wire-aware library activates it, no call needed. The full shape, including what the generated entry point actually emits, is in [The entry point](#the-entry-point) below.
 
 What you actually get from this:
 
 - **Generics are preserved.** `TaskController<Repository>` stays generic. `DynamoDBTaskRepository<Table>` stays generic. The build plugin specializes both at the resolution site — when there's exactly one binding for `DynamoDBCompositePrimaryKeyTable & Sendable` (the in-memory one), it picks `Table = InMemoryDynamoDBCompositePrimaryKeyTable`, and `TaskController` is constructed as `TaskController<DynamoDBTaskRepository<InMemoryDynamoDBCompositePrimaryKeyTable>>`. No existential boxing introduced by the library.
 - **The graph is validated at build time.** Forget to bind a `DynamoDBCompositePrimaryKeyTable` and Swift won't compile. Inject a `@Scoped(seed: X.self)` value as a stored property on a `@Singleton` and the build plugin refuses with a fix-it (make the consumer `@Scoped(seed: X.self)` too, or compose via a scope-appropriate wrapper).
-- **`@RoutedBy` is the architectural feature, not a one-off helper.** It's an *adapter annotation* — a macro published by `WireOpenAPI` that hooks `TaskController` into the app's startup. The same mechanism powers `@JobHandler`, `@ScheduledTask`, `@WebSocketRoute`, etc., from any third-party adapter. The Wire core knows nothing about OpenAPI.
+- **`@OpenAPIController` is the architectural feature, not a one-off helper.** It's an *adapter annotation* — a macro published by `WireOpenAPI` declaring one **capability**, which is all Wire acts on: collate this binding's generated proxy into a key the adapter owns. The same mechanism carries WireMVC's `@Controller` and `@Middleware`, WireHummingbird's `@HummingbirdController`, and WireConfiguration's `@ConfigProperty`, and is open to any third party — see *Adapter annotations* below. The Wire core knows nothing about OpenAPI.
 - **Tests select an alternative `@Container` at the entry point** instead of re-instantiating types with different generic arguments by hand. The chosen container is the whole graph for that test run.
 
 If that diff doesn't look like a meaningful improvement to you, the project doesn't have a reason to exist and you should close this README.
@@ -189,7 +193,7 @@ Two built-in scope macros:
 | `@Singleton`                   | process                                                 | DB pools, HTTP clients, config, metrics, base logger |
 | `@Scoped(seed: SeedType.self)` | one instance per externally provided `SeedType` value   | request-derived state, per-job tenant context        |
 
-`@Scoped` is *seed-typed*: every non-singleton scope is identified by the concrete type whose runtime instance opens it. An HTTP request scope is `@Scoped(seed: HBRequestSeed.self)`; a job scope is `@Scoped(seed: SQSMessage.self)`. The seed type is the only contract — anyone (the Wire user, an adapter package, a third party) can publish a seed type and the types scoped to it will compose naturally. Multiple seed types coexist; a single graph might host request-scoped, job-scoped, and WebSocket-session-scoped bindings simultaneously.
+`@Scoped` is *seed-typed*: every non-singleton scope is identified by the concrete type whose runtime instance opens it. An HTTP request scope is `@Scoped(seed: HTTPRequest.self)` — the request itself is the seed, so there is no wrapper type; a job scope would be `@Scoped(seed: SQSMessage.self)`. The seed type is the only contract — anyone (the Wire user, an adapter package, a third party) can publish a seed type and the types scoped to it will compose naturally. Multiple seed types coexist; a single graph might host request-scoped, job-scoped, and WebSocket-session-scoped bindings simultaneously.
 
 Singletons outlive everything. Scoped instances see singletons (and the seed value itself) but not each other across scope boundaries. Asking for a scoped type from a singleton — or from a scope keyed by a different seed — is a compile error pointing at the injection site; the fix is either widening the seed or scoping the consumer the same way.
 
@@ -244,7 +248,7 @@ Member-injection parameters still participate in graph validation: missing-bindi
 
 ### Crossing scopes
 
-The common case for "a singleton needs request-scoped state" collapses if you scope the consumer to the seed instead. A `TaskController` that wants per-request logging is naturally `@Scoped(seed: HBRequestSeed.self)`, not a singleton with a deferred-resolution wrapper. Wire's adapter packages publish controller registration that constructs per-seed instances on demand — the controller goes in the request scope, the singleton stays in the process scope, and the boundary is never crossed at injection time.
+The common case for "a singleton needs request-scoped state" collapses if you scope the consumer to the seed instead. A `TaskController` that wants per-request logging is naturally `@Scoped(seed: HTTPRequest.self)`, not a singleton with a deferred-resolution wrapper. A scoped controller becomes an app-scoped contributor whose generated registration enters the scope per request, constructing only its own transitive request-scoped subgraph — so the controller goes in the request scope, the singleton stays in the process scope, and the boundary is never crossed at injection time.
 
 When a singleton genuinely needs to *defer* construction of something within its own scope (an expensive resource not always exercised, a first-use-init pattern), the user writes a `@Provides` that returns `Lazy<T>`. `Lazy<T>` is a regular public Swift type Wire ships; consumers `@Inject` it as `Lazy<T>` and call `.get()` to materialise. There's no framework-magic recognition — the binding's type *is* `Lazy<T>`, and the user controls the factory closure:
 
@@ -268,93 +272,219 @@ A general `Provider<T>` for cross-scope on-demand resolution is deferred; if a r
 
 ### Adapter annotations (the extension mechanism)
 
-The Wire core defines exactly: scope macros (`@Singleton`, `@Scoped`), `@Inject`, `@Container`, `@Provides`, `@Contributes`, `@Teardown`, `Lazy<T>`, `BindingKey<T>`, `CollectedKey<T>`, `MappedKey<K, V>`, `BuilderKey<B>`. Everything else — every framework integration — is an *adapter annotation*: a macro published by an adapter package that the build plugin recognizes by name and that emits registration code into the generated bootstrap.
+The Wire core defines exactly: scope macros (`@Singleton`, `@Scoped`), `@Inject`, `@Bind`, `@Provides`, `@Container`, `@GraphInputs`, `@Contributes`, `@Factory`, `@Teardown`, `@Replaces`, `@TestScopable`, `Lazy<T>`, and the key types (`BindingKey<T>`, `CollectedKey<T>`, `MappedKey<K, V>`, `BuilderKey<B>`, `FactoryKey`). Everything else — every framework integration — is an *adapter annotation*: a macro published by an adapter package that the build plugin recognizes and acts on.
 
-Adapter annotations come in three forms, all supported by the contract:
+**An adapter annotation does not emit registration code.** It declares a **capability** — one edge Wire adds to the graph around the declaration the attribute sits on. Wire performs the edge; the adapter's own macro performs the framework work, in its own expansion, where Wire never looks. That split is the whole contract, and it is why adding `WireMVC` requires no change to Wire core: the core learns that a binding gained a contribution or a dependency, never that the thing is a route.
 
-- **Type-level only.** Annotates a type; contributes registration code that runs after the container resolves it. Example: `@RoutedBy(Router<C>.self)` from `WireOpenAPI` — for any type carrying it that conforms to a generated `APIProtocol`, the bootstrap calls `.registerHandlers(on:)` with the supplied router.
-- **Type-level with member recognition.** Annotates a type, but also recognizes member-level annotations within it, walking the type's methods at compile time and generating per-method registration. Example: `@Controller("/tasks")` from `WireMVC` — paired with method-level `@Get("/{id}")`, `@Post`, `@Patch("/{id}")`, etc., and parameter-level `@Path`, `@Body`, `@Query`, `@Header`, it generates per-route registration plus the request-decoding and response-encoding adapter for each method.
-- **Member-level only.** Annotates a method or property without a type-level marker. Less common; useful for cross-cutting concerns like `@Metric` or `@Cached`.
+An adapter publishes one declaration per annotation:
+
+```swift
+public let wireMVCControllerAlias = WireAdapterAnnotationV1(
+    annotation: "Controller",                       // the attribute spelling, without `@`
+    capability: .contributesProxy(
+        to: WireMVCKeys.routeContributors,          // a key the adapter owns
+        proxyTypePrefix: "_WireRouteContributor_",
+        proxyScope: .singleton
+    )
+)
+```
+
+Wire reads this **syntactically**, exactly as it reads a `BindingKey` declaration — the plugin parses the source and never runs it, so the key argument is captured as written text, not as a runtime value. Nothing registers itself, and there is no initializer to order.
+
+#### The capability axis
+
+Every capability is domain-free. Each names *what edge* the annotation synthesises, never what the value means.
+
+| Capability | The edge | Shipped users |
+|---|---|---|
+| `.contributes(to: key)` | **Output.** The binding flows into `key`'s aggregate — the annotation aliases `@Contributes(to: key)`. | `@HummingbirdController`, `@HummingbirdService`, `@BackgroundService` |
+| `.contributesProxy(to:…)` | **Output, one generated proxy per subject.** The proxy — not the binding — collates, so the annotated type stays an ordinary, footgun-free value. At `proxyScope` the proxy either *holds* the subject or *bridges* into its narrower scope. | `@Controller` |
+| `.contributesAggregateProxy(to:…, groupedByAttribute:)` | **Output, one proxy over many subjects**, partitioned by a use-site argument. For a framework demanding a single conformer where the user has several types. | `@OpenAPIController` (grouped by `spec:`) |
+| `.liftsPeersToProxy(…)` | A proxy synthesised and addressable, contributing to **no** key — the adapter's codegen emits onto it. | `@WireMVCBootstrap` |
+| `.injectsFromGraph` | **Input.** `@X(argument)` makes the binding depend on a graph value named by the argument, dispatching on its kind: a `FactoryKey` injects a synthesised factory, a `BindingKey<T>` a keyed binding, `T.self` a binding by type. | `@Middleware`, `@RequestBinding`, `@Coding` |
+| `.mapsFactoryRoles(roles:)` | Supplies the ordered role names for a `@Factory` template's assisted generic parameters. Wire reads them as opaque identifiers. | `@MiddlewareFactory` |
+| `.rewritesInjection(provider:selector:)` | The annotated *injection point* stops resolving by its own type and resolves instead to a binding Wire synthesises, which reads the value out of a provider the graph supplies. | `@ConfigProperty` |
+
+`.rewritesInjection` is the clearest illustration of how little Wire is told. For a site of type `T` annotated `@X(a, b)` it emits `try X<T>.wireValue(from: <provider>, a, b)` — copying the annotation's argument list **verbatim**. It never learns what a key is, which method reads it, or that a "default" or a "secret" is a thing. Adding a type is adding an overload in the adapter, not a case in Wire.
+
+#### Where the attribute attaches
+
+Independently of the capability, an annotation attaches in one of three places — all supported, and the contract had to support all three from day one because retrofitting the third would break every adapter written against the first two:
+
+- **Type-level.** `@OpenAPIController` on a type conforming to a generated `APIProtocol`.
+- **Type-level with member recognition.** `@Controller` on the type, with `@Get` / `@Post` / `@Path` / `@JSONResponse` on its members and parameters. Wire's scan never matches the member annotations — they are the adapter's private vocabulary — so the DI core stays ignorant of routing while the adapter's plugin walks the same source.
+- **Member- or parameter-level.** `@Middleware` on a property, `@ConfigProperty` on an `@Inject` property or an `@Inject init` parameter. (`@Path` on a handler parameter is *not* an example: it declares no capability, so Wire never sees it at all — it belongs to the private vocabulary above.)
 
 A `WireMVC` controller — the canonical type-level-with-member-recognition case — looks like this:
 
 ```swift
-@Scoped(seed: HBRequestSeed.self)
-@Controller("/tasks")
-package struct TaskController {
-    @Inject var repository: any TaskRepository
-    @Inject var requestLogger: RequestLogger
+@Singleton
+@Controller("/todos")
+@Middleware(ControllerMiddleware.logRequests)
+@ErrorResponse(TodoNotFound.self, .notFound)
+public struct TodosController<Repository: TodoRepository>: Sendable {
+    @Inject var repository: Repository
 
     @Get("/{id}")
-    func getTask(@Path id: UUID) async throws -> TaskItem {
-        guard let task = try await repository.get(taskId: id) else {
-            throw HTTPError(.notFound)
-        }
-        return task
+    @JSONResponse
+    public func get(@Path id: String) async throws -> Todo {
+        guard let todo = try await repository.find(id: id) else { throw TodoNotFound() }
+        return todo
     }
 
     @Post
-    func createTask(@Body request: CreateTaskRequest) async throws -> TaskItem { ... }
-
-    @Patch("/{id}/priority")
-    func updatePriority(
-        @Path id: UUID,
-        @Body request: UpdatePriorityRequest
-    ) async throws -> TaskItem { ... }
+    @JSONResponse(status: .created)
+    public func create(@JSONBody input: CreateTodo) async throws -> Todo {
+        try await repository.create(input)
+    }
 }
 ```
 
-The build plugin walks `TaskController`'s methods, finds the ones tagged with `@Get` / `@Post` / `@Patch`, reads the parameter annotations, and generates the route registration plus request decoding and response encoding for each. The same controller could be written `@RoutedBy(...)` against an OpenAPI-generated `APIProtocol` instead — both styles are first-class and can coexist in the same app, mixed per controller.
+Wire sees one thing here: `@Controller` contributes a generated proxy into `WireMVCKeys.routeContributors`, and `@Middleware` gives that proxy a dependency on a factory. Everything else — the verbs, the paths, the parameter decoding, the response encoding, the error mapping — is WireMVC's build plugin reading its own annotations. The same controller can be written spec-first against an OpenAPI document instead; since M6d both kinds of route contribute to the *same* key, so an app mixes them per controller and expresses middleware, error mapping and request scope identically across both.
 
-Equivalent adapter annotations to expect from adapter packages:
+The annotations adapter packages publish today. Only some of them declare a capability — the rest are each adapter's private vocabulary, invisible to Wire, which is the point of the split above:
 
-- `@RoutedBy(Router<C>.self)` — `WireOpenAPI`, type-level: registers a generated `APIProtocol` conformance.
-- `@Controller`, `@Get`, `@Post`, `@Patch`, `@Delete`, `@Put`, `@Path`, `@Body`, `@Query`, `@Header` — `WireMVC`, type-level with member recognition: Spring-MVC-style inline route declarations as an alternative to the OpenAPI-spec-first path.
-- `@JobHandler(queue:)` — `WireSQS` / `WireRedis`, type-level: registers the type as a queue consumer.
-- `@ScheduledTask(every:)` — `WireScheduling`, type-level: registers the type with a scheduler.
-- `@WebSocketRoute(_)` — `WireHummingbird`, type-level: registers the type as a WebSocket handler.
+- `@Controller`, `@Get`/`@Post`/`@Patch`/`@Delete`/`@Put`, `@Path`/`@Query`/`@Header`/`@JSONBody`, `@JSONResponse`, `@Middleware`, `@ErrorResponse`, `@RawRoute`, `@WireMVCBootstrap` — **WireMVC**, declarative cross-runtime routing.
+- `@OpenAPIController`, `@Operation` — **WireOpenAPI**, the spec-first path onto the same routing model.
+- `@HummingbirdController`, `@HummingbirdService` — **WireHummingbird**, collating natively-written Hummingbird controllers and `Service`s.
+- `@ConfigProperty(forKey:default:)` — **WireConfiguration**, over swift-configuration.
 
-Anyone can write one. The Wire core has a documented protocol that adapter annotations must implement; if you can satisfy it, your annotation works alongside everything else. The contract is designed up front to support all three forms, even though M1 ships no adapters — retrofitting member-level support after type-level adapters had already shipped would break every existing one, so the contract has to anticipate it.
+Anyone can write one, and the reason to believe that is that the last three capabilities in the table were each added by an adapter's need without Wire learning that adapter's domain — middleware, request bindings, configuration. A third-party `@Secret`, `@FeatureFlag` or `@Clock` is `.rewritesInjection` with a different provider — no swift-wire change, no table to extend.
 
 #### How the contract works
 
 Three pieces:
 
-**1. The macro generates a `_wireRegister` extension whose parameter list declares the adapter's resolver-time dependencies directly:**
+**1. The adapter declares its annotation, owns its key, and ships a facade.** The key is an ordinary multibinding key (`WireMVCKeys.routeContributors = CollectedKey<any RouteContributor>`); the facade consumes the key's product and applies it to a framework object — a router, a transport — that stays *outside* the graph.
+
+**2. The consumer activates the adapter by depending on it.** The build plugin re-parses the sources of each Wire-aware library the target directly depends on, and finds the `WireAdapterAnnotationV1` declarations there. Discovery is *name-agnostic*: the module defining the annotation is usually not the module using it. (Re-parsing is the M1 mechanism; M7a replaces it with per-library manifests when it becomes a build-time cost. Nothing about the contract changes with it.)
+
+**3. The plugin synthesises the declared edge and everything else is ordinary machinery.** A `.contributes` annotation becomes a synthetic `@Contributes(to: key)` that flows through the same multibinding fan-in a hand-written one uses. An `.injectsFromGraph` annotation appends a dependency the adapter's macro accepts through a generated init. **There is no bespoke emission and no adapter-specific phase.**
+
+The separation is strong: **adapters own their semantics, Wire core owns the graph.** Validation is structural — an unbound dependency is a compile error pointing at the adapter annotation that asked for it, and a key with no contributors yields an empty aggregate rather than a missing member.
+
+Type expressions extracted from annotation arguments are normalised — interior whitespace collapsed — before binding lookup, so `Router<X, Y>` and `Router<X,Y>` resolve to the same binding regardless of how the source was formatted (M0 finding from Spike 3).
+
+#### Collation, not registration
+
+This is the decision the contract turns on, and it replaced an earlier design worth naming because the earlier one is the obvious one.
+
+The first model made an adapter a **post-construction sink**: the annotation's macro generated a `_wireRegister(instance:router:)` member and Wire called it after the graph was built, to register the instance *into* a graph-bound collaborator. It worked, and it cost: the router had to be a binding, which meant a consumer of the *mutated* router had to be ordered after registration, which meant a phase taxonomy, which meant a contract that had to version its phases. It also needed a bespoke dead-binding exemption, since a registered subject that nothing injected looked unused.
+
+Collation inverts it. The framework object leaves the graph; the annotation aliases `@Contributes`; the contributor flows through machinery that already existed. Nothing in the graph consumes a mutated collaborator, so there is no ordering problem, no phase, and no exemption — the contribution *is* the consumption edge. `_wireRegister`, `AdapterResolution`, the phase taxonomy and the register-signature field all retired with it in M2.3.
+
+#### Reading the graph without naming it
+
+A facade needs the collated products but must not name the generated `_WireGraph` type, which is internal to the consumer. So an adapter declares a conformance instead:
 
 ```swift
-extension TaskController {
-    public static func _wireRegister(
-        instance: Self,
-        router: Router<BasicRequestContext>
-    ) async throws {
-        try instance.registerHandlers(on: router)
-    }
-}
+public let conformance = WireGraphConformanceV1(
+    conformsTo: (any HummingbirdComposable).self,
+    members: [.init("routes", from: HummingbirdKeys.routes)]
+)
 ```
 
-The function signature *is* the dependency declaration — there's no parallel metadata field. For type-level adapters like `@RoutedBy`, the body is one line. For type-level-with-member-recognition adapters like `@Controller`+`@Get`, the macro walks the type's annotated members at expansion time and generates the per-method registration in the body, using the supplied parameters. Member-level annotations on a type union their parameter requirements at the type-level signature. Wire core never sees inside the body's logic.
-
-**2. A per-library manifest declares the exported annotations** — qualified name, form, phase, contract version. The consumer's build plugin reads dependency manifests (the same mechanism multi-module composition uses) and knows which annotations to recognise.
-
-**3. The build plugin reads `_wireRegister`'s signature, validates each parameter is bound in the graph, and emits the call with concrete arguments.** For every adapter-annotated type, the plugin emits `try await Type._wireRegister(instance: ..., router: ...)` at the appropriate phase, with each argument resolved at compile time. M1 ships with one phase (post-graph, pre-services); per-request and per-job phases land when an adapter actually needs them.
-
-The separation is strong: **adapters own their semantics, Wire core owns the bootstrap.** Adding `WireMVC` doesn't require Wire core to know about HTTP routing. Validation is structural — the function signature is read by the build plugin, and a missing binding for any parameter is a compile error pointing at the adapter annotation. There is no runtime `resolve(...)` inside `_wireRegister` and no separate metadata to keep in sync with the body.
-
-Type expressions extracted from annotation arguments and `_wireRegister` parameter lists are normalised — interior whitespace collapsed — before binding lookup, so `Router<X, Y>` and `Router<X,Y>` resolve to the same binding regardless of how the source was formatted (M0 finding from Spike 3).
+Wire emits `extension _WireGraph: HummingbirdComposable { … }`, mapping each member to its key's aggregate, and infers the protocol's associated types from the witnesses. The facade then takes `some HummingbirdComposable`. Wire still knows nothing about what the protocol means. Every generated graph also conforms to a core `Introspectable`, so an introspection endpoint takes `some Introspectable` for the same reason.
 
 #### Contract versioning
 
-The contract is versioned from M1. Adapters declare a target version in their manifest. If Wire later adds a parameter to `_wireRegister` (a bootstrap context, a logger, a phase hint), that's contract v2, and v1 adapters continue to work via a compatibility shim. Wire core supports the current version plus a deprecation window for prior ones. This is the cost of long-lived ABI compatibility for adapters; the alternative — breaking every adapter on a Wire upgrade — would kill the ecosystem.
+The contract is **versioned by type name**: a shape change ships `WireAdapterAnnotationV2` (or `WireGraphConformanceV2`) and the build plugin recognizes each version by its type, so adapters written against V1 keep working with no shim to maintain. Adding a *capability* is not a version bump at all — the enum grows a case, and an adapter that does not use it is unaffected.
+
+Where a case's own shape might need to grow, the payload is a struct rather than an enum for the same reason: `WireProviderSelector` is a struct with a static factory, so a second selector form can be added later without breaking an exhaustive `switch` in an adapter that inspects one.
 
 #### Public API vs. SPI
 
 The contract distinguishes two stability tiers:
 
-- **Public API** (stable, breaking change requires a major version of Wire): `Resolver` protocol, the `_wireRegister` direct-injection convention, manifest format, phase taxonomy, the `@Teardown` annotation, runtime types (`BindingKey`, `CollectedKey`, `MappedKey`, `BuilderKey`, `Provider`), introspection types (`WiringModel`, `BindingInfo`, `DependencyEdge`, `BindingKind`), build-time graph JSON format.
-- **SPI** (adapter authors only, can evolve within a major version): registry internals, phase ordering implementation, build-plugin internals, generated bootstrap structure.
+- **Public API** (stable; a breaking change requires a major version of Wire): `WireAdapterAnnotationV1` and `WireAdapterCapability`, `WireGraphConformanceV1`, the key types (`BindingKey`, `CollectedKey`, `MappedKey`, `BuilderKey`, `FactoryKey`), the `Introspectable` protocol and introspection types (`WiringModel`, `BindingInfo`, `DependencyEdge`, `BindingKind`), the `@Teardown` annotation, the `_WireExports.swift` activation marker, and the build-time graph JSON format.
+- **SPI** (adapter authors only; can evolve within a major version): the names and internal shape of generated proxies, the generated bootstrap structure, build-plugin internals, and the scope-entry types an adapter's codegen reads.
 
 Adapter authors building against public API are insulated from Wire's internal evolution.
+
+### The entry point
+
+You don't write `@main`. A composition root carrying `@WireMVCBootstrap` is a graph binding like any other, and WireMVC's build plugin generates the program entry point from it.
+
+```swift
+@Singleton
+@WireMVCBootstrap
+@Middleware(GlobalMiddleware.cors)              // global: every route and the fallback alike
+struct AppBootstrap {
+    @Inject let config: ServerConfig
+
+    /// Optional pre-step. Runs *before* the graph exists; its return value is the graph's inputs
+    /// (or `Void`, to run it for its effects alone).
+    static func prepare() throws -> AppInputs {
+        let config = ConfigReader(providers: [EnvironmentVariablesProvider()])
+        LoggingSystem.bootstrap { StreamLogHandler.standardOutput(label: $0) }
+        return AppInputs(config: config)
+    }
+
+    func createServer() throws -> NIOHTTPServer { ... }
+    func createRouteBuilder<Server: HTTPServer>(for server: borrowing Server) -> some ... { ... }
+
+    /// Optional: mount `introspect()` as JSON. Returning `nil` skips it.
+    func mountIntrospectionAt() -> String? { "/wiring" }
+
+    /// Optional: the app's own fallback. Without one the plugin synthesises a plain 404.
+    @NotFound @RawRoute
+    func noRoute<Sender: HTTPResponseSender & ~Copyable>(
+        request: HTTPRequest, responseSender: consuming sending Sender
+    ) async throws where Sender.Writer: ~Copyable { ... }
+}
+```
+
+The two `create…` factories are the only required members, and they are what makes this a *composition root* rather than a config struct: the concrete server and route builder are the app's choice, so they are written by the app and constructed with the graph's own dependencies. `createServer()` returns the concrete server type rather than `some HTTPServer` — the proposal's `Reader` and `ResponseSender` are `~Copyable`, which a bare opaque return cannot express.
+
+**What the generated entry point does**, in order — worth reading once, because everything below is a consequence of it:
+
+1. Calls `prepare()` if present, and passes its result to `Wire.bootstrap(inputs:)`.
+2. Reads the composition root off the graph, and asks it for the server and the route builder.
+3. `WireMVC.apply(graph, to: &builder)` — registers every collated route contributor and returns the graph's collated `ServiceLifecycle` services.
+4. Mounts introspection if `mountIntrospectionAt()` returned a path.
+5. Registers the `@NotFound` fallback (or a synthesised 404) and a `405` handler, *before* finalizing — so both are real routes inside the router, which is what lets the global middleware and error tiers fold into them.
+6. `finalize()`s the builder into an immutable router, wraps it once in the global `@Middleware` layer, and serves it alongside the services.
+
+Step 5 is the one worth pausing on. A fallback is the response nobody declares, and therefore the easiest place to lose the header fields a global middleware contributed; registering it as a route rather than as a special case is what stops that being a per-app mistake.
+
+#### The pre-graph step
+
+`prepare()` exists for the work that has to happen before any binding is constructed, and it is the only place that work can go. Two things need it:
+
+- **`LoggingSystem.bootstrap`.** It traps on a second call, and the unbound default logger is captured at first access — so bootstrapping *after* the graph is built leaves every binding constructed so far holding a logger that ignores the configuration.
+- **Building the `ConfigReader`** the graph shares, which is then handed in as a graph input.
+
+Being pre-graph, `prepare()` can inject nothing. That is the trade for running first, and it is why it reads the environment directly there and nowhere else. Its return type is a `@GraphInputs` struct — values supplied to the graph rather than produced by it:
+
+```swift
+@GraphInputs
+struct AppInputs: Sendable {
+    let config: ConfigReader
+}
+```
+
+Inputs are the *consumer's* to supply: a library cannot decide what its consumers must pass in, which is why `@GraphInputs` is declared in the app rather than by an adapter.
+
+#### The explicit form
+
+`@WireMVCBootstrap` generates the entry point for a WireMVC app. An app that isn't one — a Tier-1 Hummingbird app that writes its own routes, or a non-HTTP program — bootstraps the graph itself and mounts it through the adapter's facade:
+
+```swift
+let graph = try await Wire.bootstrap()
+let services = WireHummingbird.apply(graph, to: router)
+```
+
+Two lines, and the second is the adapter's. The framework object — the router — stays outside the graph and is the app's to construct and to serve, which is the same property [collation](#collation-not-registration) buys everywhere else. Nothing about the graph differs between the two forms; the generated entry point is a convenience over exactly this, not a different mechanism.
+
+#### Selecting a container, and entering from a test
+
+`Wire.bootstrap()` builds the default graph. A named `@Container` gets its own generated bootstrap — `@Container enum TestContainer` yields `Wire.bootstrapTestContainer()` — and calling that one instead is the whole swap for that run. See [`@Provides` (and optionally `@Container`)](#provides-and-optionally-container) below. Container selection is a property of the **explicit** form: the generated `@main` bootstraps the default graph, because a program's entry point has nobody to ask which container to use.
+
+Tests do not need one anyway. For a test consumer the plugin generates a suite-trait factory rather than a `@main`, so a test target re-composes the *same* composition root while the harness owns serving, the port and cancellation — build-without-serve, with no override machinery. Substitution happens through `@Replaces` (a test target's binding supersedes a sibling module's for the same key) or through per-request doubles, rather than by selecting a parallel graph. That is the same app entered differently, which is a property a container swap cannot offer.
+
+#### What the generated entry point does not do
+
+**App-scope `@Teardown` actions do not run on this path.** The generated `@main` serves and exits; it does not call the graph's `teardown()`. Request-scope teardown *does* run — it is emitted per route and fires when the request scope ends — and the Tier-1 path runs app-scope teardown through WireHummingbird's `teardownService`. So an app with a `@Teardown`-annotated `AWSClient` gets orderly shutdown under WireHummingbird and process-exit cleanup under `@WireMVCBootstrap`. Closing that is tracked in [ROADMAP.md](ROADMAP.md); until it is, an app that needs deterministic app-scope shutdown should use the explicit form.
 
 ### `@Provides` (and optionally `@Container`)
 
@@ -388,8 +518,8 @@ enum TestContainer {
     // ... other bindings the test graph needs
 }
 
-// Test entry point:
-try await Wire.hummingbird(TestContainer.self).run()
+// Entry point for that graph — one generated bootstrap per container:
+let graph = try await Wire.bootstrapTestContainer()
 ```
 
 When a `@Container` is selected at the entry point, that container's bindings *are* the graph for that run; module-scope `@Provides` aren't merged in. This keeps the swap atomic and avoids inheriting override semantics from day one.
@@ -627,7 +757,7 @@ struct DatabasePool {
 }
 ```
 
-The macro propagates `await` and `try` through the resolution chain; the bootstrap becomes `try await Wire.hummingbird()...run()`. There is no `@PostConstruct`-style separate init step — Swift constructors don't need one.
+The macro propagates `await` and `try` through the resolution chain, which is why the bootstrap is `try await Wire.bootstrap()` (and why the generated entry point's `main()` is `async throws`). There is no `@PostConstruct`-style separate init step — Swift constructors don't need one.
 
 Teardown is the asymmetric case (Swift has no async `deinit`). Rather than a framework-recognised protocol or a wrapper type the framework knows to unwrap, Wire marks teardown **explicitly at the binding's declaration** with `@Teardown`. There is no `Lifecycle` protocol and no `Resource<T>` — nothing for the framework to discover by a conformance probe. The graph already knows construction order; `@Teardown` just annotates which nodes have a teardown action and what it is. Two forms, for the two cases:
 
@@ -670,13 +800,13 @@ Why explicit annotation over retroactive `Lifecycle` conformance: a recognised c
 
 Each scope has a teardown phase. `@Teardown`-annotated bindings within the scope are torn down in reverse dependency order — dependents before dependencies — so a `TaskRepository` that depends on `DatabasePool` tears down first, letting in-flight queries complete before the pool drains.
 
-- **App-scope teardown** runs at process exit, plumbed through `WireHummingbird` into swift-service-lifecycle's shutdown sequence. App-scope teardown happens *after* all `Service`s have stopped, so a `DatabasePool` is torn down only after the HTTP server has finished serving the last request.
+- **App-scope teardown** runs at shutdown, plumbed through `WireHummingbird` into swift-service-lifecycle's shutdown sequence. It happens *after* all `Service`s have stopped, so a `DatabasePool` is torn down only after the HTTP server has finished serving the last request. **This is the explicit entry point's path.** A `@WireMVCBootstrap` app does *not* run app-scope teardown today — see the note under [The entry point](#what-the-generated-entry-point-does-not-do).
 - **Request-scope teardown** runs at end of request handling, including the cancelled case. A request-scoped `RequestTransaction` that auto-rollbacks on teardown if not committed is the canonical example.
 - **Job-scope teardown** runs at end of job, same scope-guard semantics.
 
 If a teardown action throws, the error is collected and logged; teardown continues with the next binding, and `teardown()` returns the collected errors. **Init-failure partial teardown** — if an init throws partway through bootstrap, tearing down the already-initialized teardown-annotated bindings in reverse before the bootstrap rethrows — is **not yet implemented** (see the status note below); a bootstrap init-failure currently leaves them for process exit to reclaim.
 
-> **Status.** M1 shipped the `@Teardown` annotation (recognised and recorded, inert). **M4** emits the **app-scope** teardown walk: `teardown()` on the generated graph calls each action in reverse dependency order, run at shutdown via WireHummingbird's `teardownService` (prepended so it shuts down last), collecting teardown-action failures. **Request-/job-scope teardown** needs request scope and is **M5**. **Init-failure partial teardown** is deferred to **M7c** — its implementation is fixed by the construction scheduler that pass settles (a linear prefix today vs. resolved `AtomicState` cells under dynamic scheduling), so it lands there once rather than being rewritten, or earlier if a concrete adopter forces it; until then a bootstrap init-failure relies on process exit for cleanup.
+> **Status.** M1 shipped the `@Teardown` annotation (recognised and recorded, inert). **M4** emits the **app-scope** teardown walk: `teardown()` on the generated graph calls each action in reverse dependency order, collecting teardown-action failures. Every graph conforms to `Teardownable`, so any facade can drive it; the one that does today is WireHummingbird's `teardownService` (prepended so it shuts down last). **The generated `@WireMVCBootstrap` entry point does not call it** — the walk exists and nothing on that path invokes it, so a WireMVC app's app-scope teardown currently relies on process exit. **Request-/job-scope teardown** needs request scope and is **M5**. **Init-failure partial teardown** is deferred to **M7c** — its implementation is fixed by the construction scheduler that pass settles (a linear prefix today vs. resolved `AtomicState` cells under dynamic scheduling), so it lands there once rather than being rewritten, or earlier if a concrete adopter forces it; until then a bootstrap init-failure relies on process exit for cleanup.
 
 #### Service vs teardown
 
@@ -717,7 +847,7 @@ struct WorkerService: Service {
 
 **Why the dependency, not a call-site directive.** Activation is a *compile-time* fact: the build plugin must know the activated set before it generates anything, so it can validate the whole graph and collate multibindings at build time (the plugin emits exactly one `_WireGraph` per target — there is one activation set per target, not a per-bootstrap-call choice). The manifest dependency list is where that fact already lives, name-checked by SPM. Both halves of activation are explicit and visible: your `Package.swift` (which libraries you pulled in) and each library's `_WireExports.swift` (its opt-in to being composable). Nothing transitive or hidden activates — only the libraries you directly named.
 
-Activation is **all-or-nothing per library**: an activated library contributes every one of its bindings — `@Singleton`s available for injection, `@Provides` available, `@Contributes` joining the relevant collections, adapter-annotated types having their `_wireRegister` called. A library is a unit; depending on it takes all of it. This prevents the silent failure mode of partial activation — taking a library's `@Singleton` while its `@Contributes` partner is invisible, with the type system blessing a graph that's missing behavior the library was designed to provide as a coherent unit.
+Activation is **all-or-nothing per library**: an activated library contributes every one of its bindings — `@Singleton`s available for injection, `@Provides` available, `@Contributes` joining the relevant collections, adapter-annotated types collating into their adapters' keys. A library is a unit; depending on it takes all of it. This prevents the silent failure mode of partial activation — taking a library's `@Singleton` while its `@Contributes` partner is invisible, with the type system blessing a graph that's missing behavior the library was designed to provide as a coherent unit.
 
 #### Same-package, external, and transitive
 
@@ -764,7 +894,7 @@ Wire respects Swift 6's isolation model rather than reinventing it. The compiler
 
 2. **Global actor isolation is honored, not reinvented.** Write `@MainActor @Singleton struct UICoordinator` and the macro reads the existing `@MainActor` attribute. Consumers of an isolated singleton from non-isolated contexts use Swift's standard `await` semantics. Wire doesn't introduce a parallel `isolation:` parameter — the language's existing mechanisms already type-check correctly.
 
-3. **The `Resolver` protocol is `Sendable`-aware where it surfaces.** Most adapters never touch a resolver — `_wireRegister` takes its dependencies as direct parameters (see *How the contract works*). Where the resolver does appear — `Lazy<T>` deferring construction within its own scope, or an explicit escape-hatch resolution — its surface is:
+3. **The `Resolver` protocol is `Sendable`-aware where it surfaces.** Most adapters never touch a resolver — an adapter declares a capability and Wire wires the edge, so nothing the adapter writes resolves anything (see *How the contract works*). Where the resolver does appear — `Lazy<T>` deferring construction within its own scope, or an explicit escape-hatch resolution — its surface is:
 
     ```swift
     public protocol Resolver: Sendable {
@@ -781,7 +911,7 @@ Wire respects Swift 6's isolation model rather than reinventing it. The compiler
 
 #### Diagnostics
 
-The classic Spring-style "inject a request-scoped non-Sendable thing into a singleton" failure becomes a Swift compile error — Wire's structural check (scoped types can't be stored on a wider scope) fires first with a fix-it ("scope `Foo` to `HBRequestSeed`, or scope the consumer to the same seed"); the Sendable checker is a second line of defence for cases the structural check can't see (e.g., escape-hatch resolves). Wire emits a custom diagnostic to pre-empt the otherwise-confusing "synthesized init isn't Sendable" message: when a `@Singleton`-annotated type isn't `Sendable`, the build plugin reports "`@Singleton`-annotated types must conform to `Sendable`. Add `: Sendable` to the type or audit its stored properties."
+The classic Spring-style "inject a request-scoped non-Sendable thing into a singleton" failure becomes a Swift compile error — Wire's structural check (scoped types can't be stored on a wider scope) fires first with a fix-it ("scope `Foo` to `HTTPRequest`, or scope the consumer to the same seed"); the Sendable checker is a second line of defence for cases the structural check can't see (e.g., escape-hatch resolves). Wire emits a custom diagnostic to pre-empt the otherwise-confusing "synthesized init isn't Sendable" message: when a `@Singleton`-annotated type isn't `Sendable`, the build plugin reports "`@Singleton`-annotated types must conform to `Sendable`. Add `: Sendable` to the type or audit its stored properties."
 
 #### What's deliberately deferred
 
@@ -907,7 +1037,7 @@ Beyond the DI category, swift-wire sits at a different layer from the libraries 
 
 ## Roadmap
 
-Milestones are tied to what task-cluster needs next, not a fixed calendar. The full roadmap — milestone-by-milestone (M0–M7 and post-1.0), plus pre-1.0 polish, deferred features, and post-M1 design previews — lives in [ROADMAP.md](ROADMAP.md). M0–M5 are complete, as are M6a (testing) and M6b (the request-logger seam); M6d (advanced OpenAPI integration) is built out of order, leaving M6c (`@Configuration`).
+Milestones are tied to what task-cluster needs next, not a fixed calendar. The full roadmap — milestone-by-milestone (M0–M7 and post-1.0), plus pre-1.0 polish, deferred features, and post-M1 design previews — lives in [ROADMAP.md](ROADMAP.md). M0–M6 are complete; `RemainingSurfaceWork.md` is the named successor track for what M6 did not close, and M7 (performance) is next.
 
 ---
 
@@ -918,8 +1048,8 @@ Milestones are tied to what task-cluster needs next, not a fixed calendar. The f
 3. **Hummingbird vs. Vapor abstraction.** Hummingbird threads context through generic parameters; Vapor uses storage on `Request`. A single library can either lean into one model and make the other adapter lossy, or use task-locals as the lowest common denominator and sacrifice some compile-time safety for request-scoped values. M2 will commit to one and the README will be updated honestly.
 4. **Macro diagnostics.** The single biggest UX failure mode for compile-time DI is bad error messages when the graph is broken. M1 has to nail this. If it doesn't, the project fails on first contact.
 5. **Resolution edge cases.** Strict-on-ambiguity reads cleanly on paper. Real graphs surface cases — default-implementation conformances, conditional conformances, generic protocols whose witnesses come from generic specialization — where what counts as "matching" is itself a judgment call. The build plugin has to be conservative ("when in doubt, ambiguous") to keep diagnostics honest, even at the cost of forcing keys in cases where a smarter algorithm could have picked. If users hit ambiguity errors constantly because the conservative rule is too coarse, the ergonomic story collapses regardless of how good the diagnostics are.
-6. **Adapter-annotation contract churn.** The contract is the most architecturally consequential decision in M1, and it has to support three forms (type-level, member-level, type-level-with-member-recognition) from day one — retrofitting member-level support post-hoc would break every existing adapter. The direct-injection signature design (the `_wireRegister` parameter list declares dependencies) means adding a new well-known parameter is a v2 contract bump with a v1 compatibility shim, not a breaking change. Mitigation (executed in M0): both type-level (`@RoutedBy`-style, Spike 2) and type-level-with-member-recognition (`@Controller`+`@Get`-style, also Spike 2) patterns were prototyped against the contract and pass cleanly. The contract holds across both forms before any adapter ships publicly; M3 and M5's adapters can build directly against it.
-7. **Features-driven-by-narrative.** The demonstration framing creates a temptation to ship features because they make for a good blog post rather than because task-cluster needs them. Each library addition should be motivated by an actual task-cluster need. `WireMVC` is the canonical test — if no task-cluster endpoint genuinely benefits from inline route declarations, don't ship the adapter just because the contract-design post wants an example. The contract still has to *support* both `@RoutedBy` and `@Controller`+`@Get` from day one for the architectural reasons above, but the public `WireMVC` adapter ships only if there's a real use for it.
+6. **Adapter-annotation contract churn.** The contract is the most architecturally consequential decision in the project, and it has to support all three attachment forms (type-level, type-level-with-member-recognition, member-level) from day one — retrofitting the third would break every adapter written against the first two. Mitigation (executed in M0): the first two were prototyped in Spike 2 and passed cleanly. **How this actually went, since it is now testable rather than predicted:** the *attachment forms* held and the *mechanism* did not. M1's design made an adapter a post-construction sink emitting a `_wireRegister` call, and M2.3 replaced the whole path with collation — a full redesign of the thing this risk was about, before any adapter had shipped publicly, which is the only reason it cost nothing. What has held since is the **capability axis** that replaced it. Six capabilities beyond the original have arrived across M5–M6d, each demanded by a real adapter, and each landed as a new enum case rather than a version bump. One correction to that record, because it is the interesting case: the axis has been broken once — `.injectsDependencyOnArgument` and `.injectsFactoryOnArgument` merged into a single `.injectsFromGraph` dispatching on the argument's kind — which did touch the one adapter declaring it. That was cheap because both cases were months old and in-house, and it would not have been otherwise. So the residual risk is not churn in the contract's *shape* but in whether a future adapter needs an edge the axis cannot express, and whether the next such merge arrives after third parties have written against the cases. The versioning answer (`WireAdapterAnnotationV2`, recognized by type name beside V1) exists and has never been exercised.
+7. **Features-driven-by-narrative.** The demonstration framing creates a temptation to ship features because they make for a good blog post rather than because task-cluster needs them. Each library addition should be motivated by an actual task-cluster need. `WireMVC` is the canonical test — if no task-cluster endpoint genuinely benefits from inline route declarations, don't ship the adapter just because the contract-design post wants an example. The contract still had to *support* both the spec-first and the annotation-driven shape from day one for the architectural reasons above. (Resolved since: `WireMVC` shipped in M5, and M6d then merged the two — an OpenAPI operation is a WireMVC route contributing to the same key, so it is one routing model rather than a choice.)
 8. **Isolation handling untested through 0.x.** task-cluster's planned trajectory exercises `Sendable` extensively but doesn't naturally use global-actor isolation (no `@MainActor` on a server) or actor-isolated job processors (the planned task executor is structured-concurrency-shaped, not actor-shaped). The basic Sendable rule will be validated; the harder isolation corners — global actors, custom-actor scope crossings — won't appear in the example application. If Wire is adopted by code with richer isolation patterns, latent design issues may surface that task-cluster's validation didn't catch. Mitigation: be honest about this gap; treat any external adoption of isolation-heavy code as an early test that may produce design issues to fix.
 
 ---
