@@ -1,10 +1,9 @@
 # Remaining surface work — the sequence, and where it stands
 
-> **Status:** live sequencing note, revised 2026-08-26 against all four repositories, with Phase 5's registry
-> section re-checked against wire-mvc on 2026-08-30. **Phases 0, 1, 2 and 3 are done; Phase 5 is two thirds
-> done, with half of one item still scheduled by 1.0; Phase 4 is blocked upstream.** Each phase carries its own
-> status and the PRs that closed it, and where a phase's *argument* was overturned by what shipped, the note
-> says so rather than quietly agreeing with the outcome.
+> **Status:** live sequencing note, revised 2026-08-30 against all four repositories. **Phases 0, 1, 2 and
+> 3 are done; Phase 5 is down to one group worth taking; Phase 4 is blocked upstream.** Each phase
+> carries its own status and the PRs that closed it, and where a phase's *argument* was overturned by what
+> shipped, the note says so rather than quietly agreeing with the outcome.
 >
 > It assembled into one order the surface work that was spread across five documents in three repositories,
 > and introduced no new work — every item already existed somewhere; the note was about *order*, and about
@@ -504,24 +503,26 @@ consistency one, and it should be recorded as such rather than treated as this i
   paused. Still a spelling rather than a protocol today: `RequestBinding.swift:38` calls the
   `MultipartParts(request:reader:)` init "a spelling, not a protocol", which is exactly the gap.
 
-### Phase 5 — allocation reduction in the native request path — **two thirds done**
+### Phase 5 — allocation reduction in the native request path — **one group left worth taking**
 
 **The header path is finished, in eight changes rather than the two this note listed; the registry is gone
-entirely; the router path is untouched.** Not a correctness item and not urgent: the whole native path is ~0.9 µs at p50 and ~1.2 µs at
-p99, against a `ServerTransport` bridge that costs 16–47 µs. It is here because the measurements exist, the
+entirely; and the router has given up the first of its two groups.** Not a correctness item and not
+urgent: the whole native path is ~0.9 µs at p50 and ~1.2 µs at p99, against a `ServerTransport` bridge
+that costs 16–47 µs. It is here because the measurements exist, the
 causes are identified, and the fixes that remain are small enough that leaving them undone is a choice
 rather than a backlog.
 
 Measured in [wire-mvc-performance](https://github.com/tachyonics/wire-mvc-performance) with a `malloc`
-interposer, bisected in process so the numbers are the router's rather than a socket's. **Twelve
-allocations and 920 bytes per request** — re-measured 2026-08-25 against wire-mvc `1437735`, where it was
-nine and 756 when this note was assembled, and thirteen before the re-measurement's own finding was fixed. For contrast, Hummingbird's router adds *none* — so these are
+interposer, bisected in process so the numbers are the router's rather than a socket's. **Ten allocations
+and 760 bytes per request** — re-measured 2026-08-30 against wire-mvc `f9d6e24`, where it was twelve and
+920 against `1437735`, nine and 756 when this note was assembled, and thirteen before the
+re-measurement's own finding was fixed. For contrast, Hummingbird's router adds *none* — so these are
 choices in this implementation, not the cost of routing.
 
-**That twelve excluded the courier, and a real request was paying eighteen.** These cases drive the router
-directly; the courier sits above it and the bisection never priced it, reporting +0.0 for group #4 while
-the true cost was 6 (see *#4* below). Since wire-mvc #148 the courier costs nothing, so twelve is now the
-whole native figure rather than the visible part of it.
+**The twelve that preceded this excluded the courier, and a real request was paying eighteen.** These
+cases drive the router directly; the courier sits above it and the bisection never priced it, reporting
++0.0 for group #4 while the true cost was 6 (see *#4* below). Since wire-mvc #148 the courier costs
+nothing, so the figure here is now the whole native one rather than the visible part of it.
 
 **On time, there is nothing to fix.** Scope-matched — WireMVC's trie served on the bare server with no
 courier and no registry, against each framework's own routerless floor — its router is indistinguishable
@@ -562,35 +563,37 @@ reasonable. At this scale an instrument has to be checked as carefully as a caus
 
 **Now entirely a native-path project.** On a bridged runtime the host's router matches the path and
 parameters arrive as `metadata.pathParameters`, so `FrozenRouteTrie.resolve` never runs and groups #1 and
-#2 — the two clearest wins below — do not exist there. The registry used to carry over, allocated per
-request at `WireMVCServerTransport.swift:339` whether or not anything contributed; it is a `~Copyable`
-struct now and allocates nowhere, on any runtime. What still counts everywhere is header *resolution*,
-which runs whichever router matched, and that is finished. So what is left of Phase 5 is **4 allocations
-off a native request and nothing at all off a bridged one** — groups #1 and #2, both in the router.
+#2 — the two clearest wins below, one of them now taken — do not exist there. The registry used to
+carry over, allocated per request at `WireMVCServerTransport.swift:339` whether or not anything
+contributed; it is a `~Copyable` struct now and allocates nowhere, on any runtime. What still counts
+everywhere is header *resolution*, which runs whichever router matched, and that is finished. So what is
+left of Phase 5 is **2 allocations off a native request and nothing at all off a bridged one** — group #2
+alone, now that #1 has gone.
 
-**The count is for a request that contributes no headers**, and **none of the four original groups has
-been touched.** A route with a contributed header pays for resolution on top; that was the largest single
+**The count is for a request that contributes no headers**, and **one of the four original groups has now
+been taken.** A route with a contributed header pays for resolution on top; that was the largest single
 item found and is now closed — see *The header path* below, which is measured on its own scale and does not
 appear in this total.
 
-**Nine became thirteen, and the re-measurement is the reason this note now carries two more items.** The
-four original groups are unchanged to the allocation. What moved is everything after them:
+**Nine became thirteen, and the re-measurement is the reason this note now carries two more items.** That
+re-measurement left the four original groups unchanged to the allocation; what moved was everything after
+them. Group #1 has since gone, which is the one movement *within* them:
 
 | | allocs/req | |
 |---|---|---|
-| route, parameter, and building the response — groups #1–#3 | 8.0 | unchanged since first measured |
+| route, parameter, and building the response — groups #1–#3 | 8.0 → **6.0** | #1 taken 2026-08-30; #2 and #3 unchanged since first measured |
 | **+ stating a `Content-Length`** | **+4.0** | arrived with the framing fix, #125 — new item **#7** |
 | ~~+ `WireMVCOutcome`'s `[:]` default~~ | ~~+1.0~~ | a live sibling of the #129 defect — **found and fixed** |
 | ~~+ `ResponseHeaderRegistry` (group #4)~~ | ~~+0.0~~ | never visible here; measured at **+6.0** where it escapes, and now **0** — read below |
-| | **12.0** | 920 bytes |
+| | **12.0 → 10.0** | 920 → 760 bytes |
 
 Each row is a pair of cases differing in exactly one thing, measured by slope (22,000 against 62,000
 requests, so process startup cancels) and reproducible to the allocation across runs.
 
 | # | what | count | addressable | what it would take | status |
 |---|---|---|---|---|---|
-| 1 | `split` array growth in `FrozenRouteTrie.resolve` | 2 | **yes** | walk segments lazily instead of materialising `[Substring]` | **open** — still `requestPath.split(…)` at `RouteTrie.swift:276` |
-| 2 | parameter collection + `Dictionary(zip(…))` | 2 | **yes** | inline buffer for the 0–2 case; name lookup against the route's own `parameterNames` | **open** — do with #1 |
+| 1 | `split` array growth in `FrozenRouteTrie.resolve` | 2 | **yes** | walk segments lazily instead of materialising `[Substring]` | **shipped**, wire-mvc `f9d6e24` — measured at −2, and −4 on a five-segment path; see below |
+| 2 | parameter collection + `Dictionary(zip(…))` | 2 | **yes** | inline buffer for the 0–2 case; name lookup against the route's own `parameterNames` | **open** — the last group worth taking |
 | 3 | response body + write path | 4 | partly | the bytes are the work; some copies may be avoidable | **open, deliberately** — measure first |
 | 4 | `ResponseHeaderRegistry` instance | 1 → **6** | **yes** | the `~Copyable` struct, not the lazy allocation | **shipped**, wire-mvc #148 — and it was worth six, not one; see below |
 | 5 | `apply`'s array-valued subscript, **per contribution** | 7 → 5 | — | scalar `HTTPFields` API | **shipped**, wire-mvc #128 |
@@ -598,15 +601,35 @@ requests, so process startup cancels) and reproducible to the allocation across 
 | 7 | stating a `Content-Length`, **every response, every runtime** | 4 | **no** | nothing left — the one idea was tried and measured identical | **closed as not-addressable**; see below |
 | 8 | `WireMVCOutcome.init`'s `headerFields: HTTPFields = [:]` | 1 | — | `HTTPFields()`, exactly as #129 did to `resolved` | **fixed** — all seven defaults, across `Responses.swift` and `StreamingResponses.swift` |
 
-**#1 is the clearest, and the diagnosis is exact.** `resolve` does
-`requestPath.split(separator: "/", omittingEmptySubsequences: true)` and then walks the result forward
-once. The cost is not one allocation but *`Array` growth*: measured at 2 allocations for a two-segment path
-and 4 for a five-segment one, which is the doubling sequence (capacity 1, 2, 4, 8), not one per segment.
-So a deeper path costs more, for a container nothing needs to index or keep. Iterating segments lazily
-takes this to zero and gets *better* the deeper the route.
+**#1 was the clearest, the diagnosis was exact, and it is done.** `resolve` did
+`requestPath.split(separator: "/", omittingEmptySubsequences: true)` and then walked the result forward
+once. The cost was not one allocation but *`Array` growth*: 2 allocations for a two-segment path and 4 for
+a five-segment one, the doubling sequence (capacity 1, 2, 4, 8) rather than one per segment. So a deeper
+path cost more, for a container nothing needed to index or keep.
 
-**#2 follows the same shape.** Values are collected positionally into an array, then built into a
-`[String: Substring]` via `Dictionary(zip(route.parameterNames, values))`. Most routes bind nought to two
+wire-mvc `f9d6e24` walks the path with a cursor instead, skipping runs of `/` where
+`omittingEmptySubsequences` dropped the empties, and keeps each segment a slice of the request path so
+`remainder(of:from:)` can still rebuild a catch-all's tail from its indices. **Measured against the parent
+commit rather than against main, so the change was the only variable: −2 allocations and −160 bytes on
+every case that routes, −4 and −608 on the five-segment one, and both baseline cases go to zero.** A typed
+native request is ten allocations and 760 bytes where it was twelve and 920.
+
+**The prediction in the paragraph above is the part worth keeping.** "Takes this to zero and gets better
+the deeper the route" was written from the doubling sequence alone, before anything was built, and both
+halves came back exactly: zero at both depths, and `deep-literal` is now *faster* than the two-segment
+case where it used to be slower, because growth scaled with segments and a walk scales with characters.
+After three attributions in this phase that were convincing and wrong, one that was convincing and right
+is worth recording as such.
+
+**It also moved the clock, which the change's own commit message declined to claim** — −0.04 to −0.12 µs
+at p50 with no overlap between arms across three interleaved replicates. That is near the in-process
+quantum of ~0.04 µs, so the evidence is the separation holding across replicates rather than any single
+figure, and it changes nothing about the phase's framing: this is still a phase about allocations, and a
+tenth of a microsecond against a bridge costing 16–47 µs is not a reason to do anything.
+
+**#2 follows the same shape, and is now the whole of what is left.** Values are collected positionally
+into an array, then built into a `[String: Substring]` via
+`Dictionary(zip(route.parameterNames, values))`. Most routes bind nought to two
 parameters. An inline buffer would carry them without heap, and the handler's by-name lookup could resolve
 against `parameterNames` directly. Note this cost arrived *with* a correctness fix — per-route parameter
 naming (wire-mvc #121, Phase 2 item 5), which removed a registration-order dependency — so the inline
@@ -1059,7 +1082,6 @@ options, unchanged:
 
 Either is fine. Leaving it unstated is not, which is what this note exists to fix. **What is left to place
 is now small enough to describe in a sentence**, which it was not before, and Phase 3 closing shortened it
-again: the router path's four allocation groups (Phase 5 — the registry's ownership question closed with
-#148 and is no longer among them), the
+again: the router path's remaining allocation group and the registry's ownership question (Phase 5), the
 lent-binding validation step, and one upstream pull request. Everything else is either shipped or waiting on
 [swiftlang/swift#91473](https://github.com/swiftlang/swift/issues/91473).
