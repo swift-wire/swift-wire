@@ -112,6 +112,24 @@ jobs:
         # tests would cycle. The adapter is synthetic, so this gate needs no external repo.
         run: bash InjectionRewriteHarness/run-injection-rewrite-harness.sh
 
+  ManifestHarness:
+    name: Manifest harness (M7a plugin-output gate)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: SwiftyLab/setup-swift@v1
+        with:
+          swift-version: "6.3.3"
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+      - name: Run manifest harness
+        # M7a plugin-output gate. Pins the undocumented SPM behaviour the
+        # deferred M7a would rest on — the plugin-output layout and llbuild's
+        # ordering on a declared `inputFiles` edge — so the finding in
+        # PendingIssues/20 fails loudly if the toolchain changes rather than
+        # rotting. Neither package depends on swift-wire.
+        run: bash ManifestHarness/run-manifest-harness.sh
+
   GraphInputsHarness:
     name: Graph-inputs harness (@GraphInputs gate)
     runs-on: ubuntu-24.04
