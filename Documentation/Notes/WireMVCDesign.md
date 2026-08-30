@@ -1,9 +1,10 @@
 # WireMVC design — M5.0 decision record
 
 > **Status:** the settled M5.0 surface for `WireMVC` (the cross-framework
-> declarative-routing adapter). Supersedes the older
-> [WireMVCAbstraction.md](WireMVCAbstraction.md) (built on the retired
-> `_wireRegister` model — its full rewrite is M5.6). The milestone sits in
+> declarative-routing adapter). Authoritative for Tier 2's surface;
+> [WireMVCAbstraction.md](WireMVCAbstraction.md) — rewritten at M5.6 off the retired
+> `_wireRegister` model — is its companion rather than its predecessor, and carries the
+> **progressive-adoption** path between Tier 1 (`wire-hummingbird`) and this. The milestone sits in
 > [ROADMAP.md](../../ROADMAP.md); the iteration plan is [M5_PLAN.md](../Archive/M5_PLAN.md).
 >
 > **Update — proposal-native pivot (reconciled below).** M5.0 originally standardised on

@@ -194,8 +194,11 @@ slips past iteration 7 (see the sequencing summary).
 
 The adapter-annotation contract (iteration 8) adds a fourth consumer of the
 keyed-reference foundation, alongside `@Inject(K)`, `@Provides(K)`, and scope
-inputs: an adapter use-site names the bindings its generated `_wireRegister`
-needs.
+inputs: an adapter use-site names the bindings its generated registration
+needs. (Written against the `_wireRegister` member of that iteration, retired by
+M2's contribution-alias contract — [AdapterModel.md](AdapterModel.md). The
+keyed-reference argument below is unaffected: it is about how a slot *names* a
+binding, not about what consumes it.)
 
 - **Unkeyed:** `@RoutedBy(Router<C>.self)` — a bare type metatype, resolved
   against the graph by type. (This is M1.)
@@ -213,8 +216,8 @@ type is already available at the site; bundle type + key where it isn't.**
 `@Inject(K) var x: T` and scope inputs have the type elsewhere (the property,
 or recovered from the tracked key), so the key rides bare. An adapter slot
 has no other type source *and* a second consumer — the adapter's own macro,
-which must emit `_wireRegister(…, logger: Logger)` and so needs the type
-spelled — so the slot bundles both. The value→type wall (a value-level key
+which must emit the registration's argument list (`(…, logger: Logger)` — see the
+note above on the retired member name) and so needs the type spelled — so the slot bundles both. The value→type wall (a value-level key
 can't sit in a type-position metatype) makes the bare-key shorthand
 impossible here regardless; and unlike a scope input, an adapter dependency
 *reads* an existing binding rather than *supplying* a scope value, so it's
