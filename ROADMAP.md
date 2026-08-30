@@ -156,11 +156,15 @@ correctness or milestone blockers, and doing them late is deliberate:
 - **App-scope teardown does not run under `@WireMVCBootstrap`.** Surfaced while writing the README's
   entry-point section, by trying to state what the generated `@main` does and finding this is not among
   it. M4's teardown walk exists and every graph conforms to `Teardownable`, so there is nothing to build
-  on the swift-wire side; what is missing is the *call*. The Tier-1 path has it — WireHummingbird's
-  `teardownService`, a `ServiceLifecycle` service prepended so it shuts down last — and the generated
-  entry point already runs a `ServiceGroup` for the graph's collated services, so the fix is most likely
-  the same service in `WireMVC.serve` rather than anything new. **Request-scope teardown is unaffected**
-  and does run, emitted per route; this is only the app scope. Not a blocker — an app that needs
+  on the swift-wire side; what is missing is the *call* — and, it turns out, anything that would reach it.
+  The Tier-1 path has one — WireHummingbird's `teardownService`, a `ServiceLifecycle` service prepended so
+  it shuts down last — but transplanting it to `WireMVC.serve` was the first guess and does **not** work:
+  it relies on the server being a group member (Hummingbird's is; the proposal's `~Copyable` handler
+  cannot be), and nothing on the generated path traps a signal or otherwise stops `serve` at all, so there
+  is no shutdown to hang the walk off. Written up, with the two upstream asks that would remove the need
+  for bespoke machinery, in
+  [PendingIssues/19](PendingIssues/19-app-scope-teardown-no-shutdown-trigger.md). **Request-scope teardown
+  is unaffected** and does run, emitted per route; this is only the app scope. Not a blocker — an app that needs
   deterministic shutdown today uses the explicit form — but it is a silent gap rather than a documented
   one, which is the argument for fixing it rather than only writing it down. Lands in **wire-mvc**.
 
