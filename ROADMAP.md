@@ -132,6 +132,37 @@ correctness or milestone blockers, and doing them late is deliberate:
   depending on it. The base "no binding produces X" error already fires
   cross-module, so this is fix-it polish; it also needs a three-package fixture
   under `CompositionHarness/`. Slot in with a broader cross-module DX pass.
+- ~~**The README's adapter-contract section is stale**~~ — **done.** Surfaced by M5.6, which swept
+  `_wireRegister` out of the design notes and found the README still teaching it as the live public
+  contract. The section is rewritten around the **capability axis**: an adapter annotation declares one
+  edge Wire adds to the graph, with a table of the seven capabilities against the adapters that use each,
+  the three attachment forms restated as attachment rather than contract, the real shipped annotation
+  list, the graph-conformance surface, and a corrected public-API/SPI split. *Collation, not registration*
+  is now a named subsection rather than an omission — the retired sink model is described as history,
+  because the design it replaced is the one a reader would otherwise reach for. Incidental mentions fixed
+  in the multi-module, concurrency, risks and roadmap sections, and `@RoutedBy` replaced with
+  `@OpenAPIController` in the headline example. The `@JobHandler` / `@ScheduledTask` / `@WebSocketRoute`
+  adapters, which were never built, are gone rather than restated as plans.
+- ~~**The README's entry-point story**~~ — **done, leading with `@WireMVCBootstrap`.** The headline example
+  bootstrapped with `Wire.hummingbird()…run()` seeded on `HBRequestSeed`, neither of which was ever built.
+  It now shows the composition root and says there is no `main.swift`, with a new *The entry point* section
+  carrying the six steps the generated `@main` actually emits, the `prepare()` pre-step and why it must be
+  pre-graph (swift-log captures its handler at first access), `@GraphInputs`, the explicit
+  `Wire.bootstrap()` + facade form for a Tier-1 or non-HTTP app, and container selection. `HBRequestSeed`
+  swept to `HTTPRequest` throughout — the request *is* the seed, so the wrapper type the README invented
+  never needed to exist. Leading with the generated entry point was the positioning call: it is what a new
+  app writes, and the explicit form reads as the general case underneath it rather than as a fallback.
+
+- **App-scope teardown does not run under `@WireMVCBootstrap`.** Surfaced while writing the README's
+  entry-point section, by trying to state what the generated `@main` does and finding this is not among
+  it. M4's teardown walk exists and every graph conforms to `Teardownable`, so there is nothing to build
+  on the swift-wire side; what is missing is the *call*. The Tier-1 path has it — WireHummingbird's
+  `teardownService`, a `ServiceLifecycle` service prepended so it shuts down last — and the generated
+  entry point already runs a `ServiceGroup` for the graph's collated services, so the fix is most likely
+  the same service in `WireMVC.serve` rather than anything new. **Request-scope teardown is unaffected**
+  and does run, emitted per route; this is only the app scope. Not a blocker — an app that needs
+  deterministic shutdown today uses the explicit form — but it is a silent gap rather than a documented
+  one, which is the argument for fixing it rather than only writing it down. Lands in **wire-mvc**.
 
 ## Known blockers (1.0)
 
