@@ -1,11 +1,50 @@
 # 18 — A typed terminal can drain the response-header registry twice
 
 **Repo(s):** wire-mvc
-**State:** 🟡 Unverified — the path exists and the compiler proves the two drains are not exclusive, but no
-test exercises it and the window is narrow
-**Blocks:** nothing. `drain(into:)` — the raw-route path — is already `consuming` and cannot hit this.
+**State:** ✅ **Fixed in wire-mvc** — was 🟡 Unverified
 **Surfaced by:** trying to make `drain()` `consuming` while closing out the registry's ownership question,
 which is what `#148` was argued for. The compiler refused, and the refusal is the report.
+
+## Resolution
+
+**The terminals own the registry and drain it once.** `wireMVCBufferedTerminal` and the three
+`wireMVCStreamingTerminal` overloads take `responseHeaders: consuming ResponseHeaderRegistry`, run
+`building`, drain, and resolve the result onto whichever branch ran (`Sources/WireMVC/ResponseTerminals.swift`).
+`drain()` is `consuming`. The three constraints hold at once: the drain is after the handler, so deferral
+still works; before anything reaches the wire, so a throw from a contribution still maps through
+`@ErrorResponse`; and on every path, so a mapped `401` still carries the `WWW-Authenticate` `#155` restored.
+
+**The option list below was incomplete, and the streaming tier is why.** The write-up traced only the
+buffered `do`/`catch`, where all three listed options are about *where* generated code puts the drain. On
+the streaming tier the two drains sit in the `building` and `errorMapping` closures, and a noncopyable value
+captured by a closure cannot be consumed **at all** — not twice, once:
+
+```
+error: noncopyable 'wireMVCResponseHeaderDrain' cannot be consumed when captured by an escaping
+       closure or borrowed by a non-Escapable type
+```
+
+So no rearrangement of the drain sites reaches a `consuming drain()` there. Any fix had to take the registry
+out of generated code entirely, which is what the terminals do — the move the **response sender** had
+already made in the same function, for the same reason (`'responseSender' consumed more than once`). The
+registry was the second linear value in that terminal and had not been given the same treatment.
+
+Two corrections to the record below. Option 3 ("the standard library does not provide" a `take()` on an
+`Optional` of a noncopyable) is a five-line extension and compiles — its real cost is that enforcement is
+the `nil` rather than the compiler, which is the property `#148` was argued on. And "whether any other
+emission can throw *after* its drain was not checked" resolved as: the streaming emission has the same two
+drains, in the shape that cannot be fixed by rearrangement.
+
+**Verified.** The regression test is not vacuous: run against a reverted `borrowing drain()` and the old
+two-drain sequence, the deferred contribution's side effect runs twice. Generated code got *smaller* — the
+buffered tier stopped writing its own `do`/`catch`, and the two terminal emitters merged, since they had
+differed only in the shape that `do`/`catch` forced.
+
+---
+
+The original report follows.
+
+**Blocks:** nothing. `drain(into:)` — the raw-route path — is already `consuming` and cannot hit this.
 
 ## What it is
 
