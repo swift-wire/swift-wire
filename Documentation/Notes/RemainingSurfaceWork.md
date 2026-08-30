@@ -1,9 +1,10 @@
 # Remaining surface work — the sequence, and where it stands
 
-> **Status:** live sequencing note, revised 2026-08-26 against all four repositories. **Phases 0, 1, 2 and
-> 3 are done; Phase 5 is about half done; Phase 4 is blocked upstream.** Each phase
-> carries its own status and the PRs that closed it, and where a phase's *argument* was overturned by what
-> shipped, the note says so rather than quietly agreeing with the outcome.
+> **Status:** live sequencing note, revised 2026-08-26 against all four repositories, with Phase 5's registry
+> section re-checked against wire-mvc on 2026-08-30. **Phases 0, 1, 2 and 3 are done; Phase 5 is two thirds
+> done, and nothing left in it is schedule-bound; Phase 4 is blocked upstream.** Each phase carries its own
+> status and the PRs that closed it, and where a phase's *argument* was overturned by what shipped, the note
+> says so rather than quietly agreeing with the outcome.
 >
 > It assembled into one order the surface work that was spread across five documents in three repositories,
 > and introduced no new work — every item already existed somewhere; the note was about *order*, and about
@@ -766,53 +767,62 @@ proposal baseline (see the harness README). Anything at single-µs scale has to 
 until that is understood. And none of this is a latency win — #135 says so explicitly, and it is worth
 repeating: these are allocation wins and should not be justified as the other thing.
 
-#### The registry — the inline buffer landed, the ownership change did not
+#### The registry — all three options are closed, and none of them by this section's argument
 
-This section proposed three options. **What shipped is option 3's payoff without option 3**, which changes
-what is left to argue.
+This section proposed three options, priced option 1 as the cheap 80% and argued the ownership case for 2
+and 3. **All three are now closed: #135 built the inline buffer, #148 made the registry a linear value, and
+option 3 shipped whole.** What is worth keeping is that it shipped for a reason this section never named.
 
-`ResponseHeaderRegistry` is still a `final class` the courier instantiates per request whether or not
-anything contributes — item #4, still open. But inside it, #135 replaced the heap `[Registration]` with
-`InlineArray<4, Registration?>` plus an overflow `Array` past four, and #132 added a `.value` case so a
-single contribution is stored without boxing. So **registering contributions is now free of the heap** —
-`add` measures 0 allocations — which was the distinguishing property of option 3. Only `.deferred`'s
-escaping closure still allocates a payload, and that is inherent.
+`ResponseHeaderRegistry` is a `~Copyable` struct (`ResponseHeaderRegistry.swift:47`) holding
+`InlineArray<4, Registration?>` with an overflow `Array` past four, `add`/`onSend` `mutating` and `drain`
+`borrowing`. The courier no longer instantiates a class per request on any runtime — item #4, closed. Only
+`onSend`'s escaping closure still allocates a payload, and that is inherent.
 
-That leaves the three options re-priced:
+**The forcing reason was soundness, and it is none of the three arguments below.** A `@RawRoute` could not
+declare `consuming sending Sender` while the registry merged into the sender was task-isolated, and
+`WireDisconnected` over a class would have compiled and been *unsound* — Phase 3, item 1 carries that
+account. Neither appears in the three options here, which is the entry worth reading twice: the change this
+section spent the most words declining to justify was carried by an argument it had not considered, from a
+phase it does not mention.
 
-1. **Allocate lazily** — still open, still the cheap 80%, and now the *only* remaining allocation win here:
-   one per request, contained within one type, no API change.
-2. **`~Copyable` struct with a heap container** — the allocation argument for it is spent.
-3. **`~Copyable` struct with an inline buffer** — the buffer exists; what is missing is the ownership.
+So the re-pricing above is spent rather than open:
 
-**The reason to do 2 or 3 was never the allocation, and now that is the only reason left.**
-`RequestResponseMiddlewareBox` is `~Copyable` precisely so ownership is explicit and "consumed exactly once" is checked rather than trusted — and it carries inside
-it a shared mutable reference that escapes all of those guarantees. Today the registry is aliased three
-ways at once (the context, the box, and `ResponseHeaderApplyingSender`), and a write through one handle
-must be visible through another. Under ownership, "drained exactly once" becomes a compiler-checked
-property rather than a convention — and it is a convention that has already been violated once, which is
-why the 405 needed a synthesised handler and why raw routes need the applying-sender wrapper at all.
+1. **Allocate lazily** — dead, not open. There is no per-request allocation left to make lazy, and
+   linearity made every case free where lazy would have freed only the uncontributed one.
+2. **`~Copyable` struct with a heap container** — dead; superseded by 3.
+3. **`~Copyable` struct with an inline buffer** — **shipped**, #135 and #148.
 
-The data flow permits it: contributions only ever travel downward, registered on the way in and drained
-deeper, because a middleware cannot mutate after `next` returns. What blocks it is plumbing — two
-independent read sites (`requestContext.responseHeaders` and `wireMVCFinalBox.responseHeaders`, both
-emitted by codegen) that must agree, plus the sender wrapper holding its own handle.
+**The plumbing this section called blocking is gone.** The three-way aliasing is not aliasing any more:
+`ResponseHeaderApplyingSender` is itself `~Copyable` and owns a `ResponseHeaderRegistry` by value
+(`RequestContextCourier.swift:204`), and the two codegen read sites no longer have to agree because codegen
+*threads* the registry rather than reading it twice — the raw-route-with-middleware path builds the wrapper
+from the registry the box yields as the fifth value of its consuming destructure, rather than from a local
+read above the fold. The registry also lives in `pending` only; `responded` carries none and is
+`responded(request:)`, which killed a claim the box had carried since the registry was a class — that
+holding it in both states let an always-run observer further in still contribute. It never did.
 
-**Sequencing, and the one item with a deadline.** #1 and #2 are internal to `WireMVCRouter` and can be
-done any time — and being native-path-only, they are worth exactly as much as the native path is. The
-registry's option 1 likewise.
+**The deadline is spent.** Option 3 changed the public shape as predicted — every contributing
+middleware's `input.responseHeaders.add(…)` became `input.contributing { headers in … } then: { … }` — and
+that was the only item in Phase 5 scheduled by 1.0 rather than by value. It is now on the far side of that
+deadline rather than approaching it. Six allocations and 1536 bytes per request, and no measurable time at all: see
+*#4* above for the measurement and Phase 3, item 1 for the break.
 
-Options 2 and 3 change a **public shape** — `box.responseHeaders` becomes a borrow or a consume, and every
-middleware that contributes changes with it, including user-written ones — so if they are right they are
-right **now**: cheap pre-1.0 and expensive after, the same argument `PendingIssues/14` makes about the
-lent-binding validation step. This is the only item in Phase 5 that is scheduled by 1.0 rather than by
-value, and the header work has made the *decision* sharper rather than the deadline later: with the
-allocation argument spent, a yes here has to be justified on ownership alone.
+**Sequencing.** What is left of Phase 5 is #1 and #2, internal to `WireMVCRouter` and doable any time — and
+being native-path-only, they are worth exactly as much as the native path is — with #3 parked until it can
+be attributed by an allocation list rather than a counter. Nothing in the phase is schedule-bound now.
 
 **Caveat on the analysis.** The four groups are measured; the identity of every individual allocation
 within groups 2 and 3 is inferred from the code rather than observed. Confirming those needs an allocation
-list. And the ownership redesign should re-walk each contribution site — particularly `respondingWith` on
-the gate path and the keyed-harness variant paths, which this analysis did not trace.
+list.
+
+**The caveat about re-walking the contribution sites paid out, and should stay standing.** It named
+`respondingWith` on the gate path and the keyed-harness variants as untraced. The gate path was traced and
+was never wrong — `respondingWith` drains on its way out — but the walk found the asymmetry hiding *behind*
+it: a served response resolved against the drain and a **mapped** one did not, so every contributed field
+survived a `200` and vanished from every `@ErrorResponse` status, which is backwards, since a `403` without
+its `Access-Control-Allow-Origin` and a `401` without its `WWW-Authenticate` are the responses that need
+them most. Fixed in #155, seven commits after the redesign, found from an examples spike rather than from
+the redesign's own review. The keyed-harness variant paths are still untraced.
 
 ## Response framing
 
@@ -1034,6 +1044,7 @@ options, unchanged:
 
 Either is fine. Leaving it unstated is not, which is what this note exists to fix. **What is left to place
 is now small enough to describe in a sentence**, which it was not before, and Phase 3 closing shortened it
-again: the router path's four allocation groups and the registry's ownership question (Phase 5), the
+again: the router path's four allocation groups (Phase 5 — the registry's ownership question closed with
+#148 and is no longer among them), the
 lent-binding validation step, and one upstream pull request. Everything else is either shipped or waiting on
 [swiftlang/swift#91473](https://github.com/swiftlang/swift/issues/91473).
