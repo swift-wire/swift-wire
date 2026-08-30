@@ -215,7 +215,7 @@ work, so they are individually droppable and individually schedulable — and wi
 this was where the remaining example-facing work was. All three landed, and each one turned out to be about
 something other than its title: the file-serving item was about a middleware answering over the fallback,
 the jobs item was about durability rather than about background work, and `auth-abac` overturned the half
-of its own sentence that said *route-scope*.
+of its own sentence that said *route-scope* — twice, since it ended up with no middleware at all.
 
 1. ~~**File serving / s3-file-provider**~~ — **done**, and restated on the way, as this note asked. The
    item was never "file serving": `AssetsController` (#57) already served a tree through `@Get("/{path*}")`,
@@ -331,16 +331,16 @@ of its own sentence that said *route-scope*.
    the item is what it overturned. Seven rules, each an ordinary `@Singleton` contributed to one
    `CollectedKey<any AccessPolicy>`, combined by a `PolicyEngine` that names none of them
    (deny-overrides, then permit-required); `/documents` in the shared `Controllers` package is the
-   resource. **No per-runtime binding anywhere** — the policy set, the engine, the gate and the store are
-   all portable — which makes it the only feature in that repository whose arrival on a runtime costs that
+   resource. **No per-runtime binding anywhere** — the policy set, the engine, the request bindings and
+   the store are all portable — which makes it the only feature in that repository whose arrival on a runtime costs that
    runtime nothing, where `TodoRepository`, `SessionManager` and `JobStore` each cost a binding.
 
    **Once policy is a set of bindings, the annotation stops carrying policy.** A route-scope placement
    would say "this route is the one that needs screening", which is a second, hand-maintained encoding of a
-   decision the set already makes. So there is one *controller*-scope gate, the action attribute comes from
-   the request method, and where the annotation sits says nothing. That is the real contrast with the
-   API-key gate, and it is not strictness: the toy encodes its rule in the placement, so reading the app's
-   policy means grepping for annotations.
+   decision the set already makes. The first pass answered that with a single *controller*-scope gate; the
+   second removed the gate outright, so no annotation carries policy at all — see *What it became* below.
+   That is the real contrast with the API-key gate, and it is not strictness: the toy encodes its rule in
+   the placement, so reading the app's policy means grepping for annotations.
 
    **Three structural findings, all about what a middleware is not told** — and per-route policy could not
    have been expressed by placement anyway, which is the first of them:
@@ -352,9 +352,10 @@ of its own sentence that said *route-scope*.
      by compiling the alternative. A `@Factory` template's `@Inject` deps resolve **once**, into the
      synthesised `_WireFactory_<key>`, which is an app `@Singleton`; and the fold is entered before
      `_wireEnterScope`, which happens inside the fold's own terminal, so there is no scope in existence
-     when `create` is called. The gate therefore resolves the subject from the request and the
-     request-scoped `Caller` resolves it again — two dictionary reads there, two round trips against a real
-     identity provider.
+     when `create` is called. A gate therefore has to resolve the subject from the request while the
+     request-scoped `Caller` resolves it again — two dictionary reads, or two round trips against a real
+     identity provider. The shipped example no longer pays this, because it no longer has a gate; it is a
+     cost of the optimisation rather than of the design.
    - **There is no channel from a middleware to the handler**, so the first resolution cannot be handed
      forward even in principle: the terminal destructures the box and discards the context. A
      context-transforming middleware, which the box does support, therefore reaches no handler either.
@@ -375,48 +376,77 @@ of its own sentence that said *route-scope*.
    in the application by caching the lookup, which a deployment with a real identity provider does anyway,
    and the two resolutions cannot diverge because both go through one method — so what a framework change
    buys is only agreement by construction. The obvious fix is also the wrong one: folding inside the scope
-   destroys the pre-authorisation property (a gate refusal currently skips scope construction entirely) and
-   drops every contributed header field from the `401`. The likelier answer leaves the gate where it is and
-   moves authorisation into the *argument*, via a `RequestBound` with graph access — a seam that already
-   sits after scope entry. wire-mvc's
+   destroys the pre-authorisation property (a gate refusal skips scope construction entirely) and drops
+   every contributed header field from the `401`. The answer moved authorisation into the *argument*, via a
+   request binding with graph access — a seam that already sits after scope entry. wire-mvc's
    [`ScopeAwareMiddlewareAndBindings.md`](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/ScopeAwareMiddlewareAndBindings.md)
    carries the designs, the four costs of the obvious reordering, the prior-art survey behind each, and a
    sequence with a forcing case per step — including a decision to keep middleware **app-lifetime
    permanently** rather than build a scoped tier, since the prior art is unanimous on that and the tier's
    only remaining charter is served more cheaply by carrying route identity on the box. **This repository
-   owned two steps of it, and both are now done (2026-08-27).** The first — naming `@Factory` as a lifetime
-   in its own right and diagnosing it as one — needed no source migration, since `@Factory(K)` was already
-   written correctly everywhere; what changed is that a scope macro beside it is refused as the
-   contradiction it is, and that the cross-scope note says something true. The second — a seeded scope
-   yielding more than its subject — took the scope-entry thunk's return from a tuple to a named
-   `_WireScopeEntry_<Subject>` struct, and made the extra bindings *inferred* rather than declared: a
+   owned three steps of it, and all are done (2026-08-27 to 2026-08-28).** The first — naming
+   `@Factory` as a lifetime in its own right and diagnosing it as one — needed no source migration,
+   since `@Factory(K)` was already written correctly everywhere; what changed is that a scope macro beside
+   it is refused as the contradiction it is, and that the cross-scope note says something true. The second
+   — a seeded scope yielding more than its subject — took the scope-entry thunk's return from a tuple to a
+   named `_WireScopeEntry_<Subject>` struct, and made the extra bindings *inferred* rather than declared: a
    bridged subject's entry hands back every binding in its scope that its method parameters name. A yielded
    binding is a construction root in its own right, since nothing inside the scope depends on something
-   whose whole purpose is to leave it. Nothing in this repository consumes a yield yet; it is what
-   wire-mvc's argument seam needs. **The struct is a break for the one consumer that exists**: a scope
-   entry now returns one value rather than a pair, so wire-mvc's generated terminal changes with it.
+   whose whole purpose is to leave it. **The struct is a break for the one consumer that exists**: a scope
+   entry now returns one value rather than a pair, so wire-mvc's generated terminal changed with it.
+
+   The third was not foreseen, and is the one worth reading. Inference alone was not enough, because the
+   attribute a route parameter carries is **not** the binding that resolves it: `@AuthorizedDocument` is a
+   property wrapper, and the `@Scoped(seed:)` worker is a second type it names. Only a property wrapper can
+   attach to a parameter, and a wrapper's instance holds the value the call site supplies while a graph
+   binding's holds what the graph supplied — so no one type can have both initialisers be total, and the
+   two-type shape is forced rather than chosen. `WireAdapterAnnotationV1`'s `.injectsFromGraph` capability
+   now follows **one hop**: a use-site naming a type that is itself annotated for the graph yields *that*
+   type on the scope entry. First-seen wins, and the subject is never yielded to itself.
+
+   The alternative was rejected on sight, and the reason generalises: an explicit `@ScopeYield(Worker.self)`
+   on the wrapper would have been ceremony the author cannot motivate — *"it will not be clear to a user
+   why `AuthorizedDocument.self` needs to be `@ScopeYield`; it doesn't do anything for them."* An adapter
+   annotation that already says which worker does the work is enough for swift-wire to read.
 
    **So the decision splits in two, and the split is the item.** "Can subject S do action A on resource R"
-   turns on the resource, which no middleware has loaded — so the same set is consulted at two tiers by two
-   callers with different attributes in hand, and a rule that needs the resource returns `.notApplicable`
-   when there is none. A third tier falls out: `GET /documents` neither gates nor refuses, it *filters*, on
-   the same decision function the item route uses, which is what stops a list from disagreeing with a read.
+   turns on the resource, which has not been loaded when the request arrives — so the same set is consulted
+   twice by two callers with different attributes in hand, and a rule that needs the resource returns
+   `.notApplicable` when there is none. A third question falls out: `GET /documents` neither screens nor
+   refuses per document, it *filters*, on the same decision function the item route uses, which is what
+   stops a list from disagreeing with a read.
 
-   **The gate must answer *deny or undecided*, never permit** — the one thing here that would be a security
-   bug rather than a missed optimisation. Every resource-reading rule abstains at the gate, so a query
-   without a resource is missing an unknown number of the rules that would have denied it, while the
+   **Whatever asks first must answer *deny or undecided*, never permit** — the one thing here that would be
+   a security bug rather than a missed optimisation. Every resource-reading rule abstains without a
+   resource, so such a query is missing an unknown number of the rules that would have denied it, while the
    resource-independent `ReadGrant` permits every read. `screen` returns `AccessDenial?` rather than a
    decision, so the mistake is unwriteable rather than discouraged.
 
-   Two smaller things the implementation settled. **The tiers are distinguishable from outside with no
-   test-only instrumentation**, because they answer differently by construction: the gate writes its own
-   response and carries a body naming the rule, while `@ErrorResponse(E.self, .status)` produces a bodiless
-   status — the same observation channel `NoRoute` gives the static-file seam, arrived at by accident
-   twice. And **a `@Scoped` controller under a keyed test suite needs `withClient(supplying:)` even when it
-   substitutes nothing**: the doubles struct is empty, but an uncorrelated request still gets the harness's
-   explicit `500`, and the failure is *partial* — gate-refused requests never reach the terminal and pass —
-   so it reads as a broken policy tier rather than an uncorrelated request. That sits beside the jobs
-   item's `@BindType`-cannot-reach-a-background-service rule.
+   ### What it became
+
+   **The split is by attributes, not by layers, and that is a correction to what this entry first said.**
+   Both questions now run inside the request binding, in the order the attributes arrive: screen from the
+   request, load, then decide. The controller-scope gate was deleted and **no status changed on any route**
+   — measured on a spike across 21 policy tests and three runtime suites before it was decided. A front
+   tier remains a real optimisation, refusing before the request scope is constructed at all and covering
+   routes nobody has written yet; it is not a correctness requirement, and it costs the double resolution
+   above. wire-mvc's design note carries the withdrawal in full.
+
+   That matters here rather than only downstream, because "the resource is not loaded when the *middleware*
+   runs" was the sentence that made a scoped middleware tier look necessary. The resource is not loaded
+   when the *request arrives* — which is a fact about attributes, and a binding is on the right side of it.
+
+   Two smaller things the implementation settled. **A refusal names the rule that produced it**, which is
+   the observation channel a suite needs: `@ErrorResponse(AccessDenied.self, .forbidden, { $0.denial })`
+   encodes the denial, so a test asserts that `ClearanceRule` refused rather than that something did. The
+   first pass used a cruder channel — the gate answered with a body and a mapping answered a bare status,
+   so a test could tell which *layer* refused by whether bytes came back — which reported plumbing rather
+   than policy and evaporated when the layers merged. And **a `@Scoped` controller under a keyed test suite
+   needs `withClient(supplying:)` even when it substitutes nothing**: the doubles struct is empty, but an
+   uncorrelated request still gets the harness's explicit `500`, and the failure is *partial* — requests
+   refused before the terminal never look the doubles up and pass — so it reads as a broken policy tier
+   rather than an uncorrelated request. That sits beside the jobs item's
+   `@BindType`-cannot-reach-a-background-service rule.
 
    The exhaustive caller × action × resource matrix is a table in a unit suite rather than a request each,
    for the reason that suite states: an authorisation bug does not throw, it answers `200`, and it answers
