@@ -81,14 +81,21 @@ dependency's committed *sources*, never its plugin *outputs*. Spike-1's check (4
 confirmed the consequence directly: emitting `_WireExports.swift` from the contributor
 plugin instead of hand-declaring it made the dependency **invisible** to the consumer's
 `sourceFiles` scan — the build succeeded but the dependency's bindings silently dropped
-out of the graph. So there is no plugin-generated export *file* a consumer can read
-(see *M7a* below); composition works by re-parsing committed sources for the data and
+out of the graph. So there is no plugin-generated export file a consumer can read **at plan
+time** — a 2026-08 spike (see [PendingIssues/20](../../PendingIssues/20-manifest-discovery-plugin-output-visibility.md))
+narrowed that: a consumer's *build command* can read one at **execution** time, given a declared
+`inputFiles` edge on a derived path. Neither helps the marker, which must be readable while
+`createBuildCommands` runs; it does change M7a, below. Composition works by re-parsing committed sources for the data and
 referencing the dependency's public symbols **by derivable name** (compiler-linked) —
 which is exactly what the `@Factory` factory-lift does (`_WireFactory_<key>` is public
 in the template's module; the consumer emits a reference resolved at compile time).
 
 **Retirement plan.** The marker's whole job is replaceable by a signal the consumer
-*can* read: **a direct dependency that depends on the `Wire` product**. That drops the
+*can* read: **a direct dependency that depends on the `Wire` product** — **verified readable**
+(2026-08): a dependency target's own product dependencies are exposed at plan time, and a target
+that declares bindings must `import Wire`, which requires that direct dependency, so the predicate
+cannot under-fire. Over-firing is harmless here — a scanned library with no bindings yields none —
+which is exactly why the same predicate is unusable for M7a, where over-firing is a build failure. That drops the
 hand-declared file — a contributor applies `WireContributorPlugin` only when it declares
 `@Factory` templates (a missing plugin is a loud, local compile error, `cannot find type
 '_WireFactory_<key>'`); a pure-`@Singleton` contributor declares nothing. The catch is
@@ -115,33 +122,39 @@ contract unchanged and lands when its cost is felt:
   deserializing a manifest. Everything downstream (merge, graph, codegen,
   diagnostics) is unchanged — `originModule` is already per-binding and
   serializable, so it rides into the manifest exactly as stamped today.
-  **Constraint (2026-07):** the manifest can't be a per-build *plugin
-  output* — the consumer can't read another target's plugin outputs (see
-  *The marker is detection-only* above). So M7a's manifest is either a
-  **committed** artifact the consumer re-reads, or the library exposes its
-  contribution as **public symbols** the consumer references by name
-  (compiler-linked) rather than a file it parses — the direction the
-  `@Factory` factory-lift already takes. `_WireExports.swift` doesn't
-  "become the manifest"; it's retired (detection moves to the Wire-product
-  dependency).
+  **Constraint, restated (2026-08).** The 2026-07 reading was that the manifest can't be a
+  per-build *plugin output* at all, leaving only a **committed** artifact or **public symbols**
+  referenced by name. A spike narrowed that, and the distinction is plan time vs. execution time:
+  a consumer's plugin can't *see* a dependency's plugin output while planning, but the build
+  command it emits **can read one**, given the derived output path declared in `inputFiles` —
+  llbuild then orders the producer first, verified under both build backends with correct
+  incremental propagation. So M7a is **possible**; it is deferred on cost, not feasibility.
 
-  **Open question — a third route, worth answering before the design locks
-  (2026-08).** Both options above are *committed artifact* or *public
-  symbols referenced by name*. Rust's pavex takes neither: its generator
-  consumes **rustdoc JSON** — the compiler's own description of a
-  dependency's public API — which is neither hand-committed nor referenced
-  by name, and which gives it real type information instead of syntax.
-  Swift's nearest analogue is `.swiftinterface`, which SPM already produces
-  under library evolution. **Unverified:** whether a build-tool plugin can
-  read a dependency's `.swiftinterface`, and whether it is produced at all
-  outside library-evolution builds. If it can, it is the shape M7a wants
-  without asking libraries to commit anything, and it would carry type
-  information the source-parsing route structurally cannot have (see
-  [`OpaqueTypesInContext.md`](OpaqueTypesInContext.md) on what matching
-  syntax without a type checker forecloses). If it can't, it is the same
-  "a consumer can't read another target's outputs" wall as the marker, and
-  the two routes above stand unchanged. Cheap to answer, and it gates the
-  choice.
+  What holds it is a **predicate**, not the mechanism: the edge must be declared during
+  `createBuildCommands`, an input nothing produces is a hard build failure, and SPM exposes no
+  signal for plugin application (a dependency package's plugin target doesn't appear in its
+  `targets` at all). Every inferable predicate answers "does this library declare bindings?"
+  rather than "does it emit a manifest," and the two diverge exactly when an author declares
+  bindings and forgets the plugin. The failure is asymmetric — a false negative falls back to
+  re-parsing (correct, slower), a false positive breaks the build — so M7a can only ever add a
+  fast path *beside* source re-parsing, per dependency, never replace it.
+
+  The win is also smaller than assumed: re-parsing a 500-file dependency costs **~50 ms** steady
+  state, and is embarrassingly parallel, where route C introduces a build-graph serialization
+  point plus a path derived by string surgery over an undocumented layout — the lockjaw hazard
+  this note twice declines. Full evidence, the closure that would make the predicate exact (and
+  the surface it would cost), and the upstream asks are in
+  [PendingIssues/20](../../PendingIssues/20-manifest-discovery-plugin-output-visibility.md).
+
+  **The third route is answered: no (2026-08).** rustdoc-JSON's Swift analogue was the open
+  question. `swift-synthesize-interface` does work on a binary `.swiftmodule` without library
+  evolution, and carries fully-qualified types the source-parsing route structurally lacks — but
+  the macro attributes are gone. An interface synthesized from the harness library shows
+  `public static let primary: Wire.BindingKey<…>` and `public init()` with no `@Singleton`,
+  `@Inject` or `@Provides` anywhere: post-expansion API only. It cannot supply binding data, and
+  reading it would serialize the consumer's codegen behind the dependency's full compile — worse
+  than the plugin-output route. `_WireExports.swift` still doesn't "become the manifest"; it's
+  retired (detection moves to the Wire-product dependency, verified above).
 - **M7b — reachability pruning (bulk lands with M5.4).** M1 eager-
   constructs *every* binding in the merged graph, including a library
   binding nothing reaches — so a large dependency costs all its singletons
