@@ -484,7 +484,7 @@ Tests do not need one anyway. For a test consumer the plugin generates a suite-t
 
 #### What the generated entry point does not do
 
-**App-scope `@Teardown` actions do not run on this path.** The generated `@main` serves and exits; it does not call the graph's `teardown()`. Request-scope teardown *does* run — it is emitted per route and fires when the request scope ends — and the Tier-1 path runs app-scope teardown through WireHummingbird's `teardownService`. So an app with a `@Teardown`-annotated `AWSClient` gets orderly shutdown under WireHummingbird and process-exit cleanup under `@WireMVCBootstrap`. Closing that is tracked in [ROADMAP.md](ROADMAP.md); until it is, an app that needs deterministic app-scope shutdown should use the explicit form.
+**App-scope `@Teardown` actions do not run on this path.** The generated `@main` serves and exits; it does not call the graph's `teardown()`. Request-scope teardown *does* run — it is emitted per route and fires when the request scope ends — and the Tier-1 path runs app-scope teardown through WireHummingbird's `teardownService`. So an app with a `@Teardown`-annotated `AWSClient` gets orderly shutdown under WireHummingbird and process-exit cleanup under `@WireMVCBootstrap`. Closing that is tracked in [ROADMAP.md](ROADMAP.md) and written up — with what actually blocks it and the upstream asks that would unblock it — in [PendingIssues/19](PendingIssues/19-app-scope-teardown-no-shutdown-trigger.md); until it is, an app that needs deterministic app-scope shutdown should use the explicit form.
 
 ### `@Provides` (and optionally `@Container`)
 
