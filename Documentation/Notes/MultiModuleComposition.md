@@ -295,16 +295,40 @@ binding whose own dependency lives in a package the consumer never depended on. 
 A cycle among unreachable bindings likewise stops failing the build, which is correct — nothing constructs
 them.
 
+### What M7b.2 retains, and why home bindings are roots
+
+The first cut prunes **dependency-module bindings only**: every home-module binding is emitted whether or
+not anything reaches it. That is not timidity, it is the `graph.x` problem again — the app may pull any of
+its own bindings out through an expression Wire never sees, so its own graph stays whole.
+
+The part that is easy to get wrong: home bindings are not merely *retained*, they are **retention roots**.
+Retaining a binding without retaining what it depends on emits a graph that reads properties which were
+never declared, so the walk starts from the home set and pulls its dependencies in with it. Retention is
+therefore closed under dependencies by construction, and the same reasoning covers the two edges this
+graph cannot see for itself:
+
+- **What a seed scope borrows.** A request-scoped binding's use of an app singleton is an edge in the
+  *scope's* graph. WireGen already computes the genuinely-used borrow set for `.scopeCapture` ordering
+  (`usedBorrows`), and passes it in as a retention root; without it, a dependency-module singleton used
+  only inside a request scope is pruned out from under the scope that needs it.
+- **What a testing variant borrows.** Variants are derived from the production app graph's retained set,
+  so they cannot borrow what production never constructs — see below.
+
+Measured on the ROADMAP's case, a 500-binding library where the consumer injects exactly one binding:
+**1,525 lines, 501 stored properties and 501 eager constructions become 28 lines, 2 and 2.** M7b.3 (home
+pruning) is a migration story with a diagnostic; this is the part that carries the win.
+
 ### One open cross-cut: testing variants
 
 Testing variants are derived from `aggregate.allBindings` — the *unpruned* discovered set — and borrow the
 production `_WireGraph`'s properties for every app singleton they do not lift
 (`syntheticSingletonBorrowBindings(from: defaultSingletons, inWireGraphOfType: "_WireGraph")`,
 `TestingVariants.swift:106`). A binding pruned from the production graph but still borrowed by a variant
-would emit `_wireGraph.<pruned>` and fail to compile in generated test code. The cheap resolution is to
-derive variants from the pruned production node set — a variant cannot need what production cannot
-construct — and it is settled with M7b.2/M7b.3 rather than here, recorded so the choice is made
-deliberately instead of discovered by a broken build.
+would emit `_wireGraph.<pruned>` and fail to compile in generated test code. **Settled in M7b.2 the cheap
+way**: variants are derived from the production graph's retained set — a variant cannot need what
+production cannot construct. The filter is narrowed to the external half (`productionRetains`), because
+the retained set holds *resolved* identities and a blanket membership test would silently drop the generic
+templates and pre-specialisation bindings a variant legitimately needs.
 
 ## Naming — use SE-0491 module selectors
 

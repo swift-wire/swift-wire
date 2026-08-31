@@ -21,19 +21,33 @@
 // The traversal itself is `reachable(from:over:)` (`TestingGraph.swift`), which already walks this map
 // shape for the seedless-reconstruction cone.
 
-/// Which roots a graph build computes reachability from. `.none` is the default: a graph whose
-/// construction set is already bounded some other way (a seed scope, pruned per routed root at emission;
-/// a testing variant, derived from a production graph) computes nothing here.
-package enum ReachabilityRootPolicy: Sendable {
-    /// No reachability computed — `GraphResult.reachable` is `nil`.
+/// What a graph build does about reachability. `.none` is the default: a graph whose construction set is
+/// already bounded some other way (a seed scope, pruned per routed root at emission; a testing variant,
+/// derived from a production graph) neither computes nor prunes.
+package enum ReachabilityPolicy: Sendable {
+    /// No reachability computed — `GraphResult.reachable` is `nil` and every resolved binding is emitted.
     case none
-    /// The app/container graph's declared roots. `conformances` are the ones emitted onto *this* graph —
-    /// the default graph's, since `appendAllGraphConformances` puts them on the default graph and its
-    /// testing variants, never on a `@Container`'s.
-    case appGraph(conformances: [DiscoveredGraphConformance])
+    /// Drop unreachable **dependency-module** bindings; retain every home-module binding (M7b.2).
+    ///
+    /// Home bindings are retained *and are themselves retention roots*, which is not a detail: the app
+    /// may reach any of them through `graph.x`, which Wire cannot see, so they all stay — and anything
+    /// they depend on has to stay with them or the emitted graph references properties that were never
+    /// declared. Retention is therefore closed under dependencies by construction.
+    ///
+    /// `conformances` are the ones emitted onto *this* graph — the default graph's, since
+    /// `appendAllGraphConformances` puts them on the default graph and its testing variants, never on a
+    /// `@Container`'s. `borrowedByScopes` are the app singletons this container's seed scopes genuinely
+    /// borrow: a scope's use of a singleton is an edge in the *scope's* graph, invisible to this one, so
+    /// it has to be carried in as a root or a request-scoped binding's dependency is pruned out from
+    /// under it.
+    case pruneExternal(
+        conformances: [DiscoveredGraphConformance],
+        borrowedByScopes: Set<BindingIdentity>
+    )
 }
 
-/// The identities the graph's construction must start from, under `policy`.
+/// The **declared roots** — what a graph must construct even though nothing in it consumes them. This is
+/// the M7b.0 model, independent of how much of the graph a given pass is willing to prune.
 ///
 /// Two rules, and the second has a key form:
 ///
@@ -65,14 +79,12 @@ package enum ReachabilityRootPolicy: Sendable {
 ///   dead-binding gate stays silent on `public` because Wire cannot see every consumer — but the only
 ///   thing that can read an aggregate's product is this graph, and `_WireGraph` is `internal` to the
 ///   module. A downstream reader is impossible; a local one is an edge, a conformance, or `allowUnused`.
-package func reachabilityRoots(
+package func declaredRoots(
     in bindings: [BindingIdentity: DiscoveredBinding],
     multibindingKeys: [DiscoveredMultibindingKey],
-    externalModules: Set<String>,
-    policy: ReachabilityRootPolicy
-) -> Set<BindingIdentity>? {
-    guard case .appGraph(let conformances) = policy else { return nil }
-
+    conformances: [DiscoveredGraphConformance],
+    externalModules: Set<String>
+) -> Set<BindingIdentity> {
     // Key reference → the key's declaration, for the aggregate rules below.
     var keysByReference: [String: DiscoveredMultibindingKey] = [:]
     for key in multibindingKeys { keysByReference[key.keyReference] = key }
@@ -89,6 +101,35 @@ package func reachabilityRoots(
                 externalModules: externalModules
             )
         if isRoot { roots.insert(identity) }
+    }
+    return roots
+}
+
+/// The identities the walk starts from under `policy` — `nil` when the policy prunes nothing.
+///
+/// Under `.pruneExternal` that is the declared roots **plus** every home-module binding and everything
+/// this container's seed scopes borrow. The home half is what makes M7b.2 the low-risk cut: an app that
+/// reaches a binding through `graph.x` cannot regress, because its own bindings are all still emitted —
+/// and because they are roots, everything they depend on is retained with them, so the emitted graph
+/// never references a property that was pruned. **M7b.3 is exactly the change of dropping that union**,
+/// at which point the declared roots above carry the whole graph and the migration diagnostic earns its
+/// keep.
+package func retentionRoots(
+    in bindings: [BindingIdentity: DiscoveredBinding],
+    multibindingKeys: [DiscoveredMultibindingKey],
+    externalModules: Set<String>,
+    policy: ReachabilityPolicy
+) -> Set<BindingIdentity>? {
+    guard case .pruneExternal(let conformances, let borrowedByScopes) = policy else { return nil }
+    var roots = declaredRoots(
+        in: bindings,
+        multibindingKeys: multibindingKeys,
+        conformances: conformances,
+        externalModules: externalModules
+    )
+    roots.formUnion(borrowedByScopes.intersection(bindings.keys))
+    for (identity, binding) in bindings where !externalModules.contains(binding.originModule) {
+        roots.insert(identity)
     }
     return roots
 }
@@ -159,8 +200,8 @@ package func reachabilityEdges(
     return edges
 }
 
-/// The reachable set for one graph build, or `nil` when `policy` is `.none` — `reachabilityRoots`
-/// followed by the walk, over the widened adjacency rather than the sort's own edges.
+/// The retained set for one graph build, or `nil` when `policy` is `.none` — `retentionRoots` followed by
+/// the walk, over the widened adjacency rather than the sort's own edges.
 ///
 /// Called from `buildDependencyGraph` between `resolveDependencies` and `topologicalSort`, which is where
 /// the pruning stage lands: it needs resolved edges to walk, and everything after it consumes the reduced
@@ -170,10 +211,10 @@ package func computeReachability(
     dependencyEdges: [BindingIdentity: [BindingIdentity]],
     multibindingKeys: [DiscoveredMultibindingKey],
     externalModules: Set<String>,
-    policy: ReachabilityRootPolicy
+    policy: ReachabilityPolicy
 ) -> Set<BindingIdentity>? {
     guard
-        let roots = reachabilityRoots(
+        let roots = retentionRoots(
             in: bindings,
             multibindingKeys: multibindingKeys,
             externalModules: externalModules,
@@ -183,5 +224,40 @@ package func computeReachability(
     return reachable(
         from: Array(roots),
         over: reachabilityEdges(in: bindings, dependencyEdges: dependencyEdges)
+    )
+}
+
+/// One graph build's resolution: the node set and edges the sort runs over, and the reports that go with
+/// them. `restricted(_:to:)` returns the pruned form of the same thing.
+package struct ResolvedGraph {
+    package let bindings: [BindingIdentity: DiscoveredBinding]
+    package let edges: [BindingIdentity: [BindingIdentity]]
+    package let missing: [MissingBinding]
+    package let promotions: [ExistentialPromotion]
+}
+
+/// One graph build's resolution restricted to `retained` — the pruning step itself.
+///
+/// Everything downstream of resolution consumes the reduced set unchanged, which is why the restriction
+/// lands here rather than in emission: the sort, the cycle report and the missing-binding report are all
+/// about the graph that is actually built. A dependency the consumer cannot satisfy inside a binding it
+/// never constructs stops being an error, and a cycle among bindings nothing constructs stops failing the
+/// build — both correct, and both load-bearing once composition is bounded by reachability instead of by
+/// the `_WireExports.swift` marker.
+///
+/// Retention is closed under dependencies (see `retentionRoots`), so no retained binding is left pointing
+/// at a pruned one; `edges` is filtered only to drop the pruned consumers' own rows.
+func restricted(
+    bindings: [BindingIdentity: DiscoveredBinding],
+    edges: [BindingIdentity: [BindingIdentity]],
+    missing: [MissingBinding],
+    promotions: [ExistentialPromotion],
+    to retained: Set<BindingIdentity>
+) -> ResolvedGraph {
+    ResolvedGraph(
+        bindings: bindings.filter { retained.contains($0.key) },
+        edges: edges.filter { retained.contains($0.key) },
+        missing: missing.filter { retained.contains($0.consumer.identity) },
+        promotions: promotions.filter { retained.contains($0.consumer) }
     )
 }

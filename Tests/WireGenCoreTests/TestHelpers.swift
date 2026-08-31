@@ -14,6 +14,11 @@ func mockLocation(_ file: String, line: Int = 1, column: Int = 1) -> SourceLocat
 /// always providing one.
 let testModule = "TestModule"
 
+/// A stand-in *dependency* module — a Wire-aware library the consumer composes, passed to the graph as an
+/// external module. The home/external split is what reachability pruning turns on, so tests that exercise
+/// it need bindings on both sides of it.
+let libraryModule = "LibraryModule"
+
 /// A `ScopeEntryDescriptor` for a test fixture, named exactly as the synthesis names it. Tests that hand-
 /// build a bridging proxy need the descriptor *and* the type it renders to stay in step — they are two
 /// views of one thing, and a fixture that set only the type would be describing a proxy the synthesis
