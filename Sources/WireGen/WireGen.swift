@@ -84,8 +84,7 @@ struct WireGen {
         let crossFileDiagnostics = collectCrossFileDiagnostics(
             in: aggregate,
             containerNames: Set(containerGraphs.map { $0.name }),
-            resolvedBindingsByContainer: graphs.resolvedBindingsByContainer,
-            prunedBindings: graphs.prunedBindings,
+            graphs: graphs,
             injectionRewriteKeys: preGraph.rewriteKeys
         )
         reportDiagnosticsAndValidate(
@@ -210,6 +209,9 @@ struct WireGen {
         var resolvedBindingsByContainer: [String?: [DiscoveredBinding]]
         // What reachability dropped, across every graph — the M7b.3 migration diagnostic's input.
         var prunedBindings: [DiscoveredBinding]
+        // Everything reachability *decided*, retained and pruned alike. The dead-binding pass judges
+        // what is not in here, which is how M7b.4 folds the two into one diagnostic per binding.
+        var judgedByReachability: Set<BindingIdentity>
     }
 
     /// Build every graph the input describes: the default graph, one
@@ -293,7 +295,8 @@ struct WireGen {
             containerGraphs: containerGraphs,
             seedScopeOrchestrations: seedScopeOrchestrations,
             resolvedBindingsByContainer: resolvedBindingsByContainer,
-            prunedBindings: defaultGraph.pruned + containerGraphs.flatMap { $0.result.pruned }
+            prunedBindings: defaultGraph.pruned + containerGraphs.flatMap { $0.result.pruned },
+            judgedByReachability: judged(defaultGraph).union(containerGraphs.flatMap { judged($0.result) })
         )
     }
 
@@ -304,13 +307,15 @@ struct WireGen {
     private static func collectCrossFileDiagnostics(
         in aggregate: DiscoveryAggregate,
         containerNames: Set<String>,
-        resolvedBindingsByContainer: [String?: [DiscoveredBinding]],
-        prunedBindings: [DiscoveredBinding],
+        graphs: GraphBuilds,
         injectionRewriteKeys: Set<String>
     ) -> [Diagnostic] {
         var diagnostics: [Diagnostic] = []
         // M7b.3 — what reachability dropped, before anything else has a chance to describe it worse.
-        diagnostics += prunedBindingDiagnostics(prunedBindings, externalModules: aggregate.externalModules)
+        diagnostics += prunedBindingDiagnostics(
+            graphs.prunedBindings,
+            externalModules: aggregate.externalModules
+        )
         diagnostics += unannotatedExtensionContainerDiagnostics(
             candidates: aggregate.unannotatedExtensionProvides,
             containerNames: containerNames
@@ -330,10 +335,13 @@ struct WireGen {
                 bindings.flatMap { $0.contributions }
             }
         )
+        // What reachability judged — retained *and* pruned — is not re-judged here. See M7b.4 in
+        // `DeadBindingDiagnostics.swift`: for a pruned graph, `prunedBindingDiagnostics` above is the
+        // dead-code diagnostic, and this pass covers what is left (seed-scope partitions).
         diagnostics += deadBindingDiagnostics(
             across: aggregate.allBindings,
-            resolvedByContainer: resolvedBindingsByContainer,
-            pruned: Set(prunedBindings.map(\.identity))
+            resolvedByContainer: graphs.resolvedBindingsByContainer,
+            judgedByReachability: graphs.judgedByReachability
         )
         diagnostics += scopeYieldDiagnostics(in: aggregate)
         diagnostics += graphInputsDiagnostics(aggregate.graphInputs, externalModules: aggregate.externalModules)

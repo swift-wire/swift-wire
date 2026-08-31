@@ -272,9 +272,19 @@ aggregate — see
   doesn't recognize as a binding type (e.g., a `@Provides func`
   returning `Foo` that's never injected anywhere — that's the
   `Foo` binding being dead, not the `@Provides func`).
-- Transitively-dead bindings (a binding consumed only by another
-  dead binding). 5α detects first-order dead bindings only; a
-  fixed-point analysis is a future refinement if it proves useful.
+- ~~Transitively-dead bindings (a binding consumed only by another
+  dead binding).~~ **Discharged in M7b.4.** Reachability *is* the
+  fixed point: a binding consumed only by a binding no root
+  reaches is itself unreachable, so it is pruned and reported.
+  Wherever a graph is pruned, the reachability diagnostic is the
+  dead-code diagnostic and this first-order pass stands aside.
+  What it still judges is what reachability does not — seed-scope
+  partitions, which are built unpruned because the whole-scope
+  façade still constructs every binding in a scope. *Within* one
+  of those the check remains first-order, and that is now the
+  whole of the limitation. See
+  [`MultiModuleComposition.md`](MultiModuleComposition.md) §
+  "Reachability roots (M7b.0)".
 - Bindings consumed only through generic specialisation. Liveness
   runs first-order on *discovered* bindings, before specialisation,
   so the generic `Foo<T>` template (consumed as `Foo<Concrete>`) and

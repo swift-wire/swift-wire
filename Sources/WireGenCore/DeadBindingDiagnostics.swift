@@ -11,9 +11,25 @@
 // `table: ConcreteTable`); that substituted edge lives in the resolved
 // graph's bindings, so feeding those in keeps the concrete producer live.
 //
-// First-order only: a binding consumed solely by another dead binding is
-// not yet detected (no fixed-point pass). Runs per container — each graph
-// is atomic, so liveness is judged within the container's own bindings.
+// **M7b.4 — this no longer judges a binding any graph's reachability
+// judged.** The first-order check here could not see that a binding
+// consumed solely by another *dead* binding is itself dead; reachability
+// is that fixed point by construction, so wherever a graph is pruned,
+// `prunedBindingDiagnostics` is the dead-code diagnostic and this pass
+// stands aside — callers pass the identities reachability decided, and
+// they are excluded rather than double-reported.
+//
+// What is left is the partitions reachability does not judge: **seed
+// scopes**, which are built with `ReachabilityPolicy.none` because the
+// whole-scope façade still constructs every binding in a scope. Their
+// per-root pruning happens at emission instead (M5.4.6's
+// `reachableBindings(from:in:)`), so a scope's graph-level fixed point
+// arrives with M7d, when that façade goes. Within a seed scope the check
+// below therefore remains first-order, and that is now the whole of the
+// limitation rather than a property of the analysis everywhere.
+//
+// Runs per container — each graph is atomic, so liveness is judged within
+// the container's own bindings.
 
 /// Dead-binding warnings across a module, grouped by container. Liveness
 /// is judged per *container* (all of a container's scopes merged), not per
@@ -33,14 +49,18 @@
 /// so a binding provided solely for an adapter to use stays subject to the
 /// normal check. M1 adapters register in the default graph, so these apply to
 /// the default (`nil`) container.
-/// `pruned` are the identities reachability already dropped and reported (`prunedBindingDiagnostics`).
-/// They are skipped here: the two diagnostics describe one fact — nothing reaches this binding — and the
-/// pruning one says more, so reporting both would double every message. M7b.4 finishes the merge by
-/// replacing this first-order consumption check with reachability itself.
+/// `judgedByReachability` are the identities some graph's reachability already decided — the retained and
+/// the pruned together, not just the pruned. They are excluded here rather than re-judged, which is what
+/// makes M7b.4 a fold rather than a suppression: a binding a pruned graph kept is live *because a root
+/// reaches it*, and one it dropped is reported by `prunedBindingDiagnostics` in terms that say more. What
+/// this pass still judges is what reachability did not — seed-scope partitions.
+///
+/// Bindings still count as *consumers* whether or not they were judged: an app singleton consumed only
+/// from inside a seed scope is live, which is why liveness merges a container's scopes in the first place.
 package func deadBindingDiagnostics(
     across bindingsByPartition: [Partition: [DiscoveredBinding]],
     resolvedByContainer: [String?: [DiscoveredBinding]] = [:],
-    pruned: Set<BindingIdentity> = []
+    judgedByReachability: Set<BindingIdentity> = []
 ) -> [Diagnostic] {
     var bindingsByContainer: [String?: [DiscoveredBinding]] = [:]
     for (partition, bindings) in bindingsByPartition {
@@ -48,7 +68,7 @@ package func deadBindingDiagnostics(
     }
     let diagnostics = bindingsByContainer.flatMap { container, discovered in
         deadBindingDiagnostics(
-            in: discovered.filter { !pruned.contains($0.identity) },
+            in: discovered.filter { !judgedByReachability.contains($0.identity) },
             consumers: discovered + (resolvedByContainer[container] ?? [])
         )
     }
