@@ -156,7 +156,7 @@ private func consumedIdentities(
 /// Matched on `kind`, not on the field name: an aggregate proxy names its thunks
 /// `_wireEnterScope_<Subject>`, one per bridged member, and the kind is the classifier the name only
 /// approximates. Widening it can only mark *more* bindings live, so it cannot introduce a false warning.
-private func scopeEntryConstructedIdentities(of dependency: DependencyParameter) -> [BindingIdentity] {
+func scopeEntryConstructedIdentities(of dependency: DependencyParameter) -> [BindingIdentity] {
     guard dependency.kind == .scopeEntryThunk, let descriptor = dependency.scopeEntry else { return [] }
     return ([descriptor.subject] + descriptor.yields).map { type in
         let components = identityComponents(type)

@@ -69,39 +69,90 @@ The safety net is the same shape M8 uses, and it should be written before any pr
 > A graph in which every binding is already reachable from a root produces **byte-identical** generated
 > output before and after M7b.
 
-A golden-file test over the existing `Fixtures/` is the guard. It is what makes this invisible to
-single-module apps, which is the claim the ROADMAP makes for the whole milestone.
+`GoldenHarness/` is the guard — the real `WireGen` over the `Tests/IntegrationTests` corpus (containers,
+seed scopes, contributor proxies, graph conformances, teardown, member injection, opaque lifts, testing
+variants) plus its Wire-aware sibling, diffed against a committed recording, with a CI job of its own. It is
+what makes this invisible to single-module apps, which is the claim the ROADMAP makes for the whole
+milestone.
 
 ## Sub-steps
 
-### M7b.0 — the root model (design gate, no code)
+### M7b.0 — the root model (design gate, no code) — **done**
 
 The hard part, and the reason this is milestone-sized rather than an afternoon. The plugin sees `@Inject`
-edges but not external `graph.x` accesses, so the root set has to be declared. Enumerate and settle, in the
-note, before writing the walk:
+edges but not external `graph.x` accesses, so the root set has to be declared.
 
-- `@GraphInputs` properties (`Sources/WireGenCore/GraphInputsScanning.swift`) — caller-supplied, so live by
-  definition, and already home-package-only.
-- Route contributors / proxies (`ContributorProxySynthesis.swift`) — each `@Scoped(seed:)` controller is
-  already a per-request reachability root under M5.4.6; app-scope contributors are the same idea one level
-  up.
-- `@Teardown` bindings — a resource registered for orderly shutdown is reachable *because* it is torn down,
-  even if nothing injects it.
-- Public-keyed multibinding aggregates — the documented non-prunable exception: a public collection key can
-  gain contributors outside the analysed graph, so it survives with no local consumer.
-- `allowUnused` in the home package — "I'm a root, keep me."
+**Settled 2026-08 in [Notes/MultiModuleComposition.md](Notes/MultiModuleComposition.md) §
+"Reachability roots (M7b.0)"**, with the `allowUnused` divergence recorded in
+[Notes/VisibilityModel.md](Notes/VisibilityModel.md). **Two roots** on the app/container graph —
+aggregates a **graph conformance** names, and `allowUnused` in the home package (on a binding or on a
+multibinding key); `@GraphInputs` properties are already the second of those, since `graphInputBindings`
+folds each into a home provider carrying `allowUnused: true`. Per seed scope, the roots are the subject and
+yields its thunk names (M5.4.6's existing rule). Contributors, contributor proxies, borrowed singletons and
+synthesised factories are *reached*, not rooted, and the note says why each one that looks like a root
+isn't.
 
-**Gate:** the note names the complete root set and its rationale, and says what a *library's* `allowUnused`
-means (ignored for reachability; a library binding is live iff reached from a home root).
+Two candidates were settled **against** this plan's opening enumeration, both because they confuse a
+diagnostic question with a construction one:
 
-### M7b.1 — compute reachability, change nothing
+- **`@Teardown` does not root a binding.** Teardown is a property of a constructed binding, not a reason to
+  construct one — a resource nothing reaches is never made, so there is nothing to shut down. Rooting on
+  the annotation would also pin every dependency's `@Teardown` binding into every consumer's graph, which
+  is construct-everything by annotation. A binding whose construction is the point uses `allowUnused:`.
+- **A `public` key does not root its aggregate.** The "non-prunable exception" argues from *contributors*,
+  but pruning turns on *consumers*, and nothing outside the graph can read an aggregate's product
+  (`_WireGraph` is `internal`). Visibility gates diagnostics; consumption gates construction. The
+  ROADMAP's own wording — the aggregate stays *silent* — is the diagnostic claim, and it stands.
+
+Three things the enumeration above missed, each of which changes a later sub-step:
+
+- **A graph conformance is a root — and, with `@Teardown` and public keys gone, one of only two.** It is
+  the one whose omission is silent. A
+  `WireGraphConformanceV1` member reads its multibinding aggregate off the topological order, and a member
+  whose key has no aggregate falls back to an *empty accessor* by design (`GraphConformanceEmission.swift`).
+  Prune that aggregate and a WireMVC/Hummingbird app compiles, boots, and serves zero routes. A build-based
+  gate cannot catch it — M7b.2 needs a behavioural one.
+- **The walk's edge set ≠ the sort's edge set.** `dependencyEdges` deliberately omits member-injection
+  parameters (so cycles through them stay legal, `Graph.swift:747`) and scope-entry thunks (identity is a
+  function type matching no producer). Both consume bindings that are genuinely constructed, so the walk
+  covers `dependencyEdges` ∪ member-injection edges ∪ thunk-constructed identities while the sort keeps
+  walking `dependencyEdges` alone. `DeadBindingDiagnostics` already unions exactly these
+  (`consumedIdentities`, `scopeEntryConstructedIdentities`) — reuse them rather than re-deriving.
+- **Testing variants are derived from the *unpruned* set** (`TestingVariants.swift:106`) and borrow the
+  production `_WireGraph`'s properties, so a pruned-but-borrowed singleton emits `_wireGraph.<pruned>` and
+  fails to compile in generated test code. Settle with M7b.2/M7b.3; the cheap resolution is to derive
+  variants from the pruned production node set.
+
+The walk itself is not new code: `reachable(from:over:)` (`TestingGraph.swift:254`) already traverses this
+map shape for the seedless-reconstruction cone.
+
+**Gate: met** — the note names the complete root set and its rationale, and says what a *library's*
+`allowUnused` means (ignored for reachability; a library binding is live iff reached from a home root).
+
+### M7b.1 — compute reachability, change nothing — **walk landed; guard outstanding**
 
 Add the walk over `dependencyEdges` from the M7b.0 root set, return it alongside the existing outcome, and
 **do not** restrict anything yet. Assert the byte-identical invariant.
 
-**Gate:** the golden suite is untouched and green; unit tests over the walk cover diamond deps, cycles among
-unreachable nodes, and a generic binding reached only after specialisation (the case
-`DeadBindingDiagnostics.swift` already had to special-case).
+Landed: `Sources/WireGenCore/Reachability.swift` (the root set as `reachabilityRoots`, the widened
+adjacency as `reachabilityEdges`, traversal reusing `reachable(from:over:)`), computed inside
+`buildDependencyGraph` between `resolveDependencies` and `topologicalSort` and surfaced as
+`GraphResult.reachable`. `ReachabilityRootPolicy` says *which* roots a build wants: `.appGraph` for the
+default/container graphs, `.none` — the default — for a seed scope or testing variant, whose construction
+set is bounded elsewhere. Nothing reads the result, so output is byte-identical by construction.
+`Tests/WireGenCoreTests/ReachabilityTests.swift` covers the walk and every root rule.
+
+The guard the plan named had nothing to run over — **there is no `Fixtures/` directory in this repo**, and
+both this plan and M8_PLAN assumed one. It is now `GoldenHarness/`: 6,636 lines of recorded `_WireGraph`
+plus its key checks, `--update` to re-record, and a CI job beside the other harnesses. Verified to catch
+drift and to survive the `swift-format --recursive` job (the recording carries a `.swift.golden`
+extension, so no tool reformats it).
+
+**Gate:** `GoldenHarness` is untouched and green; unit tests over the walk cover diamond deps, cycles among
+unreachable nodes, a generic binding reached only after specialisation (the case
+`DeadBindingDiagnostics.swift` already had to special-case), a binding consumed *only* by member injection,
+and a bridge proxy's subject and yields reached only through its scope-entry thunk — the last two being the
+edges M7b.0 found the sort does not carry.
 
 ### M7b.2 — prune dependency-module bindings only
 
@@ -112,7 +163,10 @@ bindings are all still emitted.
 
 **Gate:** a consumer against a library with an unreached binding emits neither the property nor the
 construction; `CompositionHarness` still passes; the byte-identical invariant still holds for graphs with no
-external bindings.
+external bindings. Plus the two M7b.0 cross-cuts: a **behavioural** test that an adapter-conformance-fed
+graph still serves its routes (the empty-accessor fallback makes this failure silent, so a build gate does
+not cover it), and a testing-variant fixture whose borrowed singleton is unreachable from a production
+root.
 
 ### M7b.3 — prune home-module bindings
 
@@ -121,8 +175,11 @@ The behaviour change with a migration cost: an app that reaches a binding only t
 developer needs, and Wire already has the visibility gate to decide when to speak.
 
 **Gate:** a diagnostic (not silence) for a home-module binding pruned under the same visibility rule the
-dead-binding warning uses, with the `allowUnused` fix-it; `Fixtures/` migrated; README's reachability
-section written.
+dead-binding warning uses, with the `allowUnused` fix-it — and it should name a pruned `@Teardown` binding
+specifically, since that is where the developer's intent ("this exists to be shut down") is least visible in
+the code and most surprising to lose; `GoldenHarness`'s recording re-recorded, with the
+diff read binding-by-binding (it is the migration, and the only place the behaviour change is legible);
+README's reachability section written.
 
 ### M7b.4 — fold the dead-code diagnostic onto reachability
 

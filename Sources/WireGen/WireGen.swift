@@ -274,7 +274,13 @@ struct WireGen {
                 multibindingKeys: aggregate.multibindingKeys,
                 resultBuilders: aggregate.resultBuilders,
                 homeModule: aggregate.module,
-                externalModules: aggregate.externalModules
+                externalModules: aggregate.externalModules,
+                // M7b.1 — computed, unused. Conformances only on the default graph: that is where
+                // `appendAllGraphConformances` emits them, so a `@Container`'s aggregate is never the
+                // witness for a protocol member. See `Reachability.swift`.
+                reachabilityRootPolicy: .appGraph(
+                    conformances: containerKey == nil ? aggregate.graphConformances : []
+                )
             )
             let graph = enrichMissingBindingsWithCrossScopeHints(
                 rawGraph,

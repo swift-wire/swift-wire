@@ -30,19 +30,27 @@ package struct GraphResult: Sendable {
     /// `resolveReplacements`. The build orchestration collects and prints these
     /// alongside the other source-pattern warnings.
     package let warnings: [Diagnostic]
+    /// The bindings reachable from this graph's declared roots (M7b), or `nil` when the caller asked for
+    /// no reachability (`ReachabilityRootPolicy.none` — a seed scope or testing variant, whose
+    /// construction set is bounded elsewhere). **Computed, not yet applied**: M7b.1 asserts the walk is
+    /// right while the emitted graph is still every node, so the pruning in M7b.2/M7b.3 lands on a
+    /// verified set. See `Reachability.swift`.
+    package let reachable: Set<BindingIdentity>?
 
     package init(
         outcome: Outcome,
         genericTemplates: [DiscoveredBinding],
         edges: [BindingIdentity: [BindingIdentity]] = [:],
         existentialPromotions: [ExistentialPromotion] = [],
-        warnings: [Diagnostic] = []
+        warnings: [Diagnostic] = [],
+        reachable: Set<BindingIdentity>? = nil
     ) {
         self.outcome = outcome
         self.genericTemplates = genericTemplates
         self.edges = edges
         self.existentialPromotions = existentialPromotions
         self.warnings = warnings
+        self.reachable = reachable
     }
 
     /// Either a valid topological order (the graph constructs cleanly)
@@ -447,13 +455,33 @@ package func earlyValidationFailure(
     )
 }
 
+/// The outcome of a graph that got as far as resolution: a topological order, or the cycles and missing
+/// bindings that stopped one forming. The post-resolution counterpart of `earlyValidationFailure`, which
+/// covers the failures that abort before dependencies are resolved at all.
+func postResolutionOutcome(
+    sortResult: (order: [DiscoveredBinding], cycles: [[DiscoveredBinding]]),
+    missingBindings: [MissingBinding]
+) -> GraphResult.Outcome {
+    guard sortResult.cycles.isEmpty && missingBindings.isEmpty else {
+        return .validationFailed(
+            GraphResult.ValidationErrors(
+                cycles: sortResult.cycles,
+                missingBindings: missingBindings,
+                duplicateBindings: []
+            )
+        )
+    }
+    return .success(topologicalOrder: sortResult.order)
+}
+
 package func buildDependencyGraph(
     from bindings: [DiscoveredBinding],
     typealiases: [DiscoveredTypealias] = [],
     multibindingKeys: [DiscoveredMultibindingKey] = [],
     resultBuilders: [DiscoveredResultBuilder] = [],
     homeModule: String? = nil,
-    externalModules: Set<String> = []
+    externalModules: Set<String> = [],
+    reachabilityRootPolicy: ReachabilityRootPolicy = .none
 ) -> GraphResult {
     // Fan-in: turn each declared multibinding key into a synthesised
     // aggregate binding (deps = its contributors). Aggregates then flow
@@ -530,30 +558,28 @@ package func buildDependencyGraph(
         typealiases: typealiases
     )
 
+    // Reachability (M7b.1). Nothing reads it yet — the sort below still runs over every resolved binding,
+    // so this pass is byte-identical to pre-M7b output by construction.
+    let reachableBindings = computeReachability(
+        in: resolvedBindings,
+        dependencyEdges: dependencyEdges,
+        multibindingKeys: multibindingKeys,
+        externalModules: externalModules,
+        policy: reachabilityRootPolicy
+    )
+
     let sortResult = topologicalSort(
         nodes: resolvedBindings,
         edges: dependencyEdges
     )
 
-    let outcome: GraphResult.Outcome
-    if sortResult.cycles.isEmpty && missingBindings.isEmpty {
-        outcome = .success(topologicalOrder: sortResult.order)
-    } else {
-        outcome = .validationFailed(
-            GraphResult.ValidationErrors(
-                cycles: sortResult.cycles,
-                missingBindings: missingBindings,
-                duplicateBindings: []
-            )
-        )
-    }
-
     return GraphResult(
-        outcome: outcome,
+        outcome: postResolutionOutcome(sortResult: sortResult, missingBindings: missingBindings),
         genericTemplates: genericTemplates,
         edges: dependencyEdges,
         existentialPromotions: existentialPromotions,
-        warnings: replacementWarnings
+        warnings: replacementWarnings,
+        reachable: reachableBindings
     )
 }
 

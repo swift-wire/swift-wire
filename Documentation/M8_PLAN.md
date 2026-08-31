@@ -56,9 +56,10 @@ testable and should be pinned before any emission work starts:
 > A graph containing no `~Copyable` or `~Escapable` bindings produces **byte-identical**
 > generated output before and after M8.
 
-A golden-file test over the existing `Fixtures/` is the guard. This is not a nicety — it is what
-makes the feature an opt-in rather than a change everyone absorbs, and it is cheap only if
-written first.
+`GoldenHarness/` is the guard — the real `WireGen` over the `Tests/IntegrationTests` corpus,
+diffed against a committed recording (built for M7b, which leans on the same invariant). This is
+not a nicety — it is what makes the feature an opt-in rather than a change everyone absorbs, and
+it is cheap only if written first.
 
 ## Sub-steps
 
@@ -261,5 +262,5 @@ that returns a large payload through a `~Copyable, ~Escapable` model.
 - A `~Escapable` scoped binding cannot be moved into a `Task` outliving the request, and the
   failure is a lifetime diagnostic naming the seed.
 - Every diagnostic in M8.3 has a failing fixture and expected text.
-- **Golden files for every existing fixture are byte-identical to pre-M8 output.**
+- **`GoldenHarness`'s recording is byte-identical to pre-M8 output.**
 - The worked chain serves on at least one runtime in `wire-mvc-examples`.
