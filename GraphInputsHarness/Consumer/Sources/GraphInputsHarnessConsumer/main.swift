@@ -32,8 +32,9 @@ struct AppInputs: Sendable {
     var describedRegion: String { "region=\(region)" }
 }
 
-/// An ordinary `@Singleton` consuming inputs — by type, and by key through `@Bind`.
-@Singleton
+/// An ordinary `@Singleton` consuming inputs — by type, and by key through `@Bind`. Read straight off the
+/// graph below and injected by nothing, so it declares itself a reachability root (M7b.3).
+@Singleton(allowUnused: true)
 struct DeploymentTarget: Sendable {
     let summary: String
 

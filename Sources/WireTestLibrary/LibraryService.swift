@@ -7,7 +7,7 @@ import Wire
 /// init are `public` — reachable across the module boundary. (The
 /// build-time enforcement of that visibility threshold is iteration 7f;
 /// here it's satisfied by hand.)
-@Singleton
+@Singleton(allowUnused: true)
 public struct LibraryService {
     public let name: String
 

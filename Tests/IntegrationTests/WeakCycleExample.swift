@@ -23,7 +23,7 @@ import Wire
 /// non-Sendable too (auto-derivation propagates the constraint),
 /// which is also fine: this test holds the graph in a single test
 /// task and never sends it elsewhere.
-@Singleton
+@Singleton(allowUnused: true)
 package final class Coordinator {
     package let view: View
 
@@ -33,7 +33,7 @@ package final class Coordinator {
     }
 }
 
-@Singleton
+@Singleton(allowUnused: true)
 package final class View {
     @Inject package weak var coordinator: Coordinator?
 

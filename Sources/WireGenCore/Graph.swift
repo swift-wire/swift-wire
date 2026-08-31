@@ -32,10 +32,13 @@ package struct GraphResult: Sendable {
     package let warnings: [Diagnostic]
     /// The bindings reachable from this graph's declared roots (M7b), or `nil` when the caller asked for
     /// no reachability (`ReachabilityPolicy.none` — a seed scope or testing variant, whose construction
-    /// set is bounded elsewhere). Under `.pruneExternal` this **is** the emitted node set: an
-    /// unreachable dependency-module binding is gone from `topologicalOrder`, from the edges, and from
-    /// the missing-binding and cycle reports. See `Reachability.swift`.
+    /// set is bounded elsewhere). Under `.prune` this **is** the emitted node set: an unreachable binding
+    /// is gone from `topologicalOrder`, from the edges, and from the missing-binding and cycle reports.
+    /// See `Reachability.swift`.
     package let reachable: Set<BindingIdentity>?
+    /// The bindings the restriction dropped — what `prunedBindingDiagnostics` reports, and the only place
+    /// the behaviour change is legible to a developer. Empty when nothing was pruned.
+    package let pruned: [DiscoveredBinding]
 
     package init(
         outcome: Outcome,
@@ -43,7 +46,8 @@ package struct GraphResult: Sendable {
         edges: [BindingIdentity: [BindingIdentity]] = [:],
         existentialPromotions: [ExistentialPromotion] = [],
         warnings: [Diagnostic] = [],
-        reachable: Set<BindingIdentity>? = nil
+        reachable: Set<BindingIdentity>? = nil,
+        pruned: [DiscoveredBinding] = []
     ) {
         self.outcome = outcome
         self.genericTemplates = genericTemplates
@@ -51,6 +55,7 @@ package struct GraphResult: Sendable {
         self.existentialPromotions = existentialPromotions
         self.warnings = warnings
         self.reachable = reachable
+        self.pruned = pruned
     }
 
     /// Either a valid topological order (the graph constructs cleanly)
@@ -616,7 +621,8 @@ package func buildDependencyGraph(
         edges: graph.edges,
         existentialPromotions: graph.promotions,
         warnings: replacementWarnings,
-        reachable: retained
+        reachable: retained,
+        pruned: resolvedBindings.filter { retained?.contains($0.key) == false }.map(\.value)
     )
 }
 

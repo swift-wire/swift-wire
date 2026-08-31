@@ -27,12 +27,12 @@
 package enum ReachabilityPolicy: Sendable {
     /// No reachability computed — `GraphResult.reachable` is `nil` and every resolved binding is emitted.
     case none
-    /// Drop unreachable **dependency-module** bindings; retain every home-module binding (M7b.2).
+    /// Drop every binding unreachable from the declared roots, home-module bindings included (M7b.3).
     ///
-    /// Home bindings are retained *and are themselves retention roots*, which is not a detail: the app
-    /// may reach any of them through `graph.x`, which Wire cannot see, so they all stay — and anything
-    /// they depend on has to stay with them or the emitted graph references properties that were never
-    /// declared. Retention is therefore closed under dependencies by construction.
+    /// M7b.2 retained the home half wholesale, which made the first cut incapable of regressing an app.
+    /// Dropping that union is the behaviour change: a binding the app reaches only through `graph.x` —
+    /// an expression Wire never sees — is now gone unless it says `allowUnused: true`. That is why the
+    /// pruned set is reported rather than silently applied; see `prunedBindingDiagnostics`.
     ///
     /// `conformances` are the ones emitted onto *this* graph — the default graph's, since
     /// `appendAllGraphConformances` puts them on the default graph and its testing variants, never on a
@@ -40,7 +40,7 @@ package enum ReachabilityPolicy: Sendable {
     /// borrow: a scope's use of a singleton is an edge in the *scope's* graph, invisible to this one, so
     /// it has to be carried in as a root or a request-scoped binding's dependency is pruned out from
     /// under it.
-    case pruneExternal(
+    case prune(
         conformances: [DiscoveredGraphConformance],
         borrowedByScopes: Set<BindingIdentity>
     )
@@ -107,20 +107,17 @@ package func declaredRoots(
 
 /// The identities the walk starts from under `policy` — `nil` when the policy prunes nothing.
 ///
-/// Under `.pruneExternal` that is the declared roots **plus** every home-module binding and everything
-/// this container's seed scopes borrow. The home half is what makes M7b.2 the low-risk cut: an app that
-/// reaches a binding through `graph.x` cannot regress, because its own bindings are all still emitted —
-/// and because they are roots, everything they depend on is retained with them, so the emitted graph
-/// never references a property that was pruned. **M7b.3 is exactly the change of dropping that union**,
-/// at which point the declared roots above carry the whole graph and the migration diagnostic earns its
-/// keep.
+/// The declared roots, plus everything this container's seed scopes borrow. **M7b.2 also unioned in every
+/// home-module binding**; M7b.3 is exactly the change of dropping that union, so the declared roots now
+/// carry the whole graph and the migration diagnostic earns its keep. Nothing else moved: the same walk
+/// over the same edges from a smaller set.
 package func retentionRoots(
     in bindings: [BindingIdentity: DiscoveredBinding],
     multibindingKeys: [DiscoveredMultibindingKey],
     externalModules: Set<String>,
     policy: ReachabilityPolicy
 ) -> Set<BindingIdentity>? {
-    guard case .pruneExternal(let conformances, let borrowedByScopes) = policy else { return nil }
+    guard case .prune(let conformances, let borrowedByScopes) = policy else { return nil }
     var roots = declaredRoots(
         in: bindings,
         multibindingKeys: multibindingKeys,
@@ -128,9 +125,6 @@ package func retentionRoots(
         externalModules: externalModules
     )
     roots.formUnion(borrowedByScopes.intersection(bindings.keys))
-    for (identity, binding) in bindings where !externalModules.contains(binding.originModule) {
-        roots.insert(identity)
-    }
     return roots
 }
 

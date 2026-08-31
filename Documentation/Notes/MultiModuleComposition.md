@@ -315,8 +315,34 @@ graph cannot see for itself:
   so they cannot borrow what production never constructs — see below.
 
 Measured on the ROADMAP's case, a 500-binding library where the consumer injects exactly one binding:
-**1,525 lines, 501 stored properties and 501 eager constructions become 28 lines, 2 and 2.** M7b.3 (home
-pruning) is a migration story with a diagnostic; this is the part that carries the win.
+**1,525 lines, 501 stored properties and 501 eager constructions become 28 lines, 2 and 2.** That is the
+part that carries the win.
+
+**M7b.3 then drops the home half of that union**, and the declared roots carry the whole graph. It is the
+milestone's one behaviour change, so it ships with a diagnostic rather than in silence: a pruned
+home-module binding is reported, at every visibility, with the `allowUnused` fix-it and the property name
+the developer would have read (`graph.reportBuilder`). A pruned `@Teardown` binding says so explicitly —
+that intent is the least visible in the code, since a resource nothing reaches is never constructed and so
+never torn down.
+
+Reporting at every visibility is a departure from the dead-binding gate, and settled the same way the
+public-key question was: visibility gates diagnostics about *consumption*, not about *construction*. A
+public declaration may have consumers Wire cannot see; a public binding is still constructed by exactly one
+thing, this graph, which is `internal` to its own module. The argument for silence — that a library target
+has a graph full of unreached public bindings — is false in Wire's own pattern, where a Wire-aware library
+applies no build plugin at all and is re-parsed by its consumer. See
+[`VisibilityModel.md`](VisibilityModel.md).
+
+The diagnostic supersedes the dead-binding warning for anything it reports: the two describe one fact and
+this one says more, so `deadBindingDiagnostics` skips what pruning already named. That is most of M7b.4
+arriving early, for a UX reason — shipping both would have doubled every message — and what M7b.4 has left
+is replacing the first-order consumption check itself and its package-local contributor subtlety.
+
+What the migration actually cost, on this repository: **seven annotations**. Six weak-cycle example
+bindings and a library service the tests read straight off the graph, plus one in the `@GraphInputs`
+harness. After them the golden recording is **byte-identical** — the corpus emits exactly what it emitted
+before, which is the useful shape of this change: it does not shrink a well-formed app's graph, it makes
+the app say which bindings leave through a door Wire cannot see.
 
 ### One open cross-cut: testing variants
 

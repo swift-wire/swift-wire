@@ -18,7 +18,7 @@ import Wire
 /// normalization works through the whole pipeline, AND the generated
 /// `spoke.hub = hub` compiles against `weak var hub: Hub!` storage (the
 /// old discovery `?`-strip handled only `T?`, never `T!`).
-@Singleton
+@Singleton(allowUnused: true)
 package final class Hub {
     package let spoke: Spoke
 
@@ -28,7 +28,7 @@ package final class Hub {
     }
 }
 
-@Singleton
+@Singleton(allowUnused: true)
 package final class Spoke {
     @Inject package weak var hub: Hub!
 
