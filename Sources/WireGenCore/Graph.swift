@@ -31,10 +31,10 @@ package struct GraphResult: Sendable {
     /// alongside the other source-pattern warnings.
     package let warnings: [Diagnostic]
     /// The bindings reachable from this graph's declared roots (M7b), or `nil` when the caller asked for
-    /// no reachability (`ReachabilityRootPolicy.none` — a seed scope or testing variant, whose
-    /// construction set is bounded elsewhere). **Computed, not yet applied**: M7b.1 asserts the walk is
-    /// right while the emitted graph is still every node, so the pruning in M7b.2/M7b.3 lands on a
-    /// verified set. See `Reachability.swift`.
+    /// no reachability (`ReachabilityPolicy.none` — a seed scope or testing variant, whose construction
+    /// set is bounded elsewhere). Under `.pruneExternal` this **is** the emitted node set: an
+    /// unreachable dependency-module binding is gone from `topologicalOrder`, from the edges, and from
+    /// the missing-binding and cycle reports. See `Reachability.swift`.
     package let reachable: Set<BindingIdentity>?
 
     package init(
@@ -474,6 +474,57 @@ func postResolutionOutcome(
     return .success(topologicalOrder: sortResult.order)
 }
 
+/// Generic specialisation followed by the identifier-collision check — the last two validations before
+/// dependency resolution, either of which aborts the build.
+///
+/// Specialisation walks every binding's deps; for each unresolved concrete-instantiation dep (a dep whose
+/// type is something like `Repository<DynamoDBTable>`), it looks for a generic binding whose
+/// (base, param count) matches. Exactly one match → specialise (substitute the type parameters through
+/// the binding's deps) and add the specialised binding to the graph. When the same `(type, key)` is
+/// satisfied by both an existing concrete binding and a generic-specialisation candidate, the result is a
+/// duplicate-binding error; the standard fix-it (declare named keys) handles disambiguation.
+///
+/// Shaped like `resolveReplacementsAndSplitDuplicates` — an `.earlyExit`/`.resolved` pair — because it is
+/// the same kind of step, and because `buildDependencyGraph`'s body has a length ceiling that this keeps
+/// it under.
+private enum SpecialisationOutcome {
+    case earlyExit(GraphResult)
+    case resolved([BindingIdentity: DiscoveredBinding])
+}
+
+private func specialisedAndCollisionChecked(
+    uniqueByIdentity: [BindingIdentity: DiscoveredBinding],
+    genericTemplates: [DiscoveredBinding],
+    warnings: [Diagnostic]
+) -> SpecialisationOutcome {
+    var resolvedBindings = uniqueByIdentity
+    let specialisationAmbiguities = specialiseGenericBindings(
+        uniqueByIdentity: &resolvedBindings,
+        genericBindings: genericTemplates
+    )
+    if !specialisationAmbiguities.isEmpty {
+        return .earlyExit(
+            earlyValidationFailure(
+                duplicateBindings: specialisationAmbiguities,
+                genericTemplates: genericTemplates,
+                warnings: warnings
+            )
+        )
+    }
+
+    let identifierCollisions = detectIdentifierCollisions(in: resolvedBindings)
+    if !identifierCollisions.isEmpty {
+        return .earlyExit(
+            earlyValidationFailure(
+                identifierCollisions: identifierCollisions,
+                genericTemplates: genericTemplates,
+                warnings: warnings
+            )
+        )
+    }
+    return .resolved(resolvedBindings)
+}
+
 package func buildDependencyGraph(
     from bindings: [DiscoveredBinding],
     typealiases: [DiscoveredTypealias] = [],
@@ -481,7 +532,7 @@ package func buildDependencyGraph(
     resultBuilders: [DiscoveredResultBuilder] = [],
     homeModule: String? = nil,
     externalModules: Set<String> = [],
-    reachabilityRootPolicy: ReachabilityRootPolicy = .none
+    reachabilityPolicy: ReachabilityPolicy = .none
 ) -> GraphResult {
     // Fan-in: turn each declared multibinding key into a synthesised
     // aggregate binding (deps = its contributors). Aggregates then flow
@@ -521,65 +572,51 @@ package func buildDependencyGraph(
         (uniqueByIdentity, replacementWarnings) = (unique, warnings)
     }
 
-    // Generic specialisation: walk every binding's deps; for each
-    // unresolved concrete-instantiation dep (a dep whose type is
-    // something like `Repository<DynamoDBTable>`), look for a generic
-    // binding whose (base, param count) matches. Exactly one match →
-    // specialise (substitute the type parameters through the
-    // binding's deps) and add the specialised binding to the graph.
-    // When the same `(type, key)` is satisfied by both an existing
-    // concrete binding and a generic-specialisation candidate, the
-    // result is a duplicate-binding error; the standard fix-it
-    // (declare named keys) handles disambiguation.
-    var resolvedBindings = uniqueByIdentity
-    let specialisationAmbiguities = specialiseGenericBindings(
-        uniqueByIdentity: &resolvedBindings,
-        genericBindings: genericTemplates
-    )
-    if !specialisationAmbiguities.isEmpty {
-        return earlyValidationFailure(
-            duplicateBindings: specialisationAmbiguities,
-            genericTemplates: genericTemplates,
-            warnings: replacementWarnings
-        )
+    let resolvedBindings: [BindingIdentity: DiscoveredBinding]
+    switch specialisedAndCollisionChecked(
+        uniqueByIdentity: uniqueByIdentity,
+        genericTemplates: genericTemplates,
+        warnings: replacementWarnings
+    ) {
+    case .earlyExit(let result): return result
+    case .resolved(let specialised): resolvedBindings = specialised
     }
 
-    let identifierCollisions = detectIdentifierCollisions(in: resolvedBindings)
-    if !identifierCollisions.isEmpty {
-        return earlyValidationFailure(
-            identifierCollisions: identifierCollisions,
-            genericTemplates: genericTemplates,
-            warnings: replacementWarnings
-        )
-    }
-
-    let (dependencyEdges, missingBindings, existentialPromotions) = resolveDependencies(
+    let resolution = resolveDependencies(
         in: resolvedBindings,
         typealiases: typealiases
     )
 
-    // Reachability (M7b.1). Nothing reads it yet — the sort below still runs over every resolved binding,
-    // so this pass is byte-identical to pre-M7b output by construction.
-    let reachableBindings = computeReachability(
+    // Reachability, then the restriction (M7b.2) — here, between resolution and the sort, because the
+    // walk needs resolved edges and everything after it consumes the reduced set unchanged. Under
+    // `.none` this is the identity, so a graph that prunes nothing is byte-identical to pre-M7b output.
+    let retained = computeReachability(
         in: resolvedBindings,
-        dependencyEdges: dependencyEdges,
+        dependencyEdges: resolution.edges,
         multibindingKeys: multibindingKeys,
         externalModules: externalModules,
-        policy: reachabilityRootPolicy
+        policy: reachabilityPolicy
+    )
+    let graph = restricted(
+        bindings: resolvedBindings,
+        edges: resolution.edges,
+        missing: resolution.missing,
+        promotions: resolution.promotions,
+        to: retained ?? Set(resolvedBindings.keys)
     )
 
     let sortResult = topologicalSort(
-        nodes: resolvedBindings,
-        edges: dependencyEdges
+        nodes: graph.bindings,
+        edges: graph.edges
     )
 
     return GraphResult(
-        outcome: postResolutionOutcome(sortResult: sortResult, missingBindings: missingBindings),
+        outcome: postResolutionOutcome(sortResult: sortResult, missingBindings: graph.missing),
         genericTemplates: genericTemplates,
-        edges: dependencyEdges,
-        existentialPromotions: existentialPromotions,
+        edges: graph.edges,
+        existentialPromotions: graph.promotions,
         warnings: replacementWarnings,
-        reachable: reachableBindings
+        reachable: retained
     )
 }
 

@@ -80,10 +80,16 @@ extension WireGen {
     /// The affected scopes are disambiguated from production by the key (`_<KeyRef>_<Seed>WireScope`) and
     /// thread the variant's `_<Key>Doubles` alongside the seed. `appEdges` is the production app graph's
     /// resolved adjacency, which the cascade walks.
+    /// `retained` is the production app graph's reachable set (M7b.2), or `nil` when nothing was pruned.
+    /// A variant borrows the production `_WireGraph`'s properties for every app singleton it does not
+    /// lift, so it has to be derived from what production actually constructs: borrowing a pruned binding
+    /// would emit `_wireGraph.<pruned>` and fail to compile in generated *test* code, which no production
+    /// build would catch.
     static func buildTestingVariants(
         in aggregate: DiscoveryAggregate,
         appEdges: [BindingIdentity: [BindingIdentity]],
         defaultOrder: [DiscoveredBinding],
+        retained: Set<BindingIdentity>?,
         proxyIdentities: Set<String>,
         factories: [SynthesizedFactory]
     ) -> [TestingVariant] {
@@ -107,6 +113,7 @@ extension WireGen {
             resolvedBindings
             .filter { $0.key.container == nil && $0.key.scope == nil }
             .flatMap { $0.value }
+            .filter { productionRetains($0, retained: retained, externalModules: aggregate.externalModules) }
         let borrows = syntheticSingletonBorrowBindings(from: defaultSingletons, inWireGraphOfType: "_WireGraph")
         // Default-graph seed partitions, deterministically ordered by seed.
         let seedPartitions =
@@ -483,4 +490,19 @@ extension WireGen {
             orchestration.result.existentialPromotions
         )
     }
+}
+
+/// Whether the production app graph kept `binding`, so a variant may derive from or borrow it.
+///
+/// Only a *dependency-module* binding can have been pruned — M7b.2 retains every home binding — and
+/// `retained` holds *resolved* identities (post-specialisation, aggregates included), so anything absent
+/// from it for a reason other than pruning is kept. Narrowing the test to the external half is what stops
+/// this from silently dropping the generic templates and pre-specialisation bindings a variant needs.
+private func productionRetains(
+    _ binding: DiscoveredBinding,
+    retained: Set<BindingIdentity>?,
+    externalModules: Set<String>
+) -> Bool {
+    guard let retained, externalModules.contains(binding.originModule) else { return true }
+    return retained.contains(binding.identity)
 }

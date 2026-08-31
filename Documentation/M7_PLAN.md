@@ -154,19 +154,30 @@ unreachable nodes, a generic binding reached only after specialisation (the case
 and a bridge proxy's subject and yields reached only through its scope-entry thunk — the last two being the
 edges M7b.0 found the sort does not carry.
 
-### M7b.2 — prune dependency-module bindings only
+### M7b.2 — prune dependency-module bindings only — **done**
 
 The low-risk first cut, and it captures essentially the whole win. Restrict the node set to reachable
 bindings **whose `originModule` is external**; keep every home-module binding regardless. This is the
 500-binding case, and it cannot regress an app that reaches a binding through `graph.x`, because home
 bindings are all still emitted.
 
-**Gate:** a consumer against a library with an unreached binding emits neither the property nor the
-construction; `CompositionHarness` still passes; the byte-identical invariant still holds for graphs with no
-external bindings. Plus the two M7b.0 cross-cuts: a **behavioural** test that an adapter-conformance-fed
-graph still serves its routes (the empty-accessor fallback makes this failure silent, so a build gate does
-not cover it), and a testing-variant fixture whose borrowed singleton is unreachable from a production
-root.
+**Gate: met.** Both halves are in `CompositionHarness`, and both were probed to confirm they can fail.
+The library ships an unreached `public @Singleton` whose `init` traps, so the consumer reaching its last
+line *is* the assertion that the binding was pruned — with pruning disabled the harness aborts on that
+`fatalError`. Beside it, the consumer declares a graph conformance over a library-declared key that the
+library contributes to: with the conformance root removed the harness builds, runs, and fails the
+contributor assertion, which is the silent empty-accessor failure made loud. The byte-identical invariant
+holds — `GoldenHarness` is unchanged, as expected, since `WireTestLibrary` is a same-package sibling and
+the in-repo corpus therefore has no external bindings at all.
+
+The testing-variant cross-cut is closed rather than tested: variants now derive from the production
+graph's retained set (`productionRetains`), narrowed to the external half so the filter cannot drop the
+generic templates a variant needs. It has no fixture because one cannot exist yet — it needs a package
+with both testing variants and an external Wire-aware dependency, which no harness has; M7b.3 makes it
+reachable from the in-repo corpus.
+
+**Measured**, on the ROADMAP's 500-binding case with the consumer injecting exactly one binding: 1,525
+lines, 501 stored properties and 501 eager constructions become **28 lines, 2 and 2**.
 
 ### M7b.3 — prune home-module bindings
 

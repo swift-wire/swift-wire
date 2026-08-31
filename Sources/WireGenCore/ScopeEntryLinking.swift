@@ -12,6 +12,44 @@
 // graph's topological sort. Domain-free: it matches a proxy to its scope by the seed the proxy's
 // `_wireEnterScope` thunk names, and reads the scope's borrowed singletons as opaque `(type, key)` pairs.
 
+/// The app singletons a seed scope *genuinely* borrows — the borrow bindings its own (non-borrow)
+/// bindings actually depend on.
+///
+/// The borrow set is over-generated: `syntheticSingletonBorrowBindings` makes one per app singleton
+/// whether the scope reaches it or not, and — since a bridge proxy is itself an app singleton — that
+/// includes the proxy. Two callers need the real subset. `linkingScopeEntryCaptures` does, because
+/// capturing an unused borrow adds a spurious ordering edge (a proxy capturing itself is a cycle). And
+/// M7b.2's pruning does, because a scope's use of a singleton is an edge in the *scope's* graph, which
+/// the app graph cannot see: without carrying these in as retention roots, a dependency-module singleton
+/// used only inside a request scope is pruned out from under it.
+package func usedBorrows(in orchestration: SeedScopeOrchestration) -> [DiscoveredBinding] {
+    let reached = orchestration.result.outcome.topologicalOrder ?? []
+    let borrowNames = orchestration.borrowedBindingPropertyNames
+    var usedTypes: Set<String> = []
+    for binding in reached {
+        let name = identifierName(forType: binding.boundType, key: binding.keyIdentifier)
+        guard !borrowNames.contains(name) else { continue }  // a borrow itself uses nothing here
+        for dependency in binding.dependencies {
+            usedTypes.insert(dependency.type)
+            // A *generic* scope binding (e.g. `Session<Manager: SessionManager>`) injects a borrow
+            // through its own type parameter (`manager: Manager`), so the dependency type is the bare
+            // parameter — but the borrow it resolves to is the constraint's opaque form
+            // (`some SessionManager`). Record that too, else a borrow reached only transitively through
+            // a generic scope binding is never recognised as used (and its capture edge is dropped, so
+            // the proxy sorts *before* it and captures an undeclared local).
+            if let constraint = binding.genericParameterConstraints[dependency.type],
+                constraintIsDetermining(constraint)
+            {
+                usedTypes.insert("some \(constraint)")
+            }
+        }
+    }
+    return reached.filter { binding in
+        let name = identifierName(forType: binding.boundType, key: binding.keyIdentifier)
+        return borrowNames.contains(name) && usedTypes.contains(binding.boundType)
+    }
+}
+
 /// Add `.scopeCapture` dependencies to every bridging contributor proxy in `singletons`, one per
 /// singleton the proxy's seed scope actually borrows. Non-bridge bindings pass through unchanged.
 /// `orchestrations` are the seed scopes over the *same* graph as `singletons` (so seeds are unique).
@@ -26,31 +64,8 @@ package func linkingScopeEntryCaptures(
     // borrow types the scope's own (non-borrow) bindings actually depend on.
     var capturesBySeed: [String: [DependencyParameter]] = [:]
     for orchestration in orchestrations {
-        let reached = orchestration.result.outcome.topologicalOrder ?? []
-        let borrowNames = orchestration.borrowedBindingPropertyNames
-        var usedTypes: Set<String> = []
-        for binding in reached {
-            let name = identifierName(forType: binding.boundType, key: binding.keyIdentifier)
-            guard !borrowNames.contains(name) else { continue }  // a borrow itself uses nothing here
-            for dependency in binding.dependencies {
-                usedTypes.insert(dependency.type)
-                // A *generic* scope binding (e.g. `Session<Manager: SessionManager>`) injects a borrow
-                // through its own type parameter (`manager: Manager`), so the dependency type is the bare
-                // parameter — but the borrow it resolves to is the constraint's opaque form
-                // (`some SessionManager`). Record that too, else a borrow reached only transitively through
-                // a generic scope binding is never recognised as used (and its capture edge is dropped, so
-                // the proxy sorts *before* it and captures an undeclared local).
-                if let constraint = binding.genericParameterConstraints[dependency.type],
-                    constraintIsDetermining(constraint)
-                {
-                    usedTypes.insert("some \(constraint)")
-                }
-            }
-        }
-        capturesBySeed[orchestration.seedTypeExpression] = reached.compactMap { binding in
-            let name = identifierName(forType: binding.boundType, key: binding.keyIdentifier)
-            guard borrowNames.contains(name), usedTypes.contains(binding.boundType) else { return nil }
-            return DependencyParameter(
+        capturesBySeed[orchestration.seedTypeExpression] = usedBorrows(in: orchestration).map { binding in
+            DependencyParameter(
                 name: nil,
                 type: binding.boundType,
                 kind: .scopeCapture,
