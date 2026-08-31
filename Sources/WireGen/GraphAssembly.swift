@@ -60,3 +60,12 @@ func pruningPolicy(
         borrowedByScopes: Set(orchestrations.flatMap { usedBorrows(in: $0).map(\.identity) })
     )
 }
+
+/// The identities `result`'s reachability decided — retained and pruned together — or nothing when that
+/// graph was not pruned at all. `deadBindingDiagnostics` judges what is *not* in this set, so a graph
+/// built with `ReachabilityPolicy.none` (a seed scope) stays that pass's business and a pruned graph
+/// becomes `prunedBindingDiagnostics`'.
+func judged(_ result: GraphResult) -> Set<BindingIdentity> {
+    guard let reachable = result.reachable else { return [] }
+    return reachable.union(result.pruned.map(\.identity))
+}

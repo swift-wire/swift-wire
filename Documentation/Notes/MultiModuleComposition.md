@@ -334,9 +334,17 @@ applies no build plugin at all and is re-parsed by its consumer. See
 [`VisibilityModel.md`](VisibilityModel.md).
 
 The diagnostic supersedes the dead-binding warning for anything it reports: the two describe one fact and
-this one says more, so `deadBindingDiagnostics` skips what pruning already named. That is most of M7b.4
-arriving early, for a UX reason — shipping both would have doubled every message — and what M7b.4 has left
-is replacing the first-order consumption check itself and its package-local contributor subtlety.
+this one says more. **M7b.4 makes that a fold rather than a suppression** — the first-order pass now stands
+aside for every identity reachability *decided*, retained and pruned alike, and judges only what
+reachability did not. That discharges the limitation `DeadBindingDiagnostics` recorded from 5α: a binding
+consumed solely by another dead binding is unreachable too, so the fixed point comes by construction. It
+also gives the ROADMAP's subtlety for free — a package-local contributor folded into a `public` aggregate
+nothing consumes is pruned and reported, while the aggregate itself stays silent.
+
+The limitation survives in exactly one place: a **seed scope** is built unpruned, because the whole-scope
+façade still constructs every binding in it, so within a scope the check is still first-order. Scopes are
+pruned per routed root at emission instead (M5.4.6), and their graph-level fixed point arrives with M7d,
+when that façade goes.
 
 What the migration actually cost, on this repository: **seven annotations**. Six weak-cycle example
 bindings and a library service the tests read straight off the graph, plus one in the `@GraphInputs`

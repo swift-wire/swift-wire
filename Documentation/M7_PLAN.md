@@ -23,10 +23,11 @@ Two things ride on it that are not performance:
   a direct dependency that depends on the `Wire` product, **verified readable** by the spike. What the
   marker also does is *bound* what composes, and only reachability can take that over. Retirement is
   therefore M7b's, not M7a's (the ROADMAP filed the surface trim as M7a-adjacent; that anchor moved).
-- **A transitive dead-code diagnostic.** `DeadBindingDiagnostics.swift:14` records the current check as
+- **A transitive dead-code diagnostic.** `DeadBindingDiagnostics.swift:14` recorded the check as
   "First-order only: a binding consumed solely by another dead binding is not yet detected (no fixed-point
   pass)." Reachability *is* that fixed point, so the limitation is discharged by construction rather than
-  by a separate feature.
+  by a separate feature — **done in M7b.4**, and it survives only inside a seed scope, which is built
+  unpruned until M7d retires the whole-scope façade.
 
 ## What M7b embeds into (shipped — stable seams, do not change)
 
@@ -212,15 +213,34 @@ a deliberately-unreached fixture inside the corpus would warn on every build, wh
 warning is half the assertion. README's reachability section is written, and `VisibilityModel.md` records
 where its own table stops applying.
 
-### M7b.4 — fold the dead-code diagnostic onto reachability
+### M7b.4 — fold the dead-code diagnostic onto reachability — **done**
 
 Replace the first-order consumption check with "unreachable from any root", discharging
-`DeadBindingDiagnostics.swift:14`. Keep the visibility gate and keep the package-local subtlety the ROADMAP
-records: a package-local contributor folded into a `public` aggregate that is never consumed is genuinely
-dead and warrants the warning, while the aggregate itself stays silent.
+`DeadBindingDiagnostics.swift:14`. Keep the package-local subtlety the ROADMAP records: a package-local
+contributor folded into a `public` aggregate that is never consumed is genuinely dead and warrants the
+warning, while the aggregate itself stays silent.
 
-**Gate:** the existing dead-binding tests pass unchanged where they should, plus a new case that only a
-fixed point catches (a binding consumed solely by another dead binding).
+Most of the *behaviour* arrived with M7b.3, whose diagnostic already reported a transitively-dead binding
+and the package-local contributor — both verified against the real WireGen before this step began. What
+M7b.4 does is make the fold **structural rather than accidental**, and prove it. `deadBindingDiagnostics`
+now excludes every identity reachability *decided* — retained and pruned alike, not just the pruned — so a
+binding a pruned graph kept is live because a root reaches it, and one it dropped is reported in terms that
+say more. Judged bindings still count as *consumers*, which is what keeps an app singleton used only from
+inside a seed scope alive.
+
+**The visibility gate is deliberately not kept**, contrary to this plan's line: M7b.3 settled that
+visibility gates diagnostics about *consumption* while pruning asks about *construction*, so the merged
+diagnostic reports at every visibility. See `VisibilityModel.md`.
+
+**What is left of the limitation, stated rather than pretended away:** seed scopes are built with
+`ReachabilityPolicy.none`, because the whole-scope façade still constructs every binding in a scope, so
+within one the check is still first-order. Their per-root pruning happens at emission (M5.4.6), and the
+graph-level fixed point arrives with **M7d**, when the façade goes.
+
+**Gate: met.** The existing dead-binding tests pass unchanged (738 tests green, none of that suite
+touched), plus the two cases that only a fixed point catches: a binding consumed solely by another dead
+binding, and a `package` contributor folded into an unconsumed `public` aggregate — with the aggregate
+itself staying silent.
 
 ### M7b.5 — retire `_WireExports.swift`
 

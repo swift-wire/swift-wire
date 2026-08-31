@@ -33,6 +33,54 @@ struct PrunedBindingDiagnosticsTests {
         )
     }
 
+    private func root(_ name: String, deps: [String]) -> DiscoveredBinding {
+        consumer(name, deps: deps, allowUnused: true)
+    }
+
+    private func consumer(
+        _ name: String,
+        deps: [String],
+        allowUnused: Bool = false
+    ) -> DiscoveredBinding {
+        .scopeBound(
+            DiscoveredScopeBoundType(
+                typeName: name,
+                typeKind: "struct",
+                genericParameterNames: [],
+                dependencies: deps.map {
+                    DependencyParameter(
+                        name: "d",
+                        type: $0,
+                        kind: .injectInitParameter,
+                        location: mockLocation("\(name).swift")
+                    )
+                },
+                location: mockLocation("\(name).swift"),
+                allowUnused: allowUnused,
+                originModule: testModule
+            )
+        )
+    }
+
+    private func contributor(
+        _ name: String,
+        access: AccessLevel,
+        to keyReference: String
+    ) -> DiscoveredBinding {
+        .scopeBound(
+            DiscoveredScopeBoundType(
+                typeName: name,
+                typeKind: "struct",
+                genericParameterNames: [],
+                dependencies: [],
+                location: mockLocation("\(name).swift"),
+                accessLevel: access,
+                contributions: [Contribution(keyReference: keyReference, location: mockLocation("\(name).swift"))],
+                originModule: testModule
+            )
+        )
+    }
+
     private func messages(_ pruned: [DiscoveredBinding]) -> [String] {
         prunedBindingDiagnostics(pruned, externalModules: [libraryModule]).map(\.message)
     }
@@ -88,16 +136,78 @@ struct PrunedBindingDiagnosticsTests {
         #expect(messages([aggregate]).isEmpty)
     }
 
-    @Test("A pruned binding is reported once, not twice")
-    func prunedSupersedesTheDeadBindingWarning() {
-        // The two describe one fact — nothing reaches this binding — so the dead-binding pass skips what
-        // pruning already reported, and the developer sees the message that says more.
+    @Test("A binding reachability judged is not judged again by the dead-binding pass")
+    func reachabilitySupersedesTheDeadBindingWarning() {
+        // M7b.4's fold. A pruned binding is reported here in terms that say more, and a *retained* one is
+        // live because a root reaches it — so neither is re-judged by the first-order check. What that
+        // check still covers is what reachability did not decide: seed-scope partitions.
         let binding = singleton("UserStore")
-        let dead = deadBindingDiagnostics(
-            across: [.default: [binding]],
-            pruned: [binding.identity]
+        #expect(
+            deadBindingDiagnostics(
+                across: [.default: [binding]],
+                judgedByReachability: [binding.identity]
+            ).isEmpty
         )
-        #expect(dead.isEmpty)
+        // Unjudged — a seed-scope partition — and the first-order check still speaks for it.
         #expect(deadBindingDiagnostics(across: [.default: [binding]]).count == 1)
+    }
+
+    // MARK: - The fixed point (M7b.4)
+
+    /// A graph built the way WireGen builds the default one, with `root` as the only declared root.
+    private func prunedDiagnostics(
+        _ bindings: [DiscoveredBinding],
+        keys: [DiscoveredMultibindingKey] = []
+    ) -> [String] {
+        let result = buildDependencyGraph(
+            from: bindings,
+            multibindingKeys: keys,
+            homeModule: testModule,
+            externalModules: [],
+            reachabilityPolicy: .prune(conformances: [], borrowedByScopes: [])
+        )
+        return prunedBindingDiagnostics(result.pruned, externalModules: []).map(\.message)
+    }
+
+    @Test("A binding consumed solely by another dead binding is reported — the case only a fixed point catches")
+    func transitivelyDeadBindingIsReported() {
+        // `DeadBindingDiagnostics.swift` recorded this as its limitation: first-order analysis sees `Deep`
+        // as live, because `Dead` consumes it. Reachability sees that nothing reaches `Dead` either, so
+        // both go — the fixed point arrives by construction rather than as a separate feature.
+        let messages = prunedDiagnostics([
+            root("Root", deps: ["Used"]),
+            singleton("Used"),
+            consumer("Dead", deps: ["Deep"]),
+            singleton("Deep"),
+        ])
+        #expect(messages.contains { $0.contains("'Dead'") })
+        #expect(messages.contains { $0.contains("'Deep'") })
+        #expect(!messages.contains { $0.contains("'Used'") })
+    }
+
+    @Test("A package-local contributor to an unconsumed public aggregate is reported; the aggregate is not")
+    func packageLocalContributorToUnconsumedPublicKeyIsReported() {
+        // The subtlety the ROADMAP singles out. The aggregate stays silent — a public key is permissively
+        // public and its own liveness diagnostic speaks for it — while the contributor folded into it is
+        // genuinely dead and says so.
+        let messages = prunedDiagnostics(
+            [
+                root("Root", deps: ["Used"]),
+                singleton("Used"),
+                contributor("PackageLocalContributor", access: .package, to: "Keys.widgets"),
+            ],
+            keys: [
+                DiscoveredMultibindingKey(
+                    keyReference: "Keys.widgets",
+                    flavour: .collected,
+                    typeArguments: ["any Widget"],
+                    location: mockLocation("Keys.swift"),
+                    accessLevel: .public,
+                    originModule: testModule
+                )
+            ]
+        )
+        #expect(messages.count == 1)
+        #expect(messages[0].contains("'PackageLocalContributor'"))
     }
 }
