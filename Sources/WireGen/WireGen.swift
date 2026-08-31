@@ -85,6 +85,7 @@ struct WireGen {
             in: aggregate,
             containerNames: Set(containerGraphs.map { $0.name }),
             resolvedBindingsByContainer: graphs.resolvedBindingsByContainer,
+            prunedBindings: graphs.prunedBindings,
             injectionRewriteKeys: preGraph.rewriteKeys
         )
         reportDiagnosticsAndValidate(
@@ -207,6 +208,8 @@ struct WireGen {
         // consumed only through a specialised generic dependency counts
         // as live.
         var resolvedBindingsByContainer: [String?: [DiscoveredBinding]]
+        // What reachability dropped, across every graph — the M7b.3 migration diagnostic's input.
+        var prunedBindings: [DiscoveredBinding]
     }
 
     /// Build every graph the input describes: the default graph, one
@@ -289,7 +292,8 @@ struct WireGen {
             defaultGraph: defaultGraph,
             containerGraphs: containerGraphs,
             seedScopeOrchestrations: seedScopeOrchestrations,
-            resolvedBindingsByContainer: resolvedBindingsByContainer
+            resolvedBindingsByContainer: resolvedBindingsByContainer,
+            prunedBindings: defaultGraph.pruned + containerGraphs.flatMap { $0.result.pruned }
         )
     }
 
@@ -301,9 +305,12 @@ struct WireGen {
         in aggregate: DiscoveryAggregate,
         containerNames: Set<String>,
         resolvedBindingsByContainer: [String?: [DiscoveredBinding]],
+        prunedBindings: [DiscoveredBinding],
         injectionRewriteKeys: Set<String>
     ) -> [Diagnostic] {
         var diagnostics: [Diagnostic] = []
+        // M7b.3 — what reachability dropped, before anything else has a chance to describe it worse.
+        diagnostics += prunedBindingDiagnostics(prunedBindings, externalModules: aggregate.externalModules)
         diagnostics += unannotatedExtensionContainerDiagnostics(
             candidates: aggregate.unannotatedExtensionProvides,
             containerNames: containerNames
@@ -325,7 +332,8 @@ struct WireGen {
         )
         diagnostics += deadBindingDiagnostics(
             across: aggregate.allBindings,
-            resolvedByContainer: resolvedBindingsByContainer
+            resolvedByContainer: resolvedBindingsByContainer,
+            pruned: Set(prunedBindings.map(\.identity))
         )
         diagnostics += scopeYieldDiagnostics(in: aggregate)
         diagnostics += graphInputsDiagnostics(aggregate.graphInputs, externalModules: aggregate.externalModules)
@@ -858,61 +866,6 @@ private func scopeYieldDiagnostics(in aggregate: DiscoveryAggregate) -> [Diagnos
             annotations: aggregate.adapterAnnotations,
             useSites: aggregate.aliasUseSites
         )
-    )
-}
-
-/// Orchestrate one container's seeded scopes, in seed order. File scope rather than a member: it reads
-/// only its arguments, like `partitionBindings` beside it.
-///
-/// Each scope is built against the container's over-generated borrow set and then enriched with the
-/// cross-scope hints its missing bindings need.
-private func orchestrateSeedScopes(
-    seedKeys: [ScopeKey],
-    scopes: [ScopeKey?: [DiscoveredBinding]],
-    containerKey: String?,
-    borrows: [DiscoveredBinding],
-    parentGraphType: String,
-    in aggregate: DiscoveryAggregate
-) -> [SeedScopeOrchestration] {
-    seedKeys.map { seedKey in
-        let orchestration = orchestrateSeedScope(
-            seedKey: seedKey,
-            containerName: containerKey,
-            scopeBindings: scopes[seedKey] ?? [],
-            borrowBindings: borrows,
-            parentGraphType: parentGraphType,
-            typealiases: aggregate.typealiases,
-            multibindingKeys: aggregate.multibindingKeys,
-            resultBuilders: aggregate.resultBuilders,
-            module: aggregate.module,
-            homeModule: aggregate.module,
-            externalModules: aggregate.externalModules
-        )
-        return orchestration.withResult(
-            enrichMissingBindingsWithCrossScopeHints(
-                orchestration.result,
-                consumerPartition: Partition(container: containerKey, scope: seedKey),
-                allBindings: aggregate.allBindings
-            )
-        )
-    }
-}
-
-/// M7b.2's policy for one container's app graph — drop the dependency-module bindings nothing reaches.
-///
-/// Conformances only on the default graph: that is where `appendAllGraphConformances` emits them, so a
-/// `@Container`'s aggregate is never the witness for a protocol member. The borrow set is this
-/// container's seed scopes', which are orchestrated before the app graph is built — and it is a retention
-/// root because a request-scoped binding's use of an app singleton is an edge only the scope's own graph
-/// carries, invisible to the graph being pruned. See `Reachability.swift`.
-private func pruningPolicy(
-    containerKey: String?,
-    in aggregate: DiscoveryAggregate,
-    orchestrations: [SeedScopeOrchestration]
-) -> ReachabilityPolicy {
-    .pruneExternal(
-        conformances: containerKey == nil ? aggregate.graphConformances : [],
-        borrowedByScopes: Set(orchestrations.flatMap { usedBorrows(in: $0).map(\.identity) })
     )
 }
 

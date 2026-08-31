@@ -195,7 +195,7 @@ struct ReachabilityTests {
             multibindingKeys: keys,
             homeModule: testModule,
             externalModules: [libraryModule],
-            reachabilityPolicy: .pruneExternal(
+            reachabilityPolicy: .prune(
                 conformances: conformances,
                 borrowedByScopes: borrowedByScopes
             )
@@ -229,7 +229,7 @@ struct ReachabilityTests {
     @Test("A diamond is walked once, and everything under the root survives")
     func diamond() {
         let names = reachableNames([
-            singleton("Root", deps: ["Left", "Right"]),
+            singleton("Root", deps: ["Left", "Right"], allowUnused: true),
             library("Left", deps: ["Shared"]),
             library("Right", deps: ["Shared"]),
             library("Shared"),
@@ -241,7 +241,7 @@ struct ReachabilityTests {
     @Test("A cycle among unreachable bindings is not reached — and does not hang the walk")
     func unreachableCycle() {
         let names = reachableNames([
-            singleton("Root"),
+            singleton("Root", allowUnused: true),
             library("A", deps: ["B"]),
             library("B", deps: ["A"]),
         ])
@@ -251,7 +251,7 @@ struct ReachabilityTests {
     @Test("A cycle inside the reachable set terminates, keeping both nodes")
     func reachableCycle() {
         let names = reachableNames([
-            singleton("Root", deps: ["A"]),
+            singleton("Root", deps: ["A"], allowUnused: true),
             library("A", deps: ["B"]),
             library("B", deps: ["A"]),
         ])
@@ -264,7 +264,7 @@ struct ReachabilityTests {
         // specialised binding's substituted dependency is what reaches `ConcreteTable`. The walk runs
         // after specialisation, so the substituted edge is the one it sees.
         let names = reachableNames([
-            singleton("Root", deps: ["Repository<ConcreteTable>"]),
+            singleton("Root", deps: ["Repository<ConcreteTable>"], allowUnused: true),
             genericRepositoryProvider(),
             library("ConcreteTable"),
             library("UnusedTable"),
@@ -279,7 +279,7 @@ struct ReachabilityTests {
         // The sort excludes member-injection parameters so cycles through them stay legal; the value is
         // still constructed and delivered, so the walk must include them or `Late` is pruned.
         let names = reachableNames([
-            singleton("Root", memberDeps: ["Late"]),
+            singleton("Root", memberDeps: ["Late"], allowUnused: true),
             library("Late"),
             library("Unreached"),
         ])
@@ -317,7 +317,7 @@ struct ReachabilityTests {
         // The shape `TeardownExample` already uses: the consumer is the declared root, and the resources
         // it holds are torn down because they were constructed for it.
         let names = reachableNames([
-            singleton("Consumer", deps: ["Client"], teardown: true),
+            singleton("Consumer", deps: ["Client"], allowUnused: true, teardown: true),
             library("Client", deps: ["Config"], teardown: true),
             library("Config"),
             library("Unrelated"),
@@ -362,7 +362,7 @@ struct ReachabilityTests {
     func consumedAggregateKeepsContributors() {
         let names = reachableNames(
             [
-                singleton("App", keyedDeps: [(type: "[any Plugin]", key: "App.plugins")]),
+                singleton("App", keyedDeps: [(type: "[any Plugin]", key: "App.plugins")], allowUnused: true),
                 library("Plugin", contributesTo: "App.plugins"),
             ],
             keys: [collectedKey("App.plugins", element: "any Plugin", access: .internal)]
@@ -406,7 +406,7 @@ struct ReachabilityTests {
     @Test("A library binding is live exactly when a home root reaches it")
     func libraryBindingLiveViaHomeRoot() {
         let names = reachableNames([
-            singleton("App", deps: ["UsedLibraryBinding"]),
+            singleton("App", deps: ["UsedLibraryBinding"], allowUnused: true),
             library("UsedLibraryBinding"),
             library("UnusedLibraryBinding"),
         ])
@@ -418,7 +418,7 @@ struct ReachabilityTests {
     @Test("A graph asking for no reachability computes none, and prunes nothing")
     func noPolicyComputesNothing() {
         let result = buildDependencyGraph(
-            from: [singleton("Root"), library("Unreached")],
+            from: [singleton("Root", allowUnused: true), library("Unreached")],
             homeModule: testModule,
             externalModules: [libraryModule]
         )
@@ -431,7 +431,7 @@ struct ReachabilityTests {
     @Test("An unreached dependency-module binding is not emitted")
     func unreachedLibraryBindingIsNotEmitted() {
         let emitted = emittedNames([
-            singleton("App", deps: ["UsedLibraryBinding"]),
+            singleton("App", deps: ["UsedLibraryBinding"], allowUnused: true),
             library("UsedLibraryBinding"),
             library("UnusedLibraryBinding", deps: ["UnusedLibrarySupport"]),
             library("UnusedLibrarySupport"),
@@ -439,28 +439,29 @@ struct ReachabilityTests {
         #expect(emitted == ["App", "UsedLibraryBinding"])
     }
 
-    @Test("Every home binding is emitted, reached or not — `graph.x` cannot regress")
-    func homeBindingsAreAlwaysEmitted() {
-        // The claim M7b.2 rests on: the app may pull any of its own bindings out through `graph.x`, an
-        // expression Wire never sees, so home bindings are retained whether or not anything injects them.
+    @Test("An unreached home binding is pruned too — the M7b.3 behaviour change")
+    func unreachedHomeBindingIsPruned() {
+        // M7b.2 retained the home half wholesale. M7b.3 does not: a binding the app reaches only through
+        // `graph.x` is gone unless it says so, which is the whole reason this ships with a diagnostic.
         let emitted = emittedNames([
-            singleton("PulledOutThroughGraph"),
-            singleton("AlsoUnreached"),
+            singleton("DeclaredRoot", deps: ["Reached"], allowUnused: true),
+            singleton("Reached"),
+            singleton("UnreachedHomeBinding"),
         ])
-        #expect(emitted == ["PulledOutThroughGraph", "AlsoUnreached"])
+        #expect(emitted == ["DeclaredRoot", "Reached"])
     }
 
     @Test("A retained binding never points at a pruned one")
     func retentionIsClosedUnderDependencies() {
-        // A home binding is retained without being reached from any declared root; the library binding it
-        // depends on has to come with it, or the emitted graph reads a property that was never declared.
+        // Everything a root reaches comes with it, however deep, or the emitted graph reads a property
+        // that was never declared.
         let emitted = emittedNames([
-            singleton("UnreachedHomeBinding", deps: ["LibrarySupport"]),
+            singleton("DeclaredRoot", deps: ["LibrarySupport"], allowUnused: true),
             library("LibrarySupport", deps: ["DeeperLibrarySupport"]),
             library("DeeperLibrarySupport"),
             library("Unrelated"),
         ])
-        #expect(emitted == ["UnreachedHomeBinding", "LibrarySupport", "DeeperLibrarySupport"])
+        #expect(emitted == ["DeclaredRoot", "LibrarySupport", "DeeperLibrarySupport"])
     }
 
     @Test("A singleton a seed scope borrows is retained, though this graph has no edge to it")
@@ -470,7 +471,7 @@ struct ReachabilityTests {
         let borrowed = library("BorrowedByRequestScope")
         let emitted = Set(
             (graph(
-                [singleton("App"), borrowed, library("Unrelated")],
+                [singleton("App", allowUnused: true), borrowed, library("Unrelated")],
                 borrowedByScopes: [borrowed.identity]
             ).outcome.topologicalOrder ?? []).map(\.boundType)
         )
@@ -483,7 +484,7 @@ struct ReachabilityTests {
         // bindings enter the parse set, a library binding whose own dependency lives in a package the
         // consumer never depended on must be a non-event rather than a build failure.
         let result = graph([
-            singleton("App"),
+            singleton("App", allowUnused: true),
             library("UnreachedLibraryBinding", deps: ["TypeFromAPackageTheConsumerNeverDependedOn"]),
         ])
         #expect(result.outcome.topologicalOrder != nil, "the unreachable binding's missing dep failed the build")
@@ -493,7 +494,7 @@ struct ReachabilityTests {
     @Test("A cycle among pruned bindings stops failing the build")
     func cycleInPrunedSubgraphIsNotAnError() {
         let result = graph([
-            singleton("App"),
+            singleton("App", allowUnused: true),
             library("A", deps: ["B"]),
             library("B", deps: ["A"]),
         ])
@@ -503,7 +504,7 @@ struct ReachabilityTests {
     @Test("A missing dependency inside a retained binding is still an error")
     func missingBindingInRetainedSubgraphStillFails() {
         let result = graph([
-            singleton("App", deps: ["UsedLibraryBinding"]),
+            singleton("App", deps: ["UsedLibraryBinding"], allowUnused: true),
             library("UsedLibraryBinding", deps: ["GenuinelyMissing"]),
         ])
         #expect(result.outcome.topologicalOrder == nil, "a reachable binding's missing dep must still fail")

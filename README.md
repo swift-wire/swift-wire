@@ -884,6 +884,65 @@ A test target depends on the libraries it needs — typically a mix of productio
 
 The production library isn't depended on, so its bindings are absent from the test graph. If a test target depends on both `WireSQS` and `WireMockSQS`, that's a compile error from the strict-on-ambiguity rule (two libraries binding `SQSClient`); depend on only one, or disambiguate with keys.
 
+### Reachability (what actually gets built)
+
+A dependency should cost only what you reach. Wire computes the bindings reachable from your graph's
+**roots** and emits only those, so depending on a 500-binding library and injecting one of its bindings
+costs you one, not five hundred — no stored properties, no eager constructions, no generated lines for the
+rest.
+
+The plugin reads syntax, never use, and the generated graph is `internal` to your module. So Wire can see
+that `WorkerService` injects `SQSClient`, but it cannot see `graph.reportBuilder` in your `main.swift` —
+that is an expression, not an annotation. Roots therefore have to be **declared**, and there are two ways
+to declare one:
+
+```swift
+// 1. `allowUnused:` — "I'm a root, keep me." For a binding you read off the graph yourself.
+@Singleton(allowUnused: true)
+struct ReportBuilder { ... }
+
+let graph = try await Wire.bootstrap()
+graph.reportBuilder.run()          // the read Wire cannot see
+
+// 2. A graph conformance — an adapter's protocol member is a root for the key it names.
+//    Your routes/services reach their framework this way, so nothing extra is needed.
+```
+
+`@GraphInputs` properties are roots too, automatically: a caller-supplied value is live by definition.
+Everything else is *reached* rather than declared — a multibinding contributor through its collection, a
+request-scoped controller through its proxy, a `@Teardown` resource through whatever injects it.
+
+**`@Teardown` does not make a binding a root.** Teardown is what happens to a binding you built, not a
+reason to build one: if nothing reaches a resource, it is never constructed, so there is nothing to shut
+down. A resource whose *construction* is the point — a registration, a metrics exporter, a warm pool —
+says so with `allowUnused: true`.
+
+If Wire prunes a binding you meant to keep, it tells you, with the fix:
+
+```
+warning: 'ReportBuilder' is declared but nothing reachable from this graph's roots constructs it, so it
+was not emitted. Inject it somewhere, or mark it 'allowUnused: true' if you read it from the graph
+directly (as 'graph.reportBuilder').
+```
+
+That warning fires at **every** visibility, unlike the dead-binding warning, which stays quiet for
+`public`. The difference is what the two are about: a public *declaration* may have consumers Wire cannot
+see, but a public *binding* is constructed by exactly one thing — this graph — and the generated graph is
+`internal` to your module, so nothing downstream can be the reason it went missing. A pruned `public`
+binding is as surprising as a pruned `internal` one, and silence would only trade the warning for a "has
+no member" error at the use site.
+
+The one shape this asks something of: a target that both bootstraps a graph *and* exports bindings for a
+downstream Wire target to compose. Its public bindings are legitimately absent from its own graph, and
+`allowUnused: true` quiets the warning by keeping them in it — slightly wasteful, not wrong. (A Wire-aware
+library that is only *consumed* never sees this: it does not apply the build plugin at all, so it has no
+graph of its own — its consumer re-parses its sources.)
+
+A library's `allowUnused:` is a statement about **its** build, not yours — it silences the author's own
+dead-binding warning and does not pin the binding into your graph. A library binding is live in your graph
+exactly when one of your roots reaches it. Otherwise every dependency could opt out of the pruning you are
+paying for.
+
 ### Concurrency and isolation
 
 Wire respects Swift 6's isolation model rather than reinventing it. The compiler does the hard work of enforcing isolation correctness; Wire's job is to generate code that passes the checker without getting in the way.

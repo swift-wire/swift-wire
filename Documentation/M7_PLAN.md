@@ -185,12 +185,32 @@ The behaviour change with a migration cost: an app that reaches a binding only t
 `allowUnused`, loses it. Do not ship this silently — the pruned-binding set is exactly the information the
 developer needs, and Wire already has the visibility gate to decide when to speak.
 
-**Gate:** a diagnostic (not silence) for a home-module binding pruned under the same visibility rule the
-dead-binding warning uses, with the `allowUnused` fix-it — and it should name a pruned `@Teardown` binding
-specifically, since that is where the developer's intent ("this exists to be shut down") is least visible in
-the code and most surprising to lose; `GoldenHarness`'s recording re-recorded, with the
-diff read binding-by-binding (it is the migration, and the only place the behaviour change is legible);
-README's reachability section written.
+**Gate: met.** `prunedBindingDiagnostics` reports each pruned home-module binding — at **every**
+visibility, not under the dead-binding gate the plan assumed — with the `allowUnused` fix-it and the
+property name the developer would have read (`graph.deploymentTarget`), and names a pruned `@Teardown`
+binding specifically. The gate does not transfer because it answers a question about *consumption* while
+pruning asks about *construction*: a public declaration may have consumers Wire cannot see, but a public
+binding is constructed by this graph alone, and the graph is `internal` to its module. The argument for
+reusing it — that a library target's own graph would warn on all its public bindings — is false in Wire's
+pattern: a Wire-aware library applies no build plugin and is re-parsed by its consumer. It supersedes the
+dead-binding warning for anything it reports — the two state one fact and this one says more — which is
+part of M7b.4 arriving early for a UX reason, since shipping both would double every message.
+
+**The golden did not need re-recording: it is byte-identical.** That is the finding, not a shortcut. The
+migration cost seven annotations (six weak-cycle example bindings and a library service the tests read off
+the graph, plus one in the `@GraphInputs` harness), and after them the corpus emits exactly what it emitted
+before. The change does not shrink a well-formed app's graph; it makes the app declare which bindings leave
+through a door Wire cannot see. Each of the seven was found by the diagnostic first — in the `@GraphInputs`
+harness it named the binding, the fix and `graph.deploymentTarget` before the compile error appeared.
+
+The gates live in `CompositionHarness`, beside M7b.2's pair, and cover the message as well as the
+behaviour: the consumer declares an unreached home binding whose `init` traps, so the run reaching its last
+line asserts the prune, and the script greps the build for the diagnostic naming that binding *and*
+carrying its fix-it — a trap alone would still pass if the diagnostic quietly stopped firing. They live
+there rather than in `Tests/IntegrationTests` precisely because the warning fires at every visibility now:
+a deliberately-unreached fixture inside the corpus would warn on every build, where in the harness the
+warning is half the assertion. README's reachability section is written, and `VisibilityModel.md` records
+where its own table stops applying.
 
 ### M7b.4 — fold the dead-code diagnostic onto reachability
 

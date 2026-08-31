@@ -17,7 +17,7 @@ import Wire
 /// the generated `_wireSetWorkshop(_:)` extension method on the
 /// Toolbelt actor with `await`. Once that runs, `toolbelt.workshop`
 /// is set and the mutual reference is observable.
-@Singleton
+@Singleton(allowUnused: true)
 package actor Workshop {
     package let toolbelt: Toolbelt
 
@@ -27,7 +27,7 @@ package actor Workshop {
     }
 }
 
-@Singleton
+@Singleton(allowUnused: true)
 package actor Toolbelt {
     @Inject package weak var workshop: Workshop?
 }

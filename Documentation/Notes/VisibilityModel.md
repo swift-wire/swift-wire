@@ -224,6 +224,44 @@ its consumer is paying for. See
 [`MultiModuleComposition.md`](MultiModuleComposition.md) §
 "Reachability roots (M7b.0)" for the full root set.
 
+#### Where this table stops: pruning (M7b.3)
+
+Reachability pruning's migration warning does **not** use this
+gate — it reports a pruned home-module binding at every
+visibility — and the reason marks the edge of what visibility is
+good for.
+
+This table's permissive `public` tier exists because Wire cannot
+see every consumer of a public *declaration*. Pruning asks a
+different question: what *constructs* this binding. The answer is
+"this graph and nothing else", and the generated graph is
+`internal` to its own module, so no downstream consumer can be the
+reason a binding is absent. The information the table encodes
+simply is not relevant to the question.
+
+M7b.3 first shipped the other way, on the argument that a library
+target has a graph too and would warn on all its public bindings.
+That is false in Wire's own pattern: a target has a graph only if
+it applies `WireBuildPlugin`, and a Wire-aware library
+deliberately does not — it is re-parsed by its consumer
+(`CompositionHarness/Library/Package.swift` and `WireTestLibrary`
+both say so). A target with a graph is one that bootstraps, and
+there a pruned `public` binding is exactly as surprising as an
+`internal` one.
+
+The residual cost, taken deliberately: a target that bootstraps
+*and* exports bindings for a downstream Wire target to compose
+gets a warning for public bindings that are legitimately absent
+from its own graph, and `allowUnused: true` quiets it by keeping
+them in — wasteful rather than wrong.
+
+**The general rule this leaves:** visibility gates diagnostics
+about *consumption*; it does not gate *construction*. The same
+distinction keeps a `public` multibinding key from rooting its
+aggregate — see
+[`MultiModuleComposition.md`](MultiModuleComposition.md) §
+"Reachability roots (M7b.0)".
+
 ### What Wire does *not* diagnose under this policy
 
 - A binding consumed by code Wire can't see (compiled libraries,

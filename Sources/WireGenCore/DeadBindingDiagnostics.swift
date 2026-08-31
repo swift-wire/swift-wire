@@ -33,9 +33,14 @@
 /// so a binding provided solely for an adapter to use stays subject to the
 /// normal check. M1 adapters register in the default graph, so these apply to
 /// the default (`nil`) container.
+/// `pruned` are the identities reachability already dropped and reported (`prunedBindingDiagnostics`).
+/// They are skipped here: the two diagnostics describe one fact — nothing reaches this binding — and the
+/// pruning one says more, so reporting both would double every message. M7b.4 finishes the merge by
+/// replacing this first-order consumption check with reachability itself.
 package func deadBindingDiagnostics(
     across bindingsByPartition: [Partition: [DiscoveredBinding]],
-    resolvedByContainer: [String?: [DiscoveredBinding]] = [:]
+    resolvedByContainer: [String?: [DiscoveredBinding]] = [:],
+    pruned: Set<BindingIdentity> = []
 ) -> [Diagnostic] {
     var bindingsByContainer: [String?: [DiscoveredBinding]] = [:]
     for (partition, bindings) in bindingsByPartition {
@@ -43,7 +48,7 @@ package func deadBindingDiagnostics(
     }
     let diagnostics = bindingsByContainer.flatMap { container, discovered in
         deadBindingDiagnostics(
-            in: discovered,
+            in: discovered.filter { !pruned.contains($0.identity) },
             consumers: discovered + (resolvedByContainer[container] ?? [])
         )
     }
