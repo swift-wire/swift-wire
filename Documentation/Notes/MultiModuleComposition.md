@@ -104,10 +104,12 @@ reachability pruning (M7b)** — the prerequisite, not a nicety: without a bound
 direct Wire-dependency's bindings are pulled in and eagerly constructed, so an
 incidentally-scanned binding with a consumer-unresolvable dep would break; reachability
 strips the unreachable before resolution. That work's bulk lands with **M5.4
-(request-scoped controllers)**. A public-keyed multibinding is the documented
-non-prunable exception (a public collection key can gain contributors outside the
-analysed graph, so it survives with no local consumer — the same rule as a public unused
-binding).
+(request-scoped controllers)**. A public-keyed multibinding was recorded here as
+the non-prunable exception (a public collection key can gain contributors outside the
+analysed graph, so it survives with no local consumer). **M7b.0 settled that the other
+way** — nothing outside the graph can read an aggregate's product, so visibility gates
+the diagnostic and consumption gates construction; see "Reachability roots (M7b.0)"
+below.
 
 ## Deferred optimizations (M7a / M7b)
 
@@ -166,11 +168,143 @@ contract unchanged and lands when its cost is felt:
   the plugin sees `@Inject` edges but not external `graph.x` accesses, so
   `allowUnused` becomes "I'm a root, keep me" — valid **only** in the home
   package; a library's `allowUnused` is ignored for reachability, and a
-  library binding is live iff reached from a home-package root. This
+  library binding is live iff reached from a home-package root. **The
+  complete root set is settled below** ("Reachability roots (M7b.0)") —
+  `allowUnused` is one of five, and not the load-bearing one. This
   changes the construction model (construct-reachable, not construct-all)
   and adds a small annotation cost (mark externally-pulled roots), so it's
   milestone-sized. Until it lands, an expensive library binding opts into
   deferral with `Lazy<T>`.
+
+## Reachability roots (M7b.0)
+
+Pruning needs a **declared** root set, and the reason is structural: Wire reads syntax, never use. The
+generated `_WireGraph` is `internal` and its bindings are read as ordinary expressions — `graph.userService`
+— from the home target's own code, which no discovery pass sees. Everything Wire *can* see is either an
+edge (`@Inject`, `@Contributes`) or a declaration, so a root has to be something declared. This section
+names the complete set with the failure mode for each, settled 2026-08 as M7b.0's gate; the walk is M7b.1
+and the restriction M7b.2/M7b.3. See [M7_PLAN.md](../M7_PLAN.md).
+
+**Roots are per graph, not per module.** Each `buildDependencyGraph` call is one graph — the default app
+graph, one per `@Container`, one per seed scope (`orchestrateSeedScope`), one per testing variant — and each
+carries its own root set. A seed scope's roots are the subject and the yields its bridging proxy's
+scope-entry thunk names, which is exactly what M5.4.6 already prunes with (`reachableBindings(from:in:)`);
+the list below is the app/container graph's. Same concept at two layers, and the vocabulary is shared
+deliberately rather than reinvented.
+
+### The root set
+
+1. **Aggregates named by a graph conformance member.** A `WireGraphConformanceV1` maps each protocol member
+   onto a multibinding key's product (`GraphConformanceEmission.swift`), and that is how an adapter-driven
+   app's routes reach its framework — through `extension _WireGraph: HummingbirdComposable`, never through
+   an `@Inject`. **This is the one root whose omission is silent**: a member whose key has no aggregate
+   falls back to an empty accessor (`var routes: [any RouteContributor] { [] }`) *by design*, so that a
+   graph contributing nothing still conforms. Prune the aggregate and the app compiles, boots, and serves
+   zero routes. Nothing in a build-based gate catches it, so M7b.2 needs a behavioural test here.
+2. **`allowUnused: true` in the home package.** "I'm a root, keep me" — the annotation a developer reaches
+   for when a binding leaves through `graph.x`, or when its *construction* is the point. Home-package only
+   (see below), and it roots a multibinding **key** the same way: an aggregate the app pulls out through
+   `graph.x` says so on the key declaration, which already carries `allowUnused:` for the diagnostic.
+3. **`@GraphInputs` properties.** Caller-supplied, so live by definition — the graph did not construct them
+   and cannot judge their use. They need no rule of their own, and that is not a special case: they are
+   already home-package-only (`resolvedGraphInputs` honours only home declarations) and already spelled as
+   roots, because `graphInputBindings` folds each property into a home-module provider carrying
+   `allowUnused: true`, for exactly the reason that makes the annotation a root.
+
+Two things that read like roots are deliberately **not** roots, each settled against an earlier reading of
+this note:
+
+- **`@Teardown` does not root a binding.** The earlier reading was that a resource registered for orderly
+  shutdown is reachable *because* it is torn down. It is the wrong way round: teardown is a property of a
+  *constructed* binding, not a reason to construct one. A resource nothing reaches is never made, so there
+  is nothing to shut down, and the teardown rides the binding either way — `teardown()` is emitted from
+  the same node set as construction. Rooting on the annotation also has a cost the `allowUnused` rule
+  exists to avoid: it would pin *every* dependency's `@Teardown` binding into *every* consumer's graph,
+  which is construct-everything by annotation. A binding whose construction is itself the point — a
+  registration, an exporter, a pool nothing injects — says so with `allowUnused: true`, the one annotation
+  that means "I'm a root". `TeardownExample` in the integration corpus already has this shape: its
+  consumer is the declared root and the resources it holds are torn down because they were constructed
+  for it.
+- **A `public` key does not root its aggregate.** The earlier reading (the retirement-plan section above,
+  and the ROADMAP's "non-prunable exception") was that a public collection key can gain contributors
+  outside the analysed graph, so its aggregate survives with no local consumer. That is an argument about
+  *contributors*, and pruning turns on *consumers*: contributions flow into an aggregate, they do not read
+  it. Nothing outside this graph can read one — `_WireGraph` is `internal` to its module — so there is no
+  downstream reader for the permissive tier to protect. **Visibility gates diagnostics; consumption gates
+  construction**, and the two questions had been run together. The ROADMAP's own wording is already the
+  narrower one ("the aggregate stays *silent*"), which is the diagnostic and stays true. A public key
+  whose product the app pulls out through `graph.x` roots it with `allowUnused:`, exactly as a binding
+  does.
+
+Explicitly **not** roots either, because they are *reached* rather than rooted — worth stating, since each
+looks like a root from the outside:
+
+- **Multibinding contributors**, adapter-annotated ones included (`@Controller`, `@RoutedBy`): an adapter
+  annotation aliases `@Contributes(to: key)`, so a contributor is reached from its aggregate and lives iff
+  the aggregate does. That is the whole reason (3) and (4) carry the weight they do.
+- **Contributor proxies**: synthesised beside their subject and contributed to the key in its place, so also
+  reached from the aggregate. The subject is reached from the proxy — by an ordinary field edge in the hold
+  form, through the scope-entry thunk in the bridge form (see the edge set below).
+- **Borrowed app singletons**: `linkingScopeEntryCaptures` gives a bridging proxy one `.scopeCapture`
+  dependency per singleton its seed scope genuinely borrows, and those are ordinary resolved edges. A
+  singleton used only inside a request scope is therefore reachable from the proxy and needs no root of its
+  own — *provided* seed-scope orchestration keeps running ahead of the app graph's build, which it does
+  today (`WireGen.swift:245`) and which the pruning stage must not reorder.
+- **Synthesised factories** (`_WireFactory_<key>`): registered as ordinary bindings, with an input edge
+  appended onto each consuming binding.
+
+### The walk's edge set is not the sort's edge set
+
+`dependencyEdges` is built for the topological sort, and it deliberately omits two things a reachability
+walk must include. This is where a wrong prune is most likely to come from, and it is the same trap
+`DeadBindingDiagnostics` already hit and worked around:
+
+- **Member injections form no edge.** `@Inject weak var` / `@Inject func` parameters are post-init delivery,
+  excluded from the sort precisely so cycles through them stay legal (`Graph.swift:747`) — that is the
+  cycle-breaking feature, not an oversight. The value is still constructed and delivered, so a binding
+  consumed *only* by member injection is live. `consumedIdentities` already unions both.
+- **Scope-entry thunks form no edge.** A `.scopeEntryThunk` dependency's identity is a *function* type that
+  matches no producer, so `resolveDependencies` skips it outright. Its subject — and every
+  `.yieldsFromScope` binding it hands back — is constructed by the thunk.
+  `scopeEntryConstructedIdentities` already derives exactly that set for the dead-binding analysis.
+
+So the walk covers `dependencyEdges` ∪ member-injection edges ∪ thunk-constructed identities, while the sort
+keeps walking `dependencyEdges` alone: **two edge sets over one node set, named apart** — widening the
+sort's edges instead would turn a legal member-injection cycle into a build failure. The traversal itself is
+not new code; `reachable(from:over:)` (`TestingGraph.swift:254`) already walks this map shape for the
+seedless-reconstruction cone.
+
+### What a library's `allowUnused` means: nothing
+
+For reachability it is ignored, and a library binding is live iff reached from a home-package root. Its
+diagnostic meaning is unchanged in both packages — it still silences the dead-binding warning wherever it is
+written. The asymmetry is deliberate: `allowUnused` is the author's statement about their *own* build's
+visible consumers, and honouring it as a root downstream would hand every dependency a way to opt out of the
+pruning the consumer is paying for — construct-everything, by annotation. The consumer's roots are the
+consumer's to declare. `VisibilityModel.md` records the divergence this opens between the annotation's two
+meanings.
+
+### Ordering: prune before diagnosing
+
+The reachability stage sits between `resolveDependencies` and `topologicalSort`, and everything downstream
+of it — `missingBindings`, cycles, dead-code warnings — is judged over the reduced node set. That ordering
+is what lets the marker go: once composition is bounded by reachability rather than by
+`_WireExports.swift`, every direct Wire-dependency's bindings enter the parse set, including a library
+binding whose own dependency lives in a package the consumer never depended on. Today that is a hard
+`missingBindings` error; it becomes a non-event exactly because the binding is stripped before the check.
+A cycle among unreachable bindings likewise stops failing the build, which is correct — nothing constructs
+them.
+
+### One open cross-cut: testing variants
+
+Testing variants are derived from `aggregate.allBindings` — the *unpruned* discovered set — and borrow the
+production `_WireGraph`'s properties for every app singleton they do not lift
+(`syntheticSingletonBorrowBindings(from: defaultSingletons, inWireGraphOfType: "_WireGraph")`,
+`TestingVariants.swift:106`). A binding pruned from the production graph but still borrowed by a variant
+would emit `_wireGraph.<pruned>` and fail to compile in generated test code. The cheap resolution is to
+derive variants from the pruned production node set — a variant cannot need what production cannot
+construct — and it is settled with M7b.2/M7b.3 rather than here, recorded so the choice is made
+deliberately instead of discovered by a broken build.
 
 ## Naming — use SE-0491 module selectors
 

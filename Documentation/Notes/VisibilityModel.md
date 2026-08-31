@@ -200,6 +200,30 @@ intentionally without consumers and I want Wire to stay quiet."
 Same parameter shape on `BindingKey<T>` declarations and the
 multibinding key flavors.
 
+#### After M7b, `allowUnused` also *pins* (home package only)
+
+Reachability pruning (M7b) gives the same spelling a second,
+**semantic** meaning: in the home package, `allowUnused: true` marks
+the binding a **reachability root**, so it and its transitive
+subgraph are kept in the emitted graph. That is what a developer
+needs when a binding leaves the graph through `graph.x` — an
+expression Wire never sees — and reusing the existing annotation was
+chosen over a second spelling (`@Singleton(root: true)`) for a nearly
+identical concept.
+
+The two meanings coincide for the intended case and **diverge** for a
+binding marked `allowUnused:` merely to quiet the build: it now also
+keeps code alive that would otherwise be pruned. That is the cost of
+the overload, recorded here rather than discovered.
+
+In a **library** the annotation keeps its diagnostic meaning only —
+it silences the author's own dead-binding warning and is ignored for
+reachability, so a library binding is live iff a *consumer's* root
+reaches it. Otherwise every dependency could opt out of the pruning
+its consumer is paying for. See
+[`MultiModuleComposition.md`](MultiModuleComposition.md) §
+"Reachability roots (M7b.0)" for the full root set.
+
 ### What Wire does *not* diagnose under this policy
 
 - A binding consumed by code Wire can't see (compiled libraries,

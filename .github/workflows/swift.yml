@@ -146,6 +146,24 @@ jobs:
         # IntegrationTests'.
         run: bash GraphInputsHarness/run-graph-inputs-harness.sh
 
+  GoldenHarness:
+    name: Golden harness (generated-output gate)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: SwiftyLab/setup-swift@v1
+        with:
+          swift-version: "6.3.3"
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+      - name: Run golden harness
+        # Byte-identical generated output over the IntegrationTests corpus. The
+        # invariant M7b (reachability pruning) and M8 (noncopyable bindings) are
+        # both written against: a graph none of their conditions apply to must
+        # generate exactly what it generated before. A diff is not automatically
+        # a bug — it is an unintended change until someone re-records it.
+        run: bash GoldenHarness/run-golden-harness.sh
+
   SwiftSyntaxMatrix:
     name: swift-syntax ${{ matrix.swift-syntax-major }}.x / Swift ${{ matrix.swift-version }}
     strategy:
