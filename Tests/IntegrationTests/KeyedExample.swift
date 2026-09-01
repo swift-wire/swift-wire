@@ -14,7 +14,7 @@ extension AppName {
     static let alternate = BindingKey<AppName>()
 }
 
-@Provides(AppName.alternate)
+@Provides(AppName.alternate, allowUnused: true)
 let alternateAppName: AppName = AppName(value: "alternate")
 
 @Singleton(allowUnused: true)

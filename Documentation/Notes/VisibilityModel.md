@@ -224,6 +224,30 @@ its consumer is paying for. See
 [`MultiModuleComposition.md`](MultiModuleComposition.md) §
 "Reachability roots (M7b.0)" for the full root set.
 
+#### After M7c.1, it also *retains*
+
+M7c.1 narrows what the emitted graph **stores** to the root set plus
+`@Teardown` bindings, opaque lifts and whatever generated code reads
+off the graph. So the same annotation acquires a third meaning: in
+the home package `allowUnused: true` now also keeps the binding a
+**stored property**, which is what `graph.x` reads.
+
+The three meanings sit on one line — *this binding leaves through a
+door Wire cannot see* — and that is why the annotation was reused
+again rather than joined by a `retained:` sibling. But note where
+this one diverges from the second: pinning is about **construction**
+and retention is about **storage**, and a binding can be reached by a
+consumer (so built without any annotation) yet unstored. That is the
+residual migration M7c.1 carries, and it is the one case M7b.3's
+pass could not have reported.
+
+`@Teardown` is the sharpest illustration that the two questions are
+different. It does **not** root a binding for reachability — a
+resource nothing reaches is never built, so there is nothing to shut
+down — but it does retain one that *is* built, because the bootstrap's
+teardown closure captures the binding's local either way. Same
+annotation, opposite answers, different questions.
+
 #### Where this table stops: pruning (M7b.3)
 
 Reachability pruning's migration warning does **not** use this

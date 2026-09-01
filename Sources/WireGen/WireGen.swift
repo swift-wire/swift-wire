@@ -604,7 +604,10 @@ extension WireGen {
             graphInputsType: resolvedGraphInputs(
                 inputs.aggregate.graphInputs,
                 externalModules: inputs.aggregate.externalModules
-            )?.typeName
+            )?.typeName,
+            // M7c.1 — the home/external split the retention roots read: a library's `allowUnused` keeps
+            // its diagnostic meaning only, exactly as it does for reachability.
+            externalModules: inputs.aggregate.externalModules
         )
         try generated.write(toFile: outputPath, atomically: true, encoding: .utf8)
         print("wrote \(outputPath)")

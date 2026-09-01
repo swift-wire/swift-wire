@@ -11,7 +11,7 @@ extension AppName {
     static let boundViaInit = BindingKey<AppName>()
 }
 
-@Provides(AppName.boundViaInit)
+@Provides(AppName.boundViaInit, allowUnused: true)
 let boundViaInitAppName: AppName = AppName(value: "bound-via-init")
 
 @Singleton(allowUnused: true)

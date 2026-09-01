@@ -9,7 +9,7 @@ package struct AsyncToken: Sendable {
     package let value: String
 }
 
-@Provides
+@Provides(allowUnused: true)
 package func makeAsyncToken() async throws -> AsyncToken {
     // Pretend to do async work — yielding to the cooperative scheduler
     // so the `await` is meaningful, not just decorative.

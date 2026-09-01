@@ -19,7 +19,7 @@ import Wire
 /// macro-generated `init(telemetry: Telemetry?) { self.telemetry =
 /// telemetry }` actually *compiles* against `weak let` storage (the unit
 /// macro test only string-compares the generated text).
-@Singleton
+@Singleton(allowUnused: true)
 package final class Telemetry {
     package let id = "telemetry"
 }

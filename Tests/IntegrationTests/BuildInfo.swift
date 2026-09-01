@@ -10,5 +10,5 @@ struct BuildNumber: Sendable {
 }
 
 enum BuildInfo {
-    @Provides static let buildNumber: BuildNumber = BuildNumber(value: 42)
+    @Provides(allowUnused: true) static let buildNumber: BuildNumber = BuildNumber(value: 42)
 }
