@@ -37,9 +37,11 @@ collate multibindings. There is no runtime composition of separately
 built module-graphs; the merged graph is flat, and "runtime is just
 stored properties" holds across module boundaries.
 
-**The surface is the manifest dependency list.** A library opts into
-composition with a `_WireExports.swift` marker; a consumer activates it by
-**depending on it** in the target's `dependencies`. The plugin reads the
+**The surface is the manifest dependency list.** A library is Wire-aware
+because it depends on the `Wire` product — nothing is required of it beyond
+what declaring a binding already requires — and a consumer activates it by
+**depending on it** in the target's `dependencies`. (Until M7b.5 the library
+half was a hand-declared `_WireExports.swift` marker; see below.) The plugin reads the
 target's *direct* dependencies, keeps the Wire-aware ones, and composes
 them. No call-site `.activating(X.self)` directive (that was rejected: it
 can't be a per-bootstrap decision, and SPM build-tool plugins can't take
@@ -54,8 +56,8 @@ for free.
 **Depend = activate** collapses the importable-vs-activated distinction
 for Wire-aware libraries. That's acceptable because it isn't the bad kind
 of magic: the activated set is your direct, manifest-declared deps ∩
-marker-shipping libraries (both halves visible and deliberate, nothing
-transitive), and every conflict is *loud* — a library shadowing your
+libraries that depend on `Wire` (both halves visible in manifests and
+deliberate, nothing transitive), and every conflict is *loud* — a library shadowing your
 binding is a duplicate/ambiguity compile error, a missing dep is a
 compile error. The only quiet behavior change is a library `@Contributes`
 growing a collection you consume, which is the intended cross-module
@@ -71,7 +73,13 @@ only your own code can reach it. (Order-sensitive collections also need
 `withOrder:`; cross-module element order is otherwise unspecified — see
 the `withOrder:` cross-module note below.)
 
-### The marker is detection-only — and can't be auto-generated
+### The marker is detection-only — and can't be auto-generated (retired in M7b.5)
+
+> **Status: done.** `_WireExports.swift` is gone. Detection is now "this direct dependency's target
+> depends on the `Wire` product", the predicate the retirement plan below argued for, and every marker
+> file in the repository has been deleted. The section is kept because the *reasoning* it records — why a
+> plugin-generated marker was impossible, and why retirement had to wait for reachability — is what makes
+> the current design legible, and because `PendingIssues/20` still leans on it for M7a.
 
 `_WireExports.swift` does exactly one thing: signal Wire-awareness so a consumer
 re-parses (later: references) a direct dependency. It is **not** a future readable
@@ -90,20 +98,25 @@ referencing the dependency's public symbols **by derivable name** (compiler-link
 which is exactly what the `@Factory` factory-lift does (`_WireFactory_<key>` is public
 in the template's module; the consumer emits a reference resolved at compile time).
 
-**Retirement plan.** The marker's whole job is replaceable by a signal the consumer
+**Retirement plan — executed (M7b.5).** The marker's whole job was replaceable by a signal the consumer
 *can* read: **a direct dependency that depends on the `Wire` product** — **verified readable**
 (2026-08): a dependency target's own product dependencies are exposed at plan time, and a target
 that declares bindings must `import Wire`, which requires that direct dependency, so the predicate
-cannot under-fire. Over-firing is harmless here — a scanned library with no bindings yields none —
+cannot under-fire. In swift-wire's own package `Wire` is a *target* rather than a product dependency, so
+`dependsOnWire` matches both kinds by name — a same-package sibling library and an external one are
+otherwise identical here, exactly as the activation rule says. Over-firing is harmless here — a scanned library with no bindings yields none —
 which is exactly why the same predicate is unusable for M7a, where over-firing is a build failure. That drops the
 hand-declared file — a contributor applies `WireContributorPlugin` only when it declares
 `@Factory` templates (a missing plugin is a loud, local compile error, `cannot find type
 '_WireFactory_<key>'`); a pure-`@Singleton` contributor declares nothing. The catch is
-that the marker currently also *bounds* what composes, so its removal is **coupled to
+that the marker also *bounded* what composes, so its removal was **coupled to
 reachability pruning (M7b)** — the prerequisite, not a nicety: without a bound, every
 direct Wire-dependency's bindings are pulled in and eagerly constructed, so an
 incidentally-scanned binding with a consumer-unresolvable dep would break; reachability
-strips the unreachable before resolution. That work's bulk lands with **M5.4
+strips the unreachable before resolution. **That coupling is now measured rather than argued**: the
+composition harness carries a library binding whose own dependency lives in a third package the consumer
+never depends on, and with pruning disabled the consumer's build fails with `no binding produces
+'DeepConfig'` — the exact failure this paragraph predicted. That work's bulk lands with **M5.4
 (request-scoped controllers)**. A public-keyed multibinding was recorded here as
 the non-prunable exception (a public collection key can gain contributors outside the
 analysed graph, so it survives with no local consumer). **M7b.0 settled that the other

@@ -1,4 +1,5 @@
 import Wire
+import WireHarnessTransitive
 
 /// A `public @Singleton` published by an external Wire-aware library. The
 /// consumer composes it across a package boundary; `public` (and a public
@@ -59,4 +60,22 @@ public struct ExternalRouteContributor: HarnessRouteContributor {
 
 public enum HarnessRouteKeys {
     public static let contributors = CollectedKey<any HarnessRouteContributor>()
+}
+
+/// A binding of this library whose own dependency lives in a package the **consumer never depends on**.
+///
+/// The consumer's plugin scans this library's sources and discovers this binding, but cannot resolve
+/// `DeepConfig` — that type is two packages away and not in its parse set. Before M7b that was a hard
+/// missing-binding error, which is exactly why retiring the `_WireExports.swift` marker had to wait for
+/// reachability: with the marker gone, every direct Wire-dependency's bindings enter the parse set,
+/// including ones like this. Nothing in the consumer reaches it, so it is pruned before the
+/// missing-binding check ever runs, and the consumer builds.
+@Singleton
+public struct LibraryBindingNeedingDeep {
+    public let config: DeepConfig
+
+    @Inject
+    public init(config: DeepConfig) {
+        self.config = config
+    }
 }

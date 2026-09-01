@@ -14,15 +14,23 @@ let package = Package(
         .library(name: "WireHarnessLibrary", targets: ["WireHarnessLibrary"])
     ],
     dependencies: [
-        .package(path: "../..")
+        .package(path: "../.."),
+        // A Wire-aware package the consumer never depends on — so it is transitive from there, and must
+        // not be activated. See `../TransitiveLibrary/Package.swift`.
+        .package(path: "../TransitiveLibrary"),
     ],
     targets: [
         // No build plugin: the library is consumed, not bootstrapped — the
-        // consumer's plugin re-parses these sources (M1). The library opts
-        // into composition with its `_WireExports.swift` marker.
+        // consumer's plugin re-parses these sources (M1). What marks it
+        // Wire-aware is this target's own dependency on the `Wire` product;
+        // the hand-declared `_WireExports.swift` marker it used to carry was
+        // retired in M7b.5.
         .target(
             name: "WireHarnessLibrary",
-            dependencies: [.product(name: "Wire", package: "swift-wire")]
+            dependencies: [
+                .product(name: "Wire", package: "swift-wire"),
+                .product(name: "WireHarnessTransitive", package: "TransitiveLibrary"),
+            ]
         )
     ]
 )

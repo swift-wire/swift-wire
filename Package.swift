@@ -129,7 +129,8 @@ let package = Package(
         ),
         // A same-package, Wire-aware library the IntegrationTests target
         // composes via cross-target source reading (iteration 7c). It opts
-        // in with a `_WireExports.swift` marker and exposes a public
+        // in by depending on the `Wire` product (M7b.5 retired the
+        // hand-declared marker file) and exposes a public
         // `@Singleton`; it has no plugin of its own — the consumer's plugin
         // re-parses its sources.
         .target(

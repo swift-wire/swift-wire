@@ -396,7 +396,7 @@ Where a case's own shape might need to grow, the payload is a struct rather than
 
 The contract distinguishes two stability tiers:
 
-- **Public API** (stable; a breaking change requires a major version of Wire): `WireAdapterAnnotationV1` and `WireAdapterCapability`, `WireGraphConformanceV1`, the key types (`BindingKey`, `CollectedKey`, `MappedKey`, `BuilderKey`, `FactoryKey`), the `Introspectable` protocol and introspection types (`WiringModel`, `BindingInfo`, `DependencyEdge`, `BindingKind`), the `@Teardown` annotation, the `_WireExports.swift` activation marker, and the build-time graph JSON format.
+- **Public API** (stable; a breaking change requires a major version of Wire): `WireAdapterAnnotationV1` and `WireAdapterCapability`, `WireGraphConformanceV1`, the key types (`BindingKey`, `CollectedKey`, `MappedKey`, `BuilderKey`, `FactoryKey`), the `Introspectable` protocol and introspection types (`WiringModel`, `BindingInfo`, `DependencyEdge`, `BindingKind`), the `@Teardown` annotation, and the build-time graph JSON format.
 - **SPI** (adapter authors only; can evolve within a major version): the names and internal shape of generated proxies, the generated bootstrap structure, build-plugin internals, and the scope-entry types an adapter's codegen reads.
 
 Adapter authors building against public API are insulated from Wire's internal evolution.
@@ -819,10 +819,10 @@ A type can have both if it has both responsibilities, but most are one or the ot
 
 ### Multi-module composition
 
-Wire-aware library packages — `WireSQS`, `WireOpenAPI`, internal company packages shipping shared bindings — declare their `@Singleton`s, `@Provides`, and `@Contributes` like any other module, plus a one-line `_WireExports.swift` marker file that opts them into composition. A consumer **activates** such a library simply by **depending on it** in the consuming target — the dependency *is* the activation:
+Wire-aware library packages — `WireSQS`, `WireOpenAPI`, internal company packages shipping shared bindings — declare their `@Singleton`s, `@Provides`, and `@Contributes` like any other module. Nothing else is required of them: a library is Wire-aware because it depends on the `Wire` product, which any target declaring a binding must do in order to `import Wire`. A consumer **activates** such a library simply by **depending on it** in the consuming target — the dependency *is* the activation:
 
 ```swift
-// In WireSQS package — opted into composition by shipping `_WireExports.swift`.
+// In WireSQS package — no opt-in file; depending on `Wire` is what makes it composable.
 @Singleton
 public struct SQSClient {
     @Inject public init(url: URL) async throws { ... }
@@ -845,7 +845,7 @@ struct WorkerService: Service {
 }
 ```
 
-**Why the dependency, not a call-site directive.** Activation is a *compile-time* fact: the build plugin must know the activated set before it generates anything, so it can validate the whole graph and collate multibindings at build time (the plugin emits exactly one `_WireGraph` per target — there is one activation set per target, not a per-bootstrap-call choice). The manifest dependency list is where that fact already lives, name-checked by SPM. Both halves of activation are explicit and visible: your `Package.swift` (which libraries you pulled in) and each library's `_WireExports.swift` (its opt-in to being composable). Nothing transitive or hidden activates — only the libraries you directly named.
+**Why the dependency, not a call-site directive.** Activation is a *compile-time* fact: the build plugin must know the activated set before it generates anything, so it can validate the whole graph and collate multibindings at build time (the plugin emits exactly one `_WireGraph` per target — there is one activation set per target, not a per-bootstrap-call choice). The manifest dependency list is where that fact already lives, name-checked by SPM. Both halves of activation are explicit and visible in manifests: your `Package.swift` (which libraries you pulled in) and each library's own dependency on `Wire` (what makes it composable at all). Nothing transitive or hidden activates — only the libraries you directly named.
 
 Activation is **all-or-nothing per library**: an activated library contributes every one of its bindings — `@Singleton`s available for injection, `@Provides` available, `@Contributes` joining the relevant collections, adapter-annotated types collating into their adapters' keys. A library is a unit; depending on it takes all of it. This prevents the silent failure mode of partial activation — taking a library's `@Singleton` while its `@Contributes` partner is invisible, with the type system blessing a graph that's missing behavior the library was designed to provide as a coherent unit.
 
@@ -866,7 +866,7 @@ Within the activated set, validation is the same as in-target: every `@Inject` m
 
 #### How it works mechanically
 
-The build plugin running on the consuming target enumerates its direct dependency targets via the SPM plugin context, then identifies Wire-aware libraries by the presence of a `_WireExports.swift` marker file in their sources — written manually in M1 (a one-line stub), generated by the library's own Wire build plugin in M7a. M0 confirmed that `PackagePlugin` doesn't expose plugin-usage information for dependency targets, so the marker file is the committed discovery mechanism rather than the SPM-context-inspection path that would otherwise be cleaner.
+The build plugin running on the consuming target enumerates its direct dependency targets via the SPM plugin context, then identifies Wire-aware libraries by asking whether each one **depends on the `Wire` product**. That predicate cannot under-fire: a target that declares a binding must `import Wire`, which requires the dependency. It can over-fire — a library that depends on `Wire` but declares no bindings is scanned and contributes nothing — and that is harmless, which is what makes it usable here. (Until M7b.5 the signal was a hand-written `_WireExports.swift` marker file, because `PackagePlugin` exposes no plugin-usage information for dependency targets. Retiring it had to wait for reachability pruning: without a bound on what composes, an incidentally-scanned library binding whose own dependency lives in a package you never depended on would break your build. It is now stripped before resolution.)
 
 For each activated Wire-aware dependency, the plugin reads the library's source files (M1: re-parse; M7a: a compile-time manifest the library emits) and aggregates `@Singleton`/`@Provides`/`@Contributes` declarations and adapter-annotated types into **one merged graph** for validation and codegen. There is no runtime graph composition — the generated `_WireGraph` is a single flat graph spanning the consumer and its activated libraries, and Wire's "runtime is just stored properties" invariant holds across module boundaries exactly as within one module. Non-activated libraries are skipped entirely.
 
