@@ -236,12 +236,15 @@ that returns a large payload through a `~Copyable, ~Escapable` model.
 ## Risks / interleaves
 
 - **M7c dynamic construction scheduling — the sharpest interleave.**
-  [Notes/EffectAwareResolution.md](Notes/EffectAwareResolution.md)'s scheduler is "a single
-  `TaskGroup` plus per-binding `AtomicState<T>` cells." A noncopyable binding **cannot live in an
-  `AtomicState<T>` cell** — that is storage, and M8.2's whole model is that noncopyable bindings
-  are not stored. Whichever lands second pays. Decide the interaction when M8.2's emission model
-  is designed, even though M7c is unscheduled: at minimum, record that noncopyable bindings take
-  the sequential path.
+[Notes/EffectAwareResolution.md](Notes/EffectAwareResolution.md)'s scheduler was "a single
+  `TaskGroup` plus per-binding `AtomicState<T>` cells", and this risk is **discharged**: a
+  noncopyable binding cannot live in such a cell — that is storage, and M8.2's whole model is that
+  noncopyable bindings are not stored — which is one of the two reasons M7c's emission design
+  dropped the cell form. [Notes/ConstructionScheduling.md](Notes/ConstructionScheduling.md) holds
+  per-binding state in a `~Copyable` struct that carries noncopyable bindings directly, so they no
+  longer need a separate sequential path. What survives for M8.2 to honour is narrower: a
+  noncopyable binding can never cross into a child task in either direction, so it and everything
+  downstream of it construct on the parent.
 - **M6a variant-graph testing.** `@BindType` doubles are stored per key in a `TestBindStore`. A
   noncopyable binding cannot be stored there, so a noncopyable binding is not mockable by the
   current mechanism. Either diagnose that combination, or scope M8 to bindings that are not

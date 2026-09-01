@@ -24,7 +24,7 @@ let package = Package(
     name: "swift-wire",
     platforms: [
         // macOS 15 is required for the `Synchronization` module's
-        // `Mutex` type, used by `Wire.AtomicState<T>`. Linux is
+        // `Mutex` type, used by `Lazy<T>`'s internal box. Linux is
         // unaffected (Synchronization ships with Swift 6.0+ on
         // Linux); this constraint only narrows the development-on-
         // macOS audience to macOS 15+. Servers run Linux, where

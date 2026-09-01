@@ -161,9 +161,10 @@ private final class LazyBox<Value: Sendable>: @unchecked Sendable {
 }
 ```
 
-Tri-state lifecycle (`.unmarked(factory) → .pending(Task) → .resolved(Value)`)
-mirrors `AtomicState<T>`'s vocabulary, adapted for Lazy's
-create-or-await coordination. Each case owns the data its state
+Tri-state lifecycle (`.unmarked(factory) → .pending(Task) → .resolved(Value)`),
+shaped for Lazy's create-or-await coordination. A payload-free
+`AtomicState<T>` stating the same vocabulary once sat beside it and was
+retired unused — the reason it was never shared is visible right here. Each case owns the data its state
 requires: unmarked holds the factory, pending holds the Task,
 resolved holds the value. First caller under the lock creates
 the Task and transitions to `.pending`; subsequent and concurrent
