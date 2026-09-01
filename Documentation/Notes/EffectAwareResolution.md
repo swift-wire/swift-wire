@@ -120,6 +120,23 @@ bindings via an enum or indexed marker.
 
 #### Strict per-level vs dynamic ready-as-deps-resolve
 
+> **The scheduling model below stands; its `AtomicState<T>`
+> implementation is superseded.** The cell's `Value: Sendable`
+> constraint applies to *every* scheduled binding — a
+> non-Sendable binding compiles today and would stop, and a
+> `~Copyable` binding cannot enter a cell at all — so it
+> forces two permanent emitter shapes. M7c should emit the
+> same ready-as-deps-resolve schedule with the state held in
+> one `~Copyable` struct owned by the draining parent; child
+> tasks return a marker rather than scheduling their own
+> dependents. See
+> [ConstructionScheduling.md](ConstructionScheduling.md). **The
+> `AtomicState<T>` type this section reaches for no longer
+> exists** — it was retired unused; the sketches below are kept
+> as the design record, not as code to write.
+> Everything else here — the levels, the prior art, the open
+> semantic questions — is unaffected.
+
 The sketch above is the **strict per-level** form: one
 `TaskGroup` per topological level, each level waiting for the
 entire previous level to complete before starting. Simple

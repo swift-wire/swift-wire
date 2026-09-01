@@ -112,8 +112,8 @@ on a throw, run the reverse teardown over the built set, then rethrow.
 reason is coupling: what "the already-constructed set" *is*, and how it's inspected, is
 fixed by the construction scheduler. Under today's strict sequential chain it's a **linear
 prefix** (wrap each `let` in `do`/`catch`, tear down the prefix). Under M7c's dynamic
-*ready-as-deps-resolve* form it's **whichever `AtomicState<T>` cells reached `.resolved`**
-when the `TaskGroup` cancelled — a runtime-determined, non-linear set. Implementing it now
+*ready-as-deps-resolve* form it's **whichever cells of the scheduler's state struct reached
+`.resolved`** when the group failed — a runtime-determined, non-linear set. Implementing it now
 against the sequential chain would be rewritten wholesale when the scheduler changes, so it
 lands once, against the final model. See [EffectAwareResolution.md](EffectAwareResolution.md),
 *Strict per-level vs dynamic ready-as-deps-resolve*.

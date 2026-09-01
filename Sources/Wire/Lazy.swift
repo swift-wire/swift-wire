@@ -104,10 +104,13 @@ public struct Lazy<Value: Sendable>: Sendable {
 /// shape, but the Mutex discipline (single point of mutation
 /// behind the lock) is correct by construction.
 ///
-/// The state machine mirrors `AtomicState<T>`'s tri-state lifecycle
-/// (unmarked → pending → resolved), adapted for Lazy's "create-or-
-/// await" coordination needs. Each case owns the data its state
-/// requires:
+/// The state machine is a tri-state lifecycle (unmarked → pending →
+/// resolved) shaped for Lazy's "create-or-await" coordination needs.
+/// A payload-free `AtomicState<T>` stating the same vocabulary once
+/// lived alongside this box; it was retired unused (see
+/// `Documentation/Notes/ConstructionScheduling.md`), because each
+/// case here owns the data its state requires and a shared primitive
+/// had nowhere to put it:
 ///
 /// - `.unmarked(factory)`: the factory closure, ready to run. No
 ///   caller has triggered it yet.
