@@ -355,6 +355,12 @@ private func specialiseBinding(
                     ? concreteArguments
                     : [],
                 scopeKey: provider.scopeKey,
+                // Carried onto the specialisation, not left at the template. `allowUnused:` names a
+                // binding the app reaches through a door Wire cannot see, and what the app actually holds
+                // is `Container<DataPoint>` — the specialisation — never the `makeContainer<T>` template,
+                // which produces nothing on its own. Dropping it here made the annotation inert for every
+                // generic binding: no reachability root under M7b, and no stored property under M7c.1.
+                allowUnused: provider.allowUnused,
                 teardown: provider.teardown,
                 originModule: provider.originModule
             )

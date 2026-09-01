@@ -74,7 +74,10 @@ struct AggregateTaskController: Sendable {
 
 // MARK: - held subjects
 
-@Singleton
+// `allowUnused:` for its M7c.1 meaning rather than its diagnostic one: the aggregate reaches this
+// binding, so it is constructed either way — the annotation is what keeps it *stored* on the graph, which
+// is how `AggregateProxyContributorTests` asserts the aggregate holds the graph's own singleton.
+@Singleton(allowUnused: true)
 final class AggregateReportStore: Sendable {
     @Inject init() {}
     func all() -> [String] { ["r1", "r2"] }

@@ -162,6 +162,13 @@ func aggregateProxyBinding(
         location: subjects[0].location,
         accessLevel: subjects[0].accessLevel,
         contributions: [Contribution(keyReference: key, location: subjects[0].location)],
+        // Same rule, and the same reason, as `contributorProxyBinding`'s: a synthesised proxy is never a
+        // user declaration, so it is anchored at a *subject's* location and any diagnostic about it reads
+        // as a claim about a type the user did not write and cannot annotate. The two synthesis paths
+        // produce the same kind of binding and now agree; before M7c.1 the divergence was invisible
+        // because nothing distinguished a rooted proxy from a reached one, and M7c.1's retention
+        // diagnostic made it print a fix-it no user could act on.
+        allowUnused: true,
         originModule: subjects[0].originModule
     )
 }

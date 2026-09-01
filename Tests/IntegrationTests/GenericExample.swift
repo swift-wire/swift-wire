@@ -25,7 +25,7 @@ struct Container<T: Sendable>: Sendable {
     }
 }
 
-@Provides
+@Provides(allowUnused: true)
 func makeContainer<T: Sendable>(item: T) -> Container<T> {
     Container(item: item)
 }

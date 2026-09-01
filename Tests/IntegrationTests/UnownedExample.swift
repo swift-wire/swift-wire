@@ -14,7 +14,7 @@ import Wire
 /// What this proves over the unit tests: the macro-generated
 /// `init(sensor: Sensor) { self.sensor = sensor }` actually *compiles*
 /// against `unowned let` storage, and the non-optional access works.
-@Singleton
+@Singleton(allowUnused: true)
 package final class Sensor {
     package let id = "sensor"
 }

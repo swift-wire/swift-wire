@@ -1,6 +1,9 @@
 # Construction scheduling — design note (M7c)
 
-> **Status:** the implementation design for M7c, dynamic construction scheduling. It **supersedes the
+> **Status:** the implementation design for M7c, dynamic construction scheduling. **M7c.1 — narrow
+> retention — shipped 2026-09**; its outcome is recorded under its gate in *§ Suggested sequencing*, and
+> the two pre-existing bugs it surfaced are noted there too. M7c.2 onward keep their trigger. It
+> **supersedes the
 > `AtomicState<T>`-cell sketch** in [EffectAwareResolution.md](EffectAwareResolution.md) *§ Strict
 > per-level vs dynamic ready-as-deps-resolve*; that note stays as the conceptual framing (the levels
 > model, the prior-art map, the semantic questions), this one carries the shape the emitter should
@@ -152,6 +155,10 @@ copyable dependency, `take()` for a move.
 
 ## Step 1 — narrow what the graph retains
 
+> **Shipped as M7c.1 (2026-09).** `Sources/WireGenCore/Retention.swift` is this section in code; the
+> outcome, and the four places the implementation departed from what is written below, are recorded under
+> the M7c.1 gate in *§ Suggested sequencing*.
+
 The scheduler's one real constraint is that a value which is **retained** while a child task uses it must
 be `Sendable`. Retention, not asynchrony, is the lever — and `_WireGraph` retains everything today, one
 stored property per binding. Narrowing that is worth doing on its own and makes the rest cheaper.
@@ -278,6 +285,46 @@ seam first. **Every gate compiles the generated output**, per the `-typecheck`-i
   stays the linear chain. **Gate:** the integration corpus builds unchanged apart from the properties that
   disappear, with a diagnostic naming each dropped property and the `allowUnused: true` fix-it; goldens
   re-recorded once, deliberately.
+
+  **Gate: met, with the diagnostic's *form* settled against this plan's wording.** `Sources/WireGenCore/Retention.swift`
+  carries the retained set — `declaredRoots` reused verbatim, plus `@Teardown`, plus opaque lifts, plus
+  what generated code reads off the graph — and `resolveStoragePatches` decides each graph's stored-property
+  block and memberwise init once the whole file exists. **569 stored properties leave the corpus**; the
+  default graph goes from 123 to 79, and the golden is re-recorded at the same 6,417 lines.
+
+  Four things the plan did not anticipate, each of which changed the implementation:
+
+  - **A build warning per dropped property was the wrong instrument.** M7b.3's pruned set is *empty* once
+    an app is migrated, so its warning quiesces; here, dropping the property is the normal case for every
+    non-root binding, so the same shape would leave a well-formed app carrying one warning per binding
+    forever. The information moved to an `@available(*, unavailable, message:)` computed stub, which puts
+    it where it is actionable — the compiler reports it **at the user's own `graph.x` read site**, with the
+    property name, the annotation and the declaration's `file:line` — and says nothing at all to an app
+    that does not read the property. It stores nothing, is absent from the memberwise init and from
+    `Sendable` derivation, and is emitted on one line, so the narrowing costs no generated volume.
+  - **The retained set is scanned from the emitted text, not re-derived.** Four emitters read properties
+    off a graph and each prunes its own read set differently; re-deriving the union would be four copies
+    of existing logic kept in step by hand. Scanning is correct by construction, and the asymmetry makes
+    it safe rather than merely convenient — **over-retention costs one stored field, under-retention is a
+    compile error in generated code**, and a textual scan cannot under-fire. The `<local>.` half must be
+    global: a variant's facade takes `wireGraph _wireGraph: _BorrowFixture_bindMockWireGraph`, so the name
+    comes from the parent graph while the type is the variant's.
+  - **Opaque (`some P`) bindings stay stored, deliberately.** They lift a generic parameter onto the
+    struct, so the graph's *type* names them — dropping one is a change to the graph's type identity, which
+    every `wireGraph:` parameter and bootstrap return type spells, not a change to what it retains.
+  - **Two pre-existing bugs surfaced, both of which made `allowUnused:` silently inert.**
+    `specialiseBinding` (`Graph.swift`) rebuilt a specialised provider without carrying `allowUnused`
+    across, so a generic `@Provides(allowUnused: true)` template's specialisation — which is the binding
+    the app actually holds — was neither a reachability root under M7b nor a stored property here. And
+    `AggregateProxySynthesis` never set the `allowUnused: true` that `ContributorProxySynthesis` sets for
+    an explicit reason (a synthesised proxy is anchored at its *subject's* location, so any diagnostic
+    about it names a type the user did not write and cannot annotate); the divergence was invisible until
+    the retention diagnostic started printing a fix-it no user could act on. Both fixed, both with the
+    reasoning recorded at the site.
+
+  The corpus migration is 13 annotations — smaller than feared, because M7b.3 had already annotated
+  everything read through `graph.x` that was *also* unreachable. The residue is exactly what this note
+  predicted: a binding reachable via a consumer **and** read by user code.
 - **M7c.2 — the state struct, sequential.** Emit `State`/`BuildingGraph`/`addX`/`finalise` and drive it
   with *no* task group: the cascade runs entirely inline, which is the wholly-sync degenerate case. This
   isolates every noncopyable spelling and the three read forms before any concurrency is involved.
@@ -358,6 +405,9 @@ accepting the rewrite is a reasonable call at that point.
 - [M7_PLAN.md](../M7_PLAN.md) — the milestone's build plan; M7b's shipped reachability is what makes the
   root set the right retention target.
 - `Sources/WireGenCore/CodeEmission.swift` — `appendStruct`'s construction body, the loop this replaces.
+- `Sources/WireGenCore/Retention.swift` — **M7c.1, shipped.** The retained set, the read scan and the
+  deferred stored-property/memberwise-init resolution; `Tests/WireGenCoreTests/RetentionTests.swift` is
+  its gate.
 - `Sources/Wire/AtomicState.swift` — **deleted with this design.** The cell primitive had no production
   caller: `Lazy<T>` mirrors its lifecycle in a separate `LazyBox` (whose cases carry payloads the shared
   primitive had no room for) rather than using it, and this note removes the only other prospective one,

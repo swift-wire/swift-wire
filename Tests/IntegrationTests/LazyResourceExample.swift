@@ -33,7 +33,7 @@ package actor LazyResourceCallCount {
 /// gets a fresh counter. Module-scope `let` would share the same
 /// actor instance across parallel test bootstraps and cross-
 /// contaminate the assertions.
-@Provides
+@Provides(allowUnused: true)
 package func makeLazyResourceCallCount() -> LazyResourceCallCount {
     LazyResourceCallCount()
 }
@@ -44,7 +44,7 @@ package func makeLazyResourceCallCount() -> LazyResourceCallCount {
 /// passed to `Lazy { ... }` captures `callCount` and defers the
 /// actual `LazyResource` construction (plus the counter
 /// increment) until the first `.get()` call.
-@Provides
+@Provides(allowUnused: true)
 package func makeLazyResource(callCount: LazyResourceCallCount) -> Lazy<LazyResource> {
     Lazy {
         await callCount.increment()

@@ -7,4 +7,4 @@ struct AppName: Sendable {
     let value: String
 }
 
-@Provides let appName: AppName = AppName(value: "IntegrationTests")
+@Provides(allowUnused: true) let appName: AppName = AppName(value: "IntegrationTests")

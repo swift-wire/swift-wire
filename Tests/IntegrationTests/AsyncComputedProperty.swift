@@ -11,7 +11,7 @@ package struct AsyncMessage: Sendable {
 }
 
 package enum AsyncFactories {
-    @Provides
+    @Provides(allowUnused: true)
     package static var asyncMessage: AsyncMessage {
         get async throws {
             // Yield to the cooperative scheduler so the `await` is
