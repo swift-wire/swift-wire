@@ -97,9 +97,7 @@ package func graphPropertyReads(
     // flatten before scanning — the extension tracking below is per *source* line, not per element.
     for line in lines.flatMap({ $0.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) }) {
         // `extension _WireGraph: GraphComposable {` — but not `extension _WireGraphSomethingElse`.
-        if !inExtension, let rest = line.strippingPrefix("extension \(structName)"),
-            rest.first.map({ $0 == ":" || $0 == " " || $0 == "<" }) ?? false
-        {
+        if !inExtension, startsExtension(line, of: structName) {
             inExtension = true
             extensionDepth = 0
         }
@@ -113,6 +111,13 @@ package func graphPropertyReads(
         }
     }
     return reads
+}
+
+/// Whether `line` opens an `extension <structName>` — its conformance clause, generic clause or brace
+/// following the name, so `_WireGraphSomethingElse` does not match `_WireGraph`.
+private func startsExtension(_ line: String, of structName: String) -> Bool {
+    guard let rest = line.strippingPrefix("extension \(structName)") else { return false }
+    return rest.first.map { $0 == ":" || $0 == " " || $0 == "<" } ?? false
 }
 
 /// The member names read off `base` in one line: every `<base>.<identifier>` whose `<base>` is not itself
