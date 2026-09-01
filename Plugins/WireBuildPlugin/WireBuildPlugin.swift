@@ -173,4 +173,3 @@ private func dependsOnWire(_ module: SourceModuleTarget) -> Bool {
 
 /// The module every Wire-aware target imports, and therefore depends on.
 private let wireProductName = "Wire"
-
