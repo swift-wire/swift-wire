@@ -209,6 +209,14 @@ cross-language prior art falls into:
    reclaims a strong reference cycle, so Java/Kotlin DI (Dagger, Guice)
    only ever faces cycle #1.
 
+**Since M7b, both questions are asked only of the graph that is built.** A
+construction-order cycle among bindings no root reaches is not a build error,
+because nothing constructs them — reachability restricts the node set before
+the sort runs, so the cycle is not in the graph to detect. Reach any binding in
+it and the error returns unchanged. See
+[`MultiModuleComposition.md`](MultiModuleComposition.md) § "Reachability roots
+(M7b.0)".
+
 The axes are orthogonal, and **in Swift a usable cycle-breaker must
 sever both**. That single fact — together with the fact that cycle #2 is
 ours to worry about and Dagger's is not — determines the whole taxonomy,
