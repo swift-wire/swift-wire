@@ -124,10 +124,11 @@ way** — nothing outside the graph can read an aggregate's product, so visibili
 the diagnostic and consumption gates construction; see "Reachability roots (M7b.0)"
 below.
 
-## Deferred optimizations (M7a / M7b)
+## The two optimizations split out of M1 (M7a deferred, M7b shipped)
 
-Two perf optimizations are split out of M1; each keeps the surface
-contract unchanged and lands when its cost is felt:
+Both keep the surface contract unchanged. **M7b shipped in 2026-08/09** and is
+recorded below and in the roots section that follows; M7a remains deferred on
+cost and on a predicate SPM cannot supply:
 
 - **M7a — manifest-based discovery.** M1 re-parses dependency sources at
   the consumer's build; M7a has each library emit a per-library
@@ -170,24 +171,25 @@ contract unchanged and lands when its cost is felt:
   reading it would serialize the consumer's codegen behind the dependency's full compile — worse
   than the plugin-output route. `_WireExports.swift` still doesn't "become the manifest"; it's
   retired (detection moves to the Wire-product dependency, verified above).
-- **M7b — reachability pruning (bulk lands with M5.4).** M1 eager-
-  constructs *every* binding in the merged graph, including a library
-  binding nothing reaches — so a large dependency costs all its singletons
-  even when the consumer uses a few. Beyond the perf win, reachability is
-  the **prerequisite for retiring the marker** (it's what bounds
-  auto-composition once opt-in is manifest-derived). M7b computes the
-  bindings reachable from the home package's roots
-  and strips the rest before codegen. The hard part is defining roots:
-  the plugin sees `@Inject` edges but not external `graph.x` accesses, so
-  `allowUnused` becomes "I'm a root, keep me" — valid **only** in the home
-  package; a library's `allowUnused` is ignored for reachability, and a
-  library binding is live iff reached from a home-package root. **The
-  complete root set is settled below** ("Reachability roots (M7b.0)") —
-  `allowUnused` is one of five, and not the load-bearing one. This
-  changes the construction model (construct-reachable, not construct-all)
-  and adds a small annotation cost (mark externally-pulled roots), so it's
-  milestone-sized. Until it lands, an expensive library binding opts into
-  deferral with `Lazy<T>`.
+- **M7b — reachability pruning. Shipped.** M1 eager-constructed *every*
+  binding in the merged graph, including a library binding nothing reached, so
+  a large dependency cost all its singletons even when the consumer used a few.
+  The plugin now computes the bindings reachable from the graph's roots and
+  strips the rest before codegen. Measured on a 500-binding library where the
+  consumer injects exactly one binding: **1,525 generated lines, 501 stored
+  properties and 501 eager constructions became 28, 2 and 2.** `Lazy<T>` is no
+  longer the workaround for an expensive library binding — not reaching it is
+  enough.
+
+  The hard part was defining roots, because the plugin sees `@Inject` edges but
+  not external `graph.x` accesses. **The complete root set is settled below**
+  ("Reachability roots (M7b.0)") and comes to two: an aggregate a graph
+  conformance names, and `allowUnused: true` in the home package. A library's
+  `allowUnused` is ignored for reachability, so a library binding is live iff a
+  home root reaches it. This changed the construction model
+  (construct-reachable, not construct-all) and added a small annotation cost
+  for externally-pulled roots — seven annotations across this repository, after
+  which generated output was byte-identical.
 
 ## Reachability roots (M7b.0)
 

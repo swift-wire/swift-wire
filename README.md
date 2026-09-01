@@ -870,7 +870,7 @@ The build plugin running on the consuming target enumerates its direct dependenc
 
 For each activated Wire-aware dependency, the plugin reads the library's source files (M1: re-parse; M7a: a compile-time manifest the library emits) and aggregates `@Singleton`/`@Provides`/`@Contributes` declarations and adapter-annotated types into **one merged graph** for validation and codegen. There is no runtime graph composition — the generated `_WireGraph` is a single flat graph spanning the consumer and its activated libraries, and Wire's "runtime is just stored properties" invariant holds across module boundaries exactly as within one module. Non-activated libraries are skipped entirely.
 
-**Eager construction and the reachability optimization.** In M1 every binding in the merged graph is constructed at bootstrap — including a library binding nothing in the consumer reaches. That's correct but not free: a large library you depend on for a few bindings still constructs all its singletons. **M7b** adds compile-time **reachability pruning** — only bindings reachable from the home package's roots are constructed, the rest stripped before codegen — so depending on a library costs only what you use. Until then, an expensive library binding can opt into deferral with `Lazy<T>`.
+**What a dependency costs you.** Only what you reach. The plugin strips every binding no root reaches before codegen, so a library you depend on for two bindings costs two — not all of its singletons. Measured on a 500-binding library where the consumer injects exactly one: 1,525 generated lines, 501 stored properties and 501 eager constructions become 28, 2 and 2. See [Reachability](#reachability-what-actually-gets-built) below for what counts as a root, and what Wire tells you when it prunes something you meant to keep.
 
 #### Test-only substitution
 
@@ -937,6 +937,12 @@ downstream Wire target to compose. Its public bindings are legitimately absent f
 `allowUnused: true` quiets the warning by keeping them in it — slightly wasteful, not wrong. (A Wire-aware
 library that is only *consumed* never sees this: it does not apply the build plugin at all, so it has no
 graph of its own — its consumer re-parses its sources.)
+
+Two errors get quieter as a result, and both are deliberate. A **missing dependency** inside a binding
+nothing reaches is not an error — that is what lets you depend on a library whose own dependencies you have
+not pulled in, and it is precisely what made retiring the old opt-in marker safe. A **cycle** among bindings
+nothing reaches is likewise not an error, since nothing constructs them. Reach either one and both fail the
+build as they always did.
 
 A library's `allowUnused:` is a statement about **its** build, not yours — it silences the author's own
 dead-binding warning and does not pin the binding into your graph. A library binding is live in your graph

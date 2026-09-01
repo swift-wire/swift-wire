@@ -1,9 +1,16 @@
 # M7 build plan — reachability pruning, and retiring the marker
 
-> **Status:** M7 started 2026-08. **M7b is the pass this plan covers**; M7a is deferred out of the
-> milestone with its mechanism proven and its blocker recorded
-> ([PendingIssues/20](../PendingIssues/20-manifest-discovery-plugin-output-visibility.md)), and M7c/M7d/M7e
-> keep their existing triggers. The design record is
+> **Status: complete (2026-08/09).** All five sub-steps landed — M7b.0 the root model, M7b.1 the walk and
+> the golden guard, M7b.2 dependency-module pruning, M7b.3 home pruning with its migration diagnostic,
+> M7b.4 the dead-code fold, M7b.5 marker retirement — and **M7d rode in with M7b.5**. M7a stays deferred
+> with its mechanism proven and its blocker recorded
+> ([PendingIssues/20](../PendingIssues/20-manifest-discovery-plugin-output-visibility.md)); M7c and M7e keep
+> their existing triggers. Downstream (wire-mvc, wire-open-api, wire-configuration, wire-mvc-examples,
+> wire-mvc-performance) moved with the marker retirement.
+>
+> The gates below are kept as written, with each sub-step's outcome recorded under it — including the two
+> places the plan was settled *against* (`@Teardown` as a root, and the visibility gate on the pruning
+> diagnostic), because the reasoning is what stops them being relitigated. The design record is
 > [Notes/MultiModuleComposition.md](Notes/MultiModuleComposition.md) — it carries the activation model, the
 > retirement plan, and the reasoning this plan implements. This file carries the *how*.
 
