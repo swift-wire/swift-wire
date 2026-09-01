@@ -242,17 +242,41 @@ touched), plus the two cases that only a fixed point catches: a binding consumed
 binding, and a `package` contributor folded into an unconsumed `public` aggregate — with the aggregate
 itself staying silent.
 
-### M7b.5 — retire `_WireExports.swift`
+### M7b.5 — retire `_WireExports.swift` — **done**
 
 Only now, with a bound in place. Detection flips from the marker file to "this direct dependency's target
 depends on the `Wire` product" (`WireBuildPlugin.swift:99`). The predicate cannot under-fire — a target
 declaring bindings must `import Wire`, which requires that direct product dependency — and over-firing is
 harmless: a scanned library with no bindings contributes none, and anything unreachable is now pruned.
 
-**Gate:** `CompositionHarness/Library` builds and composes with its `_WireExports.swift` **deleted**; a
-three-package fixture covers the transitive case; the marker's removal is swept from the README, the note,
-and `WireBuildPlugin`'s doc comment. Fold in **M7d** here (the seed-scope façade trim) — the ROADMAP filed
-it against this surface trim, and this is where the trim lands.
+**Gate: met.** Every `_WireExports.swift` in the repository is deleted — the composition, adapter and
+injection-rewrite harness libraries, and `WireTestLibrary` — and all five harnesses plus the full suite
+pass. Detection is `dependsOnWire`, which matches the `Wire` **product** for an external package and the
+`Wire` **target** inside swift-wire's own package, since a same-package sibling depends on it by name.
+
+`CompositionHarness` grew a third package, `TransitiveLibrary`, and it carries both halves of the
+transitive case as *passing* assertions rather than an absence:
+
+- **A transitive Wire-aware package is not activated.** It declares a binding whose simple name collides
+  with one the consumer declares, so activation would be a duplicate-binding error; the consumer reads its
+  own binding's `origin` at runtime to close the other half.
+- **A library binding whose dependency lives in a package the consumer never depended on is a
+  non-event.** `WireHarnessLibrary` gains a binding needing `DeepConfig`, two packages away and outside
+  the consumer's parse set. Reachability strips it before the missing-binding check, which is exactly the
+  coupling that made retirement wait for M7b.
+
+All three were probed: with `dependsOnWire` stubbed to `false` composition breaks; with the transitive
+package depended on directly the build fails with `'HarnessSharedService' has multiple bindings`; with
+pruning disabled it fails with `no binding produces 'DeepConfig'` — the failure the note predicted in
+prose, now observed.
+
+**M7d is folded in, on a better criterion than "delete it and rewrite the tests".** The façade is dead
+code exactly when a bridging proxy enters the scope, because the generated witness calls the proxy's
+`_wireEnterScope` thunk instead — so it is now emitted only for a scope **no proxy enters**, which is the
+dead-code criterion stated rather than approximated. The ROADMAP's prerequisite (a thunk-based
+construction harness for `BootstrapTests`) turns out not to be needed: swift-wire's own seed-scope tests
+use scopes with no proxies, so they keep their façades and are untouched. **219 lines and 13 façades**
+leave the integration corpus; the golden is re-recorded at 6,417 lines.
 
 ## Key sub-decisions
 

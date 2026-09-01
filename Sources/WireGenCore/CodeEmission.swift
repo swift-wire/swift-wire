@@ -131,23 +131,24 @@ package func renderWireGraph(
     for (containerName, order) in containerTopologicalOrders {
         parentGraphBindings["_\(containerName)WireGraph"] = order
     }
-    for scope in seedScopeOrders.sorted(by: { $0.identifierSuffix < $1.identifierSuffix }) {
-        // A variant seed scope's façade takes its variant app graph (`_<Variant>WireGraph<…>`) — dropped
-        // `@BindType`'d/lifted bindings, so their eager inits don't run under the mock — while its borrow
-        // name stays `parentGraphType`'s (`_wireGraph`). Production/keyless scopes use the derived reference.
-        let parentGraphTypeReference =
-            scope.variantAppGraphReference
-            ?? openGraphTypeReference(
-                structName: scope.parentGraphType,
-                topologicalOrder: parentGraphBindings[scope.parentGraphType] ?? []
-            )
-        appendSeedScopeStruct(
-            scope: scope,
-            parentGraphTypeReference: parentGraphTypeReference,
-            into: &lines,
-            entries: &bootstrapEntries
-        )
-    }
+    // M7d — the whole-scope façade (`_<S>WireScope` + `Wire.bootstrap<S>Scope` + `_wireBootstrap<S>Scope`)
+    // is emitted only for a scope **no bridging proxy enters**.
+    //
+    // A proxy carries a `_wireEnterScope` thunk that constructs the routed subject's own transitive
+    // subgraph per request (M5.4.6), and the generated witness calls that, never the façade — so wherever
+    // a proxy exists the façade is `internal` dead code: a struct and two functions per seed scope, in
+    // every consumer with routed controllers. Where no proxy enters a scope the façade is the only way in,
+    // and dropping it would make the scope unconstructible, so it stays. That is the dead-code criterion
+    // stated exactly, rather than a flag.
+    appendSeedScopeFacades(
+        seedScopeOrders,
+        enteredByProxy: seedsEnteredByProxy(
+            in: topologicalOrder + containerTopologicalOrders.values.flatMap { $0 }
+        ),
+        parentGraphBindings: parentGraphBindings,
+        into: &lines,
+        entries: &bootstrapEntries
+    )
 
     // Setter extensions for `@Inject weak var` on actor consumers.
     // Aggregated across every graph + scope so each actor type's
@@ -947,4 +948,46 @@ package func sanitizeIdentifier(_ raw: String) -> String {
 private func lowerCamelCased(_ name: String) -> String {
     guard let first = name.first else { return name }
     return first.lowercased() + name.dropFirst()
+}
+
+/// The seeds a bridging contributor proxy enters — read off the `_wireEnterScope` thunk each one carries.
+func seedsEnteredByProxy(in bindings: [DiscoveredBinding]) -> Set<String> {
+    Set(bindings.flatMap { $0.dependencies.compactMap { $0.scopeEntry?.seed } })
+}
+
+/// Emit the whole-scope façade — `_<S>WireScope` plus `_wireBootstrap<S>Scope` plus the `Wire` entry —
+/// for each seed scope **no bridging proxy enters** (M7d).
+///
+/// A proxy carries a `_wireEnterScope` thunk that constructs the routed subject's own transitive subgraph
+/// per request (M5.4.6), and the generated witness calls that, never the façade. So wherever a proxy
+/// exists the façade is `internal` dead code — a struct and two functions per seed scope, in every
+/// consumer with routed controllers. Where no proxy enters a scope the façade is the only way in, and
+/// dropping it would make the scope unconstructible, so it stays. That is the dead-code criterion stated
+/// exactly rather than approximated by a flag, and it is why swift-wire's own seed-scope tests keep
+/// working: their scopes have no proxies.
+private func appendSeedScopeFacades(
+    _ seedScopeOrders: [SeedScopeEmission],
+    enteredByProxy: Set<String>,
+    parentGraphBindings: [String: [DiscoveredBinding]],
+    into lines: inout [String],
+    entries bootstrapEntries: inout [BootstrapEntry]
+) {
+    for scope in seedScopeOrders.sorted(by: { $0.identifierSuffix < $1.identifierSuffix })
+    where !enteredByProxy.contains(scope.seedTypeExpression) {
+        // A variant seed scope's façade takes its variant app graph (`_<Variant>WireGraph<…>`) — dropped
+        // `@BindType`'d/lifted bindings, so their eager inits don't run under the mock — while its borrow
+        // name stays `parentGraphType`'s (`_wireGraph`). Production/keyless scopes use the derived reference.
+        let parentGraphTypeReference =
+            scope.variantAppGraphReference
+            ?? openGraphTypeReference(
+                structName: scope.parentGraphType,
+                topologicalOrder: parentGraphBindings[scope.parentGraphType] ?? []
+            )
+        appendSeedScopeStruct(
+            scope: scope,
+            parentGraphTypeReference: parentGraphTypeReference,
+            into: &lines,
+            entries: &bootstrapEntries
+        )
+    }
 }

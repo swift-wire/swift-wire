@@ -11,7 +11,7 @@ separate consumer + library pair that depend on `swift-wire` one-way.
 ```
 CompositionHarness/
 ├── Library/    — an external Wire-aware library package (depends on swift-wire)
-│                 _WireExports.swift marker + a public @Singleton + a public keyed @Provides
+│                 depends on the Wire product + a public @Singleton + a public keyed @Provides
 ├── Consumer/   — depends on swift-wire + Library, applies WireBuildPlugin;
 │                 an executable that bootstraps the generated graph and asserts
 │                 the library's bindings composed across the package boundary

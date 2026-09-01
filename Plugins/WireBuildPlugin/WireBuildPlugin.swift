@@ -8,7 +8,7 @@ import PackagePlugin
 ///
 /// A Wire-aware **contributor** (a module that declares bindings / `@Factory` templates for a consumer
 /// to compose but builds no graph of its own) applies **no** plugin — the consumer re-parses its sources
-/// (it opts in with a `_WireExports.swift` marker) and emits everything, including the factory types it
+/// (Wire-aware means it depends on the `Wire` product — see `dependsOnWire`) and emits everything, including the factory types it
 /// consumes. Only the composition root applies this plugin.
 ///
 /// Consumers opt in per-target:
@@ -66,11 +66,12 @@ struct WireBuildPlugin: BuildToolPlugin {
         // Cross-module composition (7d): activation is the dependency.
         // Re-parse the sources of every Wire-aware library this target
         // *directly* depends on so their bindings compose into this
-        // target's graph. A library opts in with a `_WireExports.swift`
-        // marker. The rule is uniform — same-package siblings (`.target`)
-        // and external-package products (`.product`) both activate by
-        // direct dependency; transitive dependencies are not
-        // auto-activated. See `Documentation/Notes/MultiModuleComposition.md`.
+        // target's graph. A library is Wire-aware when it depends on the
+        // `Wire` product itself — see `dependsOnWire`. The rule is uniform
+        // — same-package siblings (`.target`) and external-package
+        // products (`.product`) both activate by direct dependency;
+        // transitive dependencies are not auto-activated. See
+        // `Documentation/Notes/MultiModuleComposition.md`.
         // `.product` dependencies come from an external package; `.target`
         // dependencies are same-package siblings. The distinction drives
         // the cross-module visibility threshold (7f) — a `package` binding
@@ -95,11 +96,8 @@ struct WireBuildPlugin: BuildToolPlugin {
                 guard let dependencyModule = dependencyTarget.sourceModule,
                     !seenModules.contains(dependencyModule.moduleName)
                 else { continue }
+                guard dependsOnWire(dependencyModule) else { continue }
                 let dependencySources = dependencyModule.sourceFiles(withSuffix: "swift").map(\.url)
-                let isWireAware = dependencySources.contains {
-                    $0.lastPathComponent == "_WireExports.swift"
-                }
-                guard isWireAware else { continue }
                 seenModules.insert(dependencyModule.moduleName)
                 dependencyGroups.append((dependencyModule.moduleName, dependencySources, isExternal))
             }
@@ -147,3 +145,32 @@ struct WireBuildPlugin: BuildToolPlugin {
         ]
     }
 }
+
+/// Whether `module` can declare Wire bindings — the signal that replaced the hand-declared
+/// `_WireExports.swift` marker in M7b.5.
+///
+/// A target that declares bindings must `import Wire`, which requires a direct dependency on the `Wire`
+/// product, and SPM exposes a dependency target's own dependencies at plan time. So the predicate **cannot
+/// under-fire**: there is no way to write a binding without it being true.
+///
+/// Over-firing is harmless, which is what makes this usable where the same predicate was not usable for
+/// M7a (there, a false positive declares a build input nothing produces, which is a hard failure). Here a
+/// scanned library that declares no bindings simply contributes none, and — since M7b — anything it does
+/// declare that the consumer never reaches is pruned before it can cost anything or fail to resolve.
+///
+/// Both dependency kinds are matched by name. Inside swift-wire's own package `Wire` is a *target*
+/// dependency; to every other package it is a *product*. A same-package sibling library and an external
+/// one are otherwise identical here, exactly as the activation rule says.
+private func dependsOnWire(_ module: SourceModuleTarget) -> Bool {
+    module.dependencies.contains { dependency in
+        switch dependency {
+        case .target(let target): return target.name == wireProductName
+        case .product(let product): return product.name == wireProductName
+        @unknown default: return false
+        }
+    }
+}
+
+/// The module every Wire-aware target imports, and therefore depends on.
+private let wireProductName = "Wire"
+
