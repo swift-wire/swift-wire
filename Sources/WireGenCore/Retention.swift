@@ -171,6 +171,9 @@ package struct GraphStoragePatch {
     package let builderLocal: String?
     package let propertyBlockIndex: Int
     package let returnLineIndex: Int
+    /// M7c.3 — the indent the memberwise-init line takes. The linear chain returns from the bootstrap
+    /// function's own body; the scheduled form returns from inside the task-group closure, one level in.
+    package let returnIndent: String
 }
 
 /// The reserved-slot marker. Distinctive enough that it cannot collide with emitted Swift, and swept out
@@ -237,7 +240,7 @@ package func resolveStoragePatches(_ patches: [GraphStoragePatch], in lines: ino
         if patch.hasTeardown {
             returnArgs += returnArgs.isEmpty ? "_wireTeardown: _wireTeardown" : ", _wireTeardown: _wireTeardown"
         }
-        lines[patch.returnLineIndex] = "    return \(patch.structName)(\(returnArgs))"
+        lines[patch.returnLineIndex] = "\(patch.returnIndent)return \(patch.structName)(\(returnArgs))"
     }
     lines.removeAll { $0 == storagePlaceholder }
 }

@@ -4323,6 +4323,100 @@ private func _wireBootstrapGenSeedFixture_bindMock() async throws -> _GenSeedFix
     return _GenSeedFixture_bindMockWireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _wireTeardown: _wireTeardown)
 }
 
+internal struct _ParallelSchedulerContainerWireGraph: Introspectable, Teardownable {
+    let constructionClock: ParallelSchedulerContainer.ConstructionClock
+    let fastSignal: FastSignal
+    let fastDependent: ParallelSchedulerContainer.FastDependent
+    let slowSignal: SlowSignal
+
+    func introspect() -> WiringModel {
+        WiringModel(bindings: [
+            BindingInfo(type: "ConstructionClock", key: nil, kind: .singleton, scope: nil, dependencies: [], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/ParallelSchedulerExample.swift", line: 38)),
+            BindingInfo(type: "FastSignal", key: nil, kind: .provider, scope: nil, dependencies: [], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/ParallelSchedulerExample.swift", line: 55)),
+            BindingInfo(type: "FastDependent", key: nil, kind: .singleton, scope: nil, dependencies: [DependencyEdge(type: "FastSignal", key: nil), DependencyEdge(type: "ConstructionClock", key: nil)], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/ParallelSchedulerExample.swift", line: 78)),
+            BindingInfo(type: "SlowSignal", key: nil, kind: .provider, scope: nil, dependencies: [DependencyEdge(type: "ConstructionClock", key: nil)], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/ParallelSchedulerExample.swift", line: 66)),
+        ])
+    }
+}
+
+// Every binding this graph builds in a child task, and every dependency such a binding captures,
+// must be Sendable — `ThrowingTaskGroup`'s result and `addTask`'s closure both require it. These
+// assertions exist so that requirement is reported at the binding rather than inside the
+// generated scheduler below. Never called.
+private func _wireSendableChecks_ParallelSchedulerContainerWireGraph() {
+    func _check<T: Sendable>(_: T.Type) {}
+
+    #sourceLocation(file: "Tests/IntegrationTests/ParallelSchedulerExample.swift", line: 38)
+    _check((ParallelSchedulerContainer.ConstructionClock).self)
+    #sourceLocation()
+
+    #sourceLocation(file: "Tests/IntegrationTests/ParallelSchedulerExample.swift", line: 55)
+    _check((FastSignal).self)
+    #sourceLocation()
+
+    #sourceLocation(file: "Tests/IntegrationTests/ParallelSchedulerExample.swift", line: 66)
+    _check((SlowSignal).self)
+    #sourceLocation()
+}
+
+private enum _ParallelSchedulerContainerWireTaskResult: Sendable {
+    case fastSignal(FastSignal)
+    case slowSignal(SlowSignal)
+}
+
+private struct _ParallelSchedulerContainerWireBuilding: ~Copyable {
+    var _wireState_constructionClock: _WireBindingState<ParallelSchedulerContainer.ConstructionClock> = .unmarked
+    var _wireState_fastSignal: _WireBindingState<FastSignal> = .unmarked
+    var _wireState_fastDependent: _WireBindingState<ParallelSchedulerContainer.FastDependent> = .unmarked
+    var _wireState_slowSignal: _WireBindingState<SlowSignal> = .unmarked
+
+    mutating func _wireAdd_constructionClock(_ _wireGroup: inout ThrowingTaskGroup<_ParallelSchedulerContainerWireTaskResult, any Error>) throws {
+        guard _wireState_constructionClock.asPending() else { return }
+        _wireState_constructionClock.asResolved(ParallelSchedulerContainer.ConstructionClock())
+        try _wireAdd_fastDependent(&_wireGroup)
+        try _wireAdd_slowSignal(&_wireGroup)
+    }
+
+    mutating func _wireAdd_fastSignal(_ _wireGroup: inout ThrowingTaskGroup<_ParallelSchedulerContainerWireTaskResult, any Error>) throws {
+        guard _wireState_fastSignal.asPending() else { return }
+        _wireGroup.addTask { .fastSignal(try await ParallelSchedulerContainer.makeFastSignal()) }
+    }
+
+    mutating func _wireAdd_fastDependent(_ _wireGroup: inout ThrowingTaskGroup<_ParallelSchedulerContainerWireTaskResult, any Error>) throws {
+        guard let fastSignal = _wireState_fastSignal.value(), let constructionClock = _wireState_constructionClock.value() else { return }
+        guard _wireState_fastDependent.asPending() else { return }
+        _wireState_fastDependent.asResolved(ParallelSchedulerContainer.FastDependent(fast: fastSignal, clock: constructionClock))
+    }
+
+    mutating func _wireAdd_slowSignal(_ _wireGroup: inout ThrowingTaskGroup<_ParallelSchedulerContainerWireTaskResult, any Error>) throws {
+        guard let constructionClock = _wireState_constructionClock.value() else { return }
+        guard _wireState_slowSignal.asPending() else { return }
+        _wireGroup.addTask { .slowSignal(try await ParallelSchedulerContainer.makeSlowSignal(clock: constructionClock)) }
+    }
+
+    mutating func _wireUpdate(_ _wireResult: _ParallelSchedulerContainerWireTaskResult, _ _wireGroup: inout ThrowingTaskGroup<_ParallelSchedulerContainerWireTaskResult, any Error>) throws {
+        switch _wireResult {
+        case .fastSignal(let _wireValue):
+            _wireState_fastSignal.asResolved(_wireValue)
+            try _wireAdd_fastDependent(&_wireGroup)
+        case .slowSignal(let _wireValue):
+            _wireState_slowSignal.asResolved(_wireValue)
+        }
+    }
+}
+
+private func _wireBootstrapParallelSchedulerContainer() async throws -> _ParallelSchedulerContainerWireGraph {
+    return try await withThrowingTaskGroup(of: _ParallelSchedulerContainerWireTaskResult.self) { _wireGroup in
+        var building = _ParallelSchedulerContainerWireBuilding()
+        try building._wireAdd_constructionClock(&_wireGroup)
+        try building._wireAdd_fastSignal(&_wireGroup)
+        while let _wireResult = try await _wireGroup.next() {
+            try building._wireUpdate(_wireResult, &_wireGroup)
+        }
+        return _ParallelSchedulerContainerWireGraph(constructionClock: building._wireState_constructionClock.take(), fastSignal: building._wireState_fastSignal.take(), fastDependent: building._wireState_fastDependent.take(), slowSignal: building._wireState_slowSignal.take())
+    }
+}
+
 internal struct _PluginContainerWireGraph: Introspectable, Teardownable {
     @available(*, unavailable, message: "'alphaPlugin' is constructed by the graph but not a direct property of it. To read it as 'graph.alphaPlugin', mark its binding at Tests/IntegrationTests/ContainerMultibindingExample.swift:18 'allowUnused: true'.") internal var alphaPlugin: PluginContainer.AlphaPlugin { fatalError() }
     @available(*, unavailable, message: "'betaPlugin' is constructed by the graph but not a direct property of it. To read it as 'graph.betaPlugin', mark its binding at Tests/IntegrationTests/ContainerMultibindingExample.swift:23 'allowUnused: true'.") internal var betaPlugin: PluginContainer.BetaPlugin { fatalError() }
@@ -4392,6 +4486,27 @@ internal struct _SchedulerContainerWireGraph: Introspectable, Teardownable {
     }
 }
 
+// Every binding this graph builds in a child task, and every dependency such a binding captures,
+// must be Sendable — `ThrowingTaskGroup`'s result and `addTask`'s closure both require it. These
+// assertions exist so that requirement is reported at the binding rather than inside the
+// generated scheduler below. Never called.
+private func _wireSendableChecks_SchedulerContainerWireGraph() {
+    func _check<T: Sendable>(_: T.Type) {}
+
+    #sourceLocation(file: "Tests/IntegrationTests/SchedulerContainerExample.swift", line: 55)
+    _check((SchedulerContainer.SchedulerConfig).self)
+    #sourceLocation()
+
+    #sourceLocation(file: "Tests/IntegrationTests/SchedulerContainerExample.swift", line: 37)
+    _check((SchedulerToken).self)
+    #sourceLocation()
+}
+
+private enum _SchedulerContainerWireTaskResult: Sendable {
+    case schedulerConfig(SchedulerContainer.SchedulerConfig)
+    case schedulerToken(SchedulerToken)
+}
+
 private struct _SchedulerContainerWireBuilding: ~Copyable {
     var _wireState_alphaProbe: _WireBindingState<SchedulerContainer.AlphaProbe> = .unmarked
     var _wireState_betaProbe: _WireBindingState<SchedulerContainer.BetaProbe> = .unmarked
@@ -4402,64 +4517,78 @@ private struct _SchedulerContainerWireBuilding: ~Copyable {
     var _wireState_schedulerToken: _WireBindingState<SchedulerToken> = .unmarked
     var _wireState_schedulerService: _WireBindingState<SchedulerContainer.SchedulerService> = .unmarked
 
-    mutating func _wireAdd_alphaProbe() async throws {
+    mutating func _wireAdd_alphaProbe(_ _wireGroup: inout ThrowingTaskGroup<_SchedulerContainerWireTaskResult, any Error>) throws {
         guard _wireState_alphaProbe.asPending() else { return }
         _wireState_alphaProbe.asResolved(SchedulerContainer.AlphaProbe())
-        try await _wireAdd_anySchedulerProbeKeyedSchedulerContainerProbes()
+        try _wireAdd_anySchedulerProbeKeyedSchedulerContainerProbes(&_wireGroup)
     }
 
-    mutating func _wireAdd_betaProbe() async throws {
+    mutating func _wireAdd_betaProbe(_ _wireGroup: inout ThrowingTaskGroup<_SchedulerContainerWireTaskResult, any Error>) throws {
         guard _wireState_betaProbe.asPending() else { return }
         _wireState_betaProbe.asResolved(SchedulerContainer.BetaProbe())
-        try await _wireAdd_anySchedulerProbeKeyedSchedulerContainerProbes()
+        try _wireAdd_anySchedulerProbeKeyedSchedulerContainerProbes(&_wireGroup)
     }
 
-    mutating func _wireAdd_anySchedulerProbeKeyedSchedulerContainerProbes() async throws {
+    mutating func _wireAdd_anySchedulerProbeKeyedSchedulerContainerProbes(_ _wireGroup: inout ThrowingTaskGroup<_SchedulerContainerWireTaskResult, any Error>) throws {
         guard let alphaProbe = _wireState_alphaProbe.value(), let betaProbe = _wireState_betaProbe.value() else { return }
         guard _wireState_anySchedulerProbeKeyedSchedulerContainerProbes.asPending() else { return }
         _wireState_anySchedulerProbeKeyedSchedulerContainerProbes.asResolved([alphaProbe, betaProbe] as [any SchedulerProbe])
-        try await _wireAdd_probeHost()
+        try _wireAdd_probeHost(&_wireGroup)
     }
 
-    mutating func _wireAdd_probeHost() async throws {
+    mutating func _wireAdd_probeHost(_ _wireGroup: inout ThrowingTaskGroup<_SchedulerContainerWireTaskResult, any Error>) throws {
         guard let anySchedulerProbeKeyedSchedulerContainerProbes = _wireState_anySchedulerProbeKeyedSchedulerContainerProbes.value() else { return }
         guard _wireState_probeHost.asPending() else { return }
         _wireState_probeHost.asResolved(SchedulerContainer.ProbeHost(probes: anySchedulerProbeKeyedSchedulerContainerProbes))
     }
 
-    mutating func _wireAdd_schedulerConfig() async throws {
+    mutating func _wireAdd_schedulerConfig(_ _wireGroup: inout ThrowingTaskGroup<_SchedulerContainerWireTaskResult, any Error>) throws {
         guard _wireState_schedulerConfig.asPending() else { return }
-        _wireState_schedulerConfig.asResolved(try await SchedulerContainer.SchedulerConfig())
-        try await _wireAdd_schedulerService()
+        _wireGroup.addTask { .schedulerConfig(try await SchedulerContainer.SchedulerConfig()) }
     }
 
-    mutating func _wireAdd_schedulerCounter() async throws {
+    mutating func _wireAdd_schedulerCounter(_ _wireGroup: inout ThrowingTaskGroup<_SchedulerContainerWireTaskResult, any Error>) throws {
         guard _wireState_schedulerCounter.asPending() else { return }
         _wireState_schedulerCounter.asResolved(SchedulerContainer.SchedulerCounter())
-        try await _wireAdd_schedulerService()
+        try _wireAdd_schedulerService(&_wireGroup)
     }
 
-    mutating func _wireAdd_schedulerToken() async throws {
+    mutating func _wireAdd_schedulerToken(_ _wireGroup: inout ThrowingTaskGroup<_SchedulerContainerWireTaskResult, any Error>) throws {
         guard _wireState_schedulerToken.asPending() else { return }
-        _wireState_schedulerToken.asResolved(try await SchedulerContainer.makeSchedulerToken())
-        try await _wireAdd_schedulerService()
+        _wireGroup.addTask { .schedulerToken(try await SchedulerContainer.makeSchedulerToken()) }
     }
 
-    mutating func _wireAdd_schedulerService() async throws {
+    mutating func _wireAdd_schedulerService(_ _wireGroup: inout ThrowingTaskGroup<_SchedulerContainerWireTaskResult, any Error>) throws {
         guard let schedulerToken = _wireState_schedulerToken.value(), let schedulerCounter = _wireState_schedulerCounter.value(), let schedulerConfig = _wireState_schedulerConfig.value() else { return }
         guard _wireState_schedulerService.asPending() else { return }
         _wireState_schedulerService.asResolved(SchedulerContainer.SchedulerService(token: schedulerToken, counter: schedulerCounter, config: schedulerConfig))
     }
+
+    mutating func _wireUpdate(_ _wireResult: _SchedulerContainerWireTaskResult, _ _wireGroup: inout ThrowingTaskGroup<_SchedulerContainerWireTaskResult, any Error>) throws {
+        switch _wireResult {
+        case .schedulerConfig(let _wireValue):
+            _wireState_schedulerConfig.asResolved(_wireValue)
+            try _wireAdd_schedulerService(&_wireGroup)
+        case .schedulerToken(let _wireValue):
+            _wireState_schedulerToken.asResolved(_wireValue)
+            try _wireAdd_schedulerService(&_wireGroup)
+        }
+    }
 }
 
 private func _wireBootstrapSchedulerContainer() async throws -> _SchedulerContainerWireGraph {
-    var building = _SchedulerContainerWireBuilding()
-    try await building._wireAdd_alphaProbe()
-    try await building._wireAdd_betaProbe()
-    try await building._wireAdd_schedulerConfig()
-    try await building._wireAdd_schedulerCounter()
-    try await building._wireAdd_schedulerToken()
-    return _SchedulerContainerWireGraph(probeHost: building._wireState_probeHost.take(), schedulerConfig: building._wireState_schedulerConfig.take(), schedulerCounter: building._wireState_schedulerCounter.take(), schedulerToken: building._wireState_schedulerToken.take(), schedulerService: building._wireState_schedulerService.take())
+    return try await withThrowingTaskGroup(of: _SchedulerContainerWireTaskResult.self) { _wireGroup in
+        var building = _SchedulerContainerWireBuilding()
+        try building._wireAdd_alphaProbe(&_wireGroup)
+        try building._wireAdd_betaProbe(&_wireGroup)
+        try building._wireAdd_schedulerConfig(&_wireGroup)
+        try building._wireAdd_schedulerCounter(&_wireGroup)
+        try building._wireAdd_schedulerToken(&_wireGroup)
+        while let _wireResult = try await _wireGroup.next() {
+            try building._wireUpdate(_wireResult, &_wireGroup)
+        }
+        return _SchedulerContainerWireGraph(probeHost: building._wireState_probeHost.take(), schedulerConfig: building._wireState_schedulerConfig.take(), schedulerCounter: building._wireState_schedulerCounter.take(), schedulerToken: building._wireState_schedulerToken.take(), schedulerService: building._wireState_schedulerService.take())
+    }
 }
 
 internal struct _SubjectDoublesFixture_bindBothWireGraph<T0: AggregateSearchBackend, T1: GenAppBackend, T2: GenBackend, T3: GenProxyRepository, T4: GenSomethingElse, T5: Greeting, T6: TeardownResource>: Introspectable, Teardownable {
@@ -6435,6 +6564,9 @@ internal enum Wire {
     }
     static func bootstrapGenSeedFixture_bindMock() async throws -> _GenSeedFixture_bindMockWireGraph<some AggregateSearchBackend, some GenAppBackend, some GenProxyRepository, some GenSomethingElse, some Greeting, some TeardownResource> {
         try await _wireBootstrapGenSeedFixture_bindMock()
+    }
+    static func bootstrapParallelSchedulerContainer() async throws -> _ParallelSchedulerContainerWireGraph {
+        try await _wireBootstrapParallelSchedulerContainer()
     }
     static func bootstrapPluginContainer() async throws -> _PluginContainerWireGraph {
         try await _wireBootstrapPluginContainer()

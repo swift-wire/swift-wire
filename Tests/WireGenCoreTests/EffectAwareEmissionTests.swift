@@ -8,10 +8,11 @@ import Testing
 /// Lives in its own suite (rather than appended to `CodeEmissionTests`)
 /// so the gallery struct's body stays under the lint threshold.
 ///
-/// M7c.2 — a graph containing an async binding is emitted through the construction state struct, so its
-/// construction site is `_wireState_x.asResolved(<expr>)` rather than `let x = <expr>`. The effect prefix
-/// this suite is about is unchanged; only where it lands moved. A wholly-sync graph keeps the linear
-/// chain, which is why the sync and sync-throwing cases below still assert the `let` form.
+/// Every fixture here asserts the `let` form, and after M7c.3 that is a statement about the *trigger*
+/// rather than an accident. A graph takes the construction state struct only when two of its async
+/// bindings can be in flight at once; each fixture below has at most one async binding, or a chain of
+/// them, so none qualifies and all keep the linear chain. `ConstructionSchedulingTests` owns the
+/// scheduled form, where the same prefix lands inside `addTask { … }` instead.
 @Suite("EffectAwareEmission")
 struct EffectAwareEmissionTests {
     // MARK: - Helpers
@@ -104,7 +105,7 @@ struct EffectAwareEmissionTests {
                 providerFunction("makeFoo", boundType: "Foo", isAsync: true)
             ]
         )
-        #expect(output.contains("_wireState_foo.asResolved(await makeFoo())"))
+        #expect(output.contains("let foo = await makeFoo()"))
     }
 
     @Test func throwsFunctionProviderEmitsTryPrefix() {
@@ -129,7 +130,7 @@ struct EffectAwareEmissionTests {
                 )
             ]
         )
-        #expect(output.contains("_wireState_baz.asResolved(try await makeBaz())"))
+        #expect(output.contains("let baz = try await makeBaz()"))
     }
 
     @Test func syncFunctionProviderEmitsNoPrefix() {
@@ -163,7 +164,7 @@ struct EffectAwareEmissionTests {
                 )
             ]
         )
-        #expect(output.contains("_wireState_foo.asResolved(try await fetchedFoo)"))
+        #expect(output.contains("let foo = try await fetchedFoo"))
     }
 
     // MARK: - User-written `@Inject init` effects
@@ -177,7 +178,7 @@ struct EffectAwareEmissionTests {
                 singleton("AsyncService", initIsAsync: true)
             ]
         )
-        #expect(output.contains("_wireState_asyncService.asResolved(await AsyncService())"))
+        #expect(output.contains("let asyncService = await AsyncService()"))
     }
 
     @Test func asyncThrowsInitOnScopeBoundEmitsTryAwaitPrefix() {
@@ -187,7 +188,7 @@ struct EffectAwareEmissionTests {
                 singleton("DatabasePool", initIsAsync: true, initIsThrowing: true)
             ]
         )
-        #expect(output.contains("_wireState_databasePool.asResolved(try await DatabasePool())"))
+        #expect(output.contains("let databasePool = try await DatabasePool()"))
     }
 
     @Test func syncInitOnScopeBoundEmitsNoPrefix() {
@@ -214,6 +215,9 @@ struct EffectAwareEmissionTests {
         // matching its own binding's effects; the enclosing
         // bootstrap is already async-throws-wide so all colours
         // are permitted in sequence.
+        //
+        // Two async bindings, and still the linear chain: `Application` depends on `DatabasePool`, so
+        // they are a chain rather than an independent pair and no scheduler can overlap them.
         let output = renderWireGraph(
             imports: [],
             topologicalOrder: [
@@ -232,8 +236,8 @@ struct EffectAwareEmissionTests {
                 ),
             ]
         )
-        #expect(output.contains("_wireState_logger.asResolved(Logger())"))
-        #expect(output.contains("_wireState_databasePool.asResolved(try await DatabasePool(logger: logger))"))
-        #expect(output.contains("_wireState_application.asResolved(try await Application(pool: databasePool))"))
+        #expect(output.contains("let logger = Logger()"))
+        #expect(output.contains("let databasePool = try await DatabasePool(logger: logger)"))
+        #expect(output.contains("let application = try await Application(pool: databasePool)"))
     }
 }

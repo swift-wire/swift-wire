@@ -214,6 +214,12 @@ func appendStruct(
     )
     if scheduled {
         file.lines.append(
+            contentsOf: schedulerSendableCheckLines(structName: structName, topologicalOrder: topologicalOrder)
+        )
+        file.lines.append(
+            contentsOf: schedulerTaskResultEnumLines(structName: structName, topologicalOrder: topologicalOrder)
+        )
+        file.lines.append(
             contentsOf: schedulerBuildingStructLines(structName: structName, topologicalOrder: topologicalOrder)
         )
     }
@@ -259,8 +265,8 @@ func appendStruct(
     )
 }
 
-/// The scheduled construction body (M7c.2): start every source binding and let the cascade reach the
-/// rest, then hand the memberwise init the cells to take from.
+/// The scheduled construction body (M7c.3): open the task group, start every source binding, drain the
+/// group applying each result and cascading from it, then hand the memberwise init the cells to take from.
 private func appendScheduledConstruction(
     structName: String,
     topologicalOrder: [DiscoveredBinding],
@@ -274,6 +280,7 @@ private func appendScheduledConstruction(
     )
     let returnLineIndex = file.lines.count
     file.lines.append(storagePlaceholder)
+    file.lines.append(contentsOf: schedulerBootstrapClosingLines())
     file.lines.append("}")
     file.storagePatches.append(
         GraphStoragePatch(
@@ -285,7 +292,9 @@ private func appendScheduledConstruction(
             hasTeardown: false,
             builderLocal: "building",
             propertyBlockIndex: propertyBlockIndex,
-            returnLineIndex: returnLineIndex
+            returnLineIndex: returnLineIndex,
+            // Inside the group closure, so one level deeper than the linear chain's return.
+            returnIndent: schedulerReturnIndent
         )
     )
 }
@@ -380,7 +389,8 @@ private func appendLinearConstruction(
             hasTeardown: !torn.isEmpty,
             builderLocal: nil,
             propertyBlockIndex: propertyBlockIndex,
-            returnLineIndex: returnLineIndex
+            returnLineIndex: returnLineIndex,
+            returnIndent: "    "
         )
     )
 }
