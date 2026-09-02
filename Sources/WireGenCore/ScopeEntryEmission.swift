@@ -117,29 +117,41 @@ private func scopeEntryThunkLines(
     for alias in aliases.upFront {
         lines.append(contentsOf: existentialAliasLines(alias, boundTo: alias.producerLocalName, indent: "        "))
     }
-    for binding in scope.topologicalOrder {
-        if let reachable, !reachable.contains(binding.identity) { continue }
+    // What this thunk actually constructs: the reachable set, minus the borrowed singletons (which resolve
+    // to the captured bootstrap local of the same name) and minus the seed's redundant `let seed = seed`.
+    let constructed = scope.topologicalOrder.filter { binding in
+        if let reachable, !reachable.contains(binding.identity) { return false }
         let name = propertyName(for: binding)
-        // A borrowed singleton resolves to the captured bootstrap local of the same identity name, so
-        // it is not re-constructed here; the seed's `let seed = seed` shadow is likewise redundant.
-        if scope.borrowedBindingPropertyNames.contains(name) { continue }
-        let construction = constructionExpression(for: binding)
-        if name == construction { continue }
-        lines.append("        let \(name) = \(construction)")
-        lines.append(
-            contentsOf: existentialAliasLines(
-                aliases.afterConstruction[binding.identity],
-                boundTo: name,
-                indent: "        "
-            )
-        )
+        if scope.borrowedBindingPropertyNames.contains(name) { return false }
+        return name != constructionExpression(for: binding)
     }
+    // M7c.6 — a request scope is scheduled on the same terms the bootstrap is, and for a better reason:
+    // this runs per request rather than once. The regions are computed over the *pruned* set, so two roots
+    // into one scope can reach different plans, which is correct — each builds only what it needs.
+    // A group binding that reads a *closure* local — the seed, `doubles`, or a borrowed singleton — would
+    // need that local as a stored property on the building struct, and its type is not something the region
+    // computation can know: it is a local beside the struct, not a binding in the order. So a scope whose
+    // scheduled region reaches outside the construction set keeps the chain. Every other exclusion is
+    // `schedulerPlan`'s; this one is the seam's, and it is the price of declaring the struct locally.
+    let plan = schedulerPlan(for: constructed, seedScopes: [:], existentialPromotions: [])
+        .flatMap { $0.crossingLocals.isEmpty ? $0 : nil }
+    lines.append(
+        contentsOf: scopeConstructionLines(plan: plan, constructed: constructed, aliases: aliases)
+    )
+    // When the scope schedules, everything after the seam — the teardown closure and the entry struct —
+    // lives inside the group closure, whose value *is* the entry. So the tail indents one level further and
+    // the closure is closed before the thunk's own brace.
+    let tailIndent = plan == nil ? { (lines: [String]) in lines } : indentedForGroupBody
     // The scope's teardown closure — the reverse-order `@Teardown` walk for the scope's own bindings (not
     // the borrowed singletons, which are torn down at app scope), pruned to the reachable set so a request
     // to one controller never tears down a sibling's binding. Captures the construction locals above, so it
     // runs against each binding's concrete instance. Returned alongside the subject; the witness runs it
     // after the response (M5.4.5). Consistent with the graph's captured `_wireTeardown`.
-    lines.append(contentsOf: scopeTeardownClosureLines(scope, local: scopeTeardownLocalName, reachable: reachable))
+    lines.append(
+        contentsOf: tailIndent(
+            scopeTeardownClosureLines(scope, local: scopeTeardownLocalName, reachable: reachable)
+        )
+    )
     // The entry struct, constructed with labels. Its generic arguments are *inferred* from these values
     // rather than written: a subject over an opaque backend has no spellable name here, and annotating it
     // fails with two identically-printed opaque types refusing to convert to each other.
@@ -149,10 +161,77 @@ private func scopeEntryThunkLines(
         + [(scopeTeardownLocalName, scopeTeardownLocalName)])
         .map { "\($0): \($1)" }
         .joined(separator: ", ")
-    lines.append("        return \(descriptor.entryStructName)(\(arguments))")
+    lines.append(contentsOf: tailIndent(["        return \(descriptor.entryStructName)(\(arguments))"]))
+    if plan != nil { lines.append(contentsOf: indentedForGroupBody(schedulerBootstrapClosingLines())) }
     lines.append("    }")
     return lines
 }
+
+/// One scope entry's construction body — the linear chain, or the prefix / group / suffix split when the
+/// scope has two async bindings that can overlap.
+///
+/// The scheduled form differs from the bootstrap's in one structural way, and it is what
+/// `crossingLocals` exists for: the building struct is declared **inside the thunk**, beside the closure's
+/// own locals rather than at module scope, so a bare name in a construction expression resolves to nothing
+/// from inside its methods. The seed, `doubles` and every borrowed singleton therefore cross the seam as
+/// stored properties exactly as a prefix binding does — where at app scope those same names would have
+/// resolved to module-scope declarations and needed nothing.
+private func scopeConstructionLines(
+    plan: ConstructionRegions?,
+    constructed: [DiscoveredBinding],
+    aliases: ExistentialAliasPlan
+) -> [String] {
+    func chain(_ bindings: [DiscoveredBinding], indent: String) -> [String] {
+        var lines: [String] = []
+        for binding in bindings {
+            let name = propertyName(for: binding)
+            lines.append("\(indent)let \(name) = \(constructionExpression(for: binding))")
+            lines.append(
+                contentsOf: existentialAliasLines(
+                    aliases.afterConstruction[binding.identity],
+                    boundTo: name,
+                    indent: indent
+                )
+            )
+        }
+        return lines
+    }
+    guard let plan else { return chain(constructed, indent: "        ") }
+
+    var lines = chain(plan.prefix, indent: "        ")
+    // No `_wireSendableChecks` here, deliberately: `#sourceLocation` is a top-of-file directive and
+    // derails the parse from inside a closure. What is lost is the *located* half of the diagnostic; the
+    // marker enum's own error still names the case, the type and — in a note — the user's declaration,
+    // which M7c.3 measured as the better of the two anyway.
+    // Two levels, not one: these are emitted for module scope, where the graph's own declarations sit at
+    // column zero, and here they are two levels in — inside the thunk closure, inside the bootstrap body.
+    lines.append(
+        contentsOf: indentedForGroupBody(
+            indentedForGroupBody(
+                schedulerTaskResultEnumLines(structName: scopeSchedulerName, regions: plan, isLocal: true)
+            )
+        )
+    )
+    lines.append(
+        contentsOf: indentedForGroupBody(
+            indentedForGroupBody(
+                schedulerBuildingStructLines(structName: scopeSchedulerName, regions: plan, isLocal: true)
+            )
+        )
+    )
+    lines.append(
+        contentsOf: indentedForGroupBody(
+            schedulerBootstrapOpeningLines(structName: scopeSchedulerName, regions: plan, tornInGroup: [])
+        )
+    )
+    lines.append(contentsOf: indentedForGroupBody(schedulerSeamLines(regions: plan)))
+    lines.append(contentsOf: indentedForGroupBody(chain(plan.suffix, indent: "        ")))
+    return lines
+}
+
+/// The scope scheduler's type names. One thunk declares them, locally, so there is exactly one of each in
+/// scope and no per-(scope, root) naming problem to solve.
+private let scopeSchedulerName = "_WireScopeWireGraph"
 
 /// The binding identities reachable from the routed controller over the scope's resolved edges — a BFS
 /// rooted at the subject binding (found by its construction-local name). Returns `nil` (no pruning) when

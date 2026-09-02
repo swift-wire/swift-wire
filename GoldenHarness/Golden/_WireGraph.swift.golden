@@ -51,6 +51,18 @@ struct _WireAggregateContributor_alpha<Backend: AggregateSearchBackend>: Sendabl
     }
 }
 
+struct _WireScopeEntry_AsyncScopeController: Sendable, WireScopeEntry {
+    let _wireSubject: AsyncScopeController
+    let _wireScopeTeardown: @Sendable () async -> [any Error]
+}
+
+struct _WireAggregateContributor_async: Sendable {
+    let _wireEnterScope: @Sendable (AsyncScopeSeed) async throws -> _WireScopeEntry_AsyncScopeController
+    init(_wireEnterScope: @escaping @Sendable (AsyncScopeSeed) async throws -> _WireScopeEntry_AsyncScopeController) {
+        self._wireEnterScope = _wireEnterScope
+    }
+}
+
 struct _WireAggregateContributor_beta: Sendable {
     let _wireSubject: BetaOnlyController
     init(_ _wireSubject: BetaOnlyController) {
@@ -650,6 +662,7 @@ internal struct _WireGraph<T0: AggregateSearchBackend, T1: GenAppBackend, T2: Ge
     let _WireAggregateContributor_alphaOfSomeAggregateSearchBackend: _WireAggregateContributor_alpha<T0>
     @available(*, unavailable, message: "'betaOnlyController' is constructed by the graph but not a direct property of it. To read it as 'graph.betaOnlyController', mark its binding at Tests/IntegrationTests/AggregateProxyContributorExample.swift:155 'allowUnused: true'.") internal var betaOnlyController: BetaOnlyController { fatalError() }
     let _WireAggregateContributor_beta: _WireAggregateContributor_beta
+    let _WireAggregateContributor_async: _WireAggregateContributor_async
     @available(*, unavailable, message: "'anySendableKeyedWireTestAggregateKeysControllers' is constructed by the graph but not a direct property of it. To read it as 'graph.anySendableKeyedWireTestAggregateKeysControllers', mark its binding at Sources/WireTestLibrary/RouteControllerAdapter.swift:81 'allowUnused: true'.") internal var anySendableKeyedWireTestAggregateKeysControllers: [any Sendable] { fatalError() }
     @available(*, unavailable, message: "'soloAggregateOnlyController' is constructed by the graph but not a direct property of it. To read it as 'graph.soloAggregateOnlyController', mark its binding at Tests/IntegrationTests/AggregateProxyContributorExample.swift:116 'allowUnused: true'.") internal var soloAggregateOnlyController: SoloAggregateOnlyController { fatalError() }
     let _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests
@@ -776,7 +789,8 @@ internal struct _WireGraph<T0: AggregateSearchBackend, T1: GenAppBackend, T2: Ge
             BindingInfo(type: "_WireAggregateContributor_alpha<some AggregateSearchBackend>", key: nil, kind: .singleton, scope: nil, dependencies: [DependencyEdge(type: "AggregateReportController", key: nil), DependencyEdge(type: "AggregateSearchController<Backend>", key: nil), DependencyEdge(type: "@Sendable (AggregateRequestSeed) async throws -> _WireScopeEntry_AggregateTaskController", key: nil)], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/AggregateProxyContributorExample.swift", line: 88)),
             BindingInfo(type: "BetaOnlyController", key: nil, kind: .singleton, scope: nil, dependencies: [], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/AggregateProxyContributorExample.swift", line: 155)),
             BindingInfo(type: "_WireAggregateContributor_beta", key: nil, kind: .singleton, scope: nil, dependencies: [DependencyEdge(type: "BetaOnlyController", key: nil)], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/AggregateProxyContributorExample.swift", line: 155)),
-            BindingInfo(type: "[any Sendable]", key: "WireTestAggregateKeys.controllers", kind: .aggregate, scope: nil, dependencies: [DependencyEdge(type: "_WireAggregateContributor_alpha<some AggregateSearchBackend>", key: nil), DependencyEdge(type: "_WireAggregateContributor_beta", key: nil)], location: SourceLocation(module: "WireTestLibrary", file: "Sources/WireTestLibrary/RouteControllerAdapter.swift", line: 81)),
+            BindingInfo(type: "_WireAggregateContributor_async", key: nil, kind: .singleton, scope: nil, dependencies: [DependencyEdge(type: "@Sendable (AsyncScopeSeed) async throws -> _WireScopeEntry_AsyncScopeController", key: nil)], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/AsyncScopeEntryExample.swift", line: 113)),
+            BindingInfo(type: "[any Sendable]", key: "WireTestAggregateKeys.controllers", kind: .aggregate, scope: nil, dependencies: [DependencyEdge(type: "_WireAggregateContributor_alpha<some AggregateSearchBackend>", key: nil), DependencyEdge(type: "_WireAggregateContributor_beta", key: nil), DependencyEdge(type: "_WireAggregateContributor_async", key: nil)], location: SourceLocation(module: "WireTestLibrary", file: "Sources/WireTestLibrary/RouteControllerAdapter.swift", line: 81)),
             BindingInfo(type: "SoloAggregateOnlyController", key: nil, kind: .singleton, scope: nil, dependencies: [], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/AggregateProxyContributorExample.swift", line: 116)),
             BindingInfo(type: "_WireSoloAggregateContributor_IntegrationTests", key: nil, kind: .singleton, scope: nil, dependencies: [DependencyEdge(type: "SoloAggregateOnlyController", key: nil)], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/AggregateProxyContributorExample.swift", line: 116)),
             BindingInfo(type: "[any Sendable]", key: "WireTestAggregateKeys.soloControllers", kind: .aggregate, scope: nil, dependencies: [DependencyEdge(type: "_WireSoloAggregateContributor_IntegrationTests", key: nil)], location: SourceLocation(module: "WireTestLibrary", file: "Sources/WireTestLibrary/RouteControllerAdapter.swift", line: 82)),
@@ -973,7 +987,72 @@ private func _wireBootstrap() async throws -> _WireGraph<some AggregateSearchBac
         let _WireAggregateContributor_alphaOfSomeAggregateSearchBackend = _WireAggregateContributor_alpha(_wireSubject_AggregateReportController: aggregateReportController, _wireSubject_AggregateSearchController: aggregateSearchControllerOfSomeAggregateSearchBackend, _wireEnterScope_AggregateTaskController: sendableAggregateRequestSeedasyncthrows_WireScopeEntry_AggregateTaskController)
         let betaOnlyController = BetaOnlyController()
         let _WireAggregateContributor_beta = _WireAggregateContributor_beta(betaOnlyController)
-        let anySendableKeyedWireTestAggregateKeysControllers = [_WireAggregateContributor_alphaOfSomeAggregateSearchBackend, _WireAggregateContributor_beta] as [any Sendable]
+        let sendableAsyncScopeSeedasyncthrows_WireScopeEntry_AsyncScopeController = { @Sendable (asyncScopeSeed: AsyncScopeSeed) async throws in
+            let asyncScopeClock = AsyncScopeClock()
+            let asyncScopeSession = AsyncScopeSession()
+
+            enum _WireScopeWireTaskResult: Sendable {
+                case asyncScopeFast(AsyncScopeFast)
+                case asyncScopeSlow(AsyncScopeSlow)
+            }
+
+            struct _WireScopeWireBuilding: ~Copyable {
+                let asyncScopeClock: AsyncScopeClock
+
+                var _wireState_asyncScopeFast: _WireBindingState<AsyncScopeFast> = .unmarked
+                var _wireState_asyncScopeDependent: _WireBindingState<AsyncScopeDependent> = .unmarked
+                var _wireState_asyncScopeSlow: _WireBindingState<AsyncScopeSlow> = .unmarked
+
+                mutating func _wireAdd_asyncScopeFast(_ _wireGroup: inout ThrowingTaskGroup<_WireScopeWireTaskResult, any Error>) throws {
+                    guard _wireState_asyncScopeFast.asPending() else { return }
+                    let asyncScopeClock = self.asyncScopeClock
+                    _wireGroup.addTask { .asyncScopeFast(try await AsyncScopeFast(clock: asyncScopeClock)) }
+                }
+
+                mutating func _wireAdd_asyncScopeDependent(_ _wireGroup: inout ThrowingTaskGroup<_WireScopeWireTaskResult, any Error>) throws {
+                    guard let asyncScopeFast = _wireState_asyncScopeFast.value() else { return }
+                    guard _wireState_asyncScopeDependent.asPending() else { return }
+                    let asyncScopeClock = self.asyncScopeClock
+                    _wireState_asyncScopeDependent.asResolved(AsyncScopeDependent(fast: asyncScopeFast, clock: asyncScopeClock))
+                }
+
+                mutating func _wireAdd_asyncScopeSlow(_ _wireGroup: inout ThrowingTaskGroup<_WireScopeWireTaskResult, any Error>) throws {
+                    guard _wireState_asyncScopeSlow.asPending() else { return }
+                    let asyncScopeClock = self.asyncScopeClock
+                    _wireGroup.addTask { .asyncScopeSlow(try await AsyncScopeSlow(clock: asyncScopeClock)) }
+                }
+
+                mutating func _wireUpdate(_ _wireResult: _WireScopeWireTaskResult, _ _wireGroup: inout ThrowingTaskGroup<_WireScopeWireTaskResult, any Error>) throws {
+                    switch _wireResult {
+                    case .asyncScopeFast(let _wireValue):
+                        _wireState_asyncScopeFast.asResolved(_wireValue)
+                        try _wireAdd_asyncScopeDependent(&_wireGroup)
+                    case .asyncScopeSlow(let _wireValue):
+                        _wireState_asyncScopeSlow.asResolved(_wireValue)
+                    }
+                }
+            }
+            return try await withThrowingTaskGroup(of: _WireScopeWireTaskResult.self) { _wireGroup in
+                var building = _WireScopeWireBuilding(asyncScopeClock: asyncScopeClock)
+                try building._wireAdd_asyncScopeFast(&_wireGroup)
+                try building._wireAdd_asyncScopeSlow(&_wireGroup)
+                while let _wireResult = try await _wireGroup.next() {
+                    try building._wireUpdate(_wireResult, &_wireGroup)
+                }
+                let asyncScopeFast = building._wireState_asyncScopeFast.take()
+                let asyncScopeDependent = building._wireState_asyncScopeDependent.take()
+                let asyncScopeSlow = building._wireState_asyncScopeSlow.take()
+                let asyncScopeController = AsyncScopeController(clock: asyncScopeClock, dependent: asyncScopeDependent, slow: asyncScopeSlow, session: asyncScopeSession, asyncScopeSeed: asyncScopeSeed)
+                let _wireScopeTeardown: @Sendable () async -> [any Error] = {
+                    let errors: [any Error] = []
+                    await asyncScopeSession.close()
+                    return errors
+                }
+                return _WireScopeEntry_AsyncScopeController(_wireSubject: asyncScopeController, _wireScopeTeardown: _wireScopeTeardown)
+            }
+        }
+        let _WireAggregateContributor_async = _WireAggregateContributor_async(_wireEnterScope: sendableAsyncScopeSeedasyncthrows_WireScopeEntry_AsyncScopeController)
+        let anySendableKeyedWireTestAggregateKeysControllers = [_WireAggregateContributor_alphaOfSomeAggregateSearchBackend, _WireAggregateContributor_beta, _WireAggregateContributor_async] as [any Sendable]
         let soloAggregateOnlyController = SoloAggregateOnlyController()
         let _WireSoloAggregateContributor_IntegrationTests = _WireSoloAggregateContributor_IntegrationTests(soloAggregateOnlyController)
         let anySendableKeyedWireTestAggregateKeysSoloControllers = [_WireSoloAggregateContributor_IntegrationTests] as [any Sendable]
@@ -1227,7 +1306,7 @@ private func _wireBootstrap() async throws -> _WireGraph<some AggregateSearchBac
                 }
                 return errors
             }
-            return _WireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_alphaOfSomeAggregateSearchBackend: _WireAggregateContributor_alphaOfSomeAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_BorrowRouteController: _WireRouteContributor_BorrowRouteController, _WireRouteContributor_FactoryProxyRouteController: _WireRouteContributor_FactoryProxyRouteController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _WireRouteContributor_GenPartialRouteControllerOfSomeGenProxyRepositoryAndSomeGenSomethingElse: _WireRouteContributor_GenPartialRouteControllerOfSomeGenProxyRepositoryAndSomeGenSomethingElse, _WireRouteContributor_GenProxyRouteControllerOfSomeGenProxyRepository: _WireRouteContributor_GenProxyRouteControllerOfSomeGenProxyRepository, _WireRouteContributor_ProxyRouteController: _WireRouteContributor_ProxyRouteController, _WireRouteContributor_SubjectAlphaController: _WireRouteContributor_SubjectAlphaController, _WireRouteContributor_SubjectBetaController: _WireRouteContributor_SubjectBetaController, _WireRouteContributor_SubjectPlainController: _WireRouteContributor_SubjectPlainController, _wireTeardown: _wireTeardown)
+            return _WireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_alphaOfSomeAggregateSearchBackend: _WireAggregateContributor_alphaOfSomeAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireAggregateContributor_async: _WireAggregateContributor_async, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_BorrowRouteController: _WireRouteContributor_BorrowRouteController, _WireRouteContributor_FactoryProxyRouteController: _WireRouteContributor_FactoryProxyRouteController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _WireRouteContributor_GenPartialRouteControllerOfSomeGenProxyRepositoryAndSomeGenSomethingElse: _WireRouteContributor_GenPartialRouteControllerOfSomeGenProxyRepositoryAndSomeGenSomethingElse, _WireRouteContributor_GenProxyRouteControllerOfSomeGenProxyRepository: _WireRouteContributor_GenProxyRouteControllerOfSomeGenProxyRepository, _WireRouteContributor_ProxyRouteController: _WireRouteContributor_ProxyRouteController, _WireRouteContributor_SubjectAlphaController: _WireRouteContributor_SubjectAlphaController, _WireRouteContributor_SubjectBetaController: _WireRouteContributor_SubjectBetaController, _WireRouteContributor_SubjectPlainController: _WireRouteContributor_SubjectPlainController, _wireTeardown: _wireTeardown)
         }
     } catch {
         for action in _wireTeardownActions.reversed() {
