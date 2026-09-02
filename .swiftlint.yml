@@ -9,3 +9,8 @@ line_length: 150
 function_body_length:
   warning: 50
   error: 75
+# A leading underscore marks a declaration as generated-code support rather than user API — the
+# convention the emitted `_WireGraph` and its `_wire`-prefixed members already follow. `Sources` carries
+# one such type, `_WireBindingState`, which generated code names directly.
+type_name:
+  allowed_symbols: ["_"]
