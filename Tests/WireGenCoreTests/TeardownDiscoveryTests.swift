@@ -329,11 +329,15 @@ struct TeardownDiscoveryTests {
         // Member form: the recorded method, called on the concrete local (not the graph's
         // possibly-lifted stored property).
         #expect(output.contains("try await pool.teardown()"))
-        // Reverse construction order — the later-constructed producer tears down before
-        // the earlier `pool` (dependents before dependencies).
-        let clientTeardown = try #require(output.firstRange(of: "action(hTTPClient)"))
+        // Reverse construction order — the later-constructed producer tears down before the earlier
+        // `pool` (dependents before dependencies). Since M7c.5 that order is carried at *runtime* rather
+        // than by emission order: each action is recorded where its binding is built, so the emitted text
+        // is in construction order and the fold walks it `.reversed()`. Recording where the binding exists
+        // is what lets the same list serve a partial teardown after a failed init.
         let poolTeardown = try #require(output.firstRange(of: "pool.teardown()"))
-        #expect(clientTeardown.lowerBound < poolTeardown.lowerBound)
+        let clientTeardown = try #require(output.firstRange(of: "action(hTTPClient)"))
+        #expect(poolTeardown.lowerBound < clientTeardown.lowerBound)
+        #expect(output.contains("for action in _wireTeardownActions.reversed() {"))
     }
 
     /// The opaque-lift case (wire-mvc-examples' `@Singleton(as:) PostgresTodoRepository`): the
@@ -387,10 +391,10 @@ struct TeardownDiscoveryTests {
             )
         )
         let output = renderWireGraph(imports: [], topologicalOrder: [cache])
-        #expect(output.contains("let errors: [any Error] = []"))
-        #expect(!output.contains("var errors: [any Error] = []"))
+        // The *action's* own `errors` — nothing in it can append, so a `var` would never be mutated.
+        #expect(output.contains("        let errors: [any Error] = []"))
         // A non-throwing member teardown is a bare awaited call — no do/catch, no append.
         #expect(output.contains("await cache.close()"))
-        #expect(!output.contains("errors.append"))
+        #expect(!output.contains("errors.append(error)"))
     }
 }

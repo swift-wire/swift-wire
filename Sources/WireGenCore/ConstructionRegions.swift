@@ -56,43 +56,8 @@ struct ConstructionRegions {
 /// - `group` — the rest: Overlap, plus the descendants that can begin while some other branch is still in
 ///   flight, which is exactly the population the cascade exists for.
 func constructionRegions(for topologicalOrder: [DiscoveredBinding]) -> ConstructionRegions? {
-    let names = Set(topologicalOrder.map { propertyName(for: $0) })
-    var producers: [String: [String]] = [:]
-    var consumers: [String: [String]] = [:]
-    for binding in topologicalOrder {
-        let consumer = propertyName(for: binding)
-        for local in Set(constructionDependencyLocals(of: binding)) where names.contains(local) {
-            producers[consumer, default: []].append(local)
-            consumers[local, default: []].append(consumer)
-        }
-    }
-
-    let asyncNames = topologicalOrder.filter(bindingIsAsync).map { propertyName(for: $0) }
-    guard asyncNames.count >= 2 else { return nil }
-
-    // Downstream closure of each async binding, so "independent" is decidable both ways.
-    var downstream: [String: Set<String>] = [:]
-    for source in asyncNames {
-        var reached: Set<String> = []
-        var stack = consumers[source] ?? []
-        while let next = stack.popLast() {
-            guard reached.insert(next).inserted else { continue }
-            stack.append(contentsOf: consumers[next] ?? [])
-        }
-        downstream[source] = reached
-    }
-
-    var overlap: Set<String> = []
-    for (index, first) in asyncNames.enumerated() {
-        for second in asyncNames[(index + 1)...]
-        where !(downstream[first]?.contains(second) ?? false)
-            && !(downstream[second]?.contains(first) ?? false)
-        {
-            overlap.insert(first)
-            overlap.insert(second)
-        }
-    }
-    guard !overlap.isEmpty else { return nil }
+    let edges = constructionEdges(in: topologicalOrder)
+    guard let overlap = overlappingAsyncBindings(in: topologicalOrder, edges: edges) else { return nil }
 
     // Which members of Overlap each binding transitively waits on. One pass, in topological order, so a
     // binding's producers are always already folded.
@@ -100,7 +65,7 @@ func constructionRegions(for topologicalOrder: [DiscoveredBinding]) -> Construct
     for binding in topologicalOrder {
         let name = propertyName(for: binding)
         var accumulated: Set<String> = []
-        for producer in producers[name] ?? [] {
+        for producer in edges.producers[name] ?? [] {
             accumulated.formUnion(awaited[producer] ?? [])
             if overlap.contains(producer) { accumulated.insert(producer) }
         }
@@ -128,7 +93,7 @@ func constructionRegions(for topologicalOrder: [DiscoveredBinding]) -> Construct
     var crossing: Set<String> = []
     for binding in group {
         for local in constructionDependencyLocals(of: binding)
-        where names.contains(local) && !groupNames.contains(local) {
+        where edges.names.contains(local) && !groupNames.contains(local) {
             crossing.insert(local)
         }
     }
@@ -138,4 +103,63 @@ func constructionRegions(for topologicalOrder: [DiscoveredBinding]) -> Construct
         suffix: suffix,
         frontier: prefix.filter { crossing.contains(propertyName(for: $0)) }
     )
+}
+
+/// The graph's construction edges in both directions, keyed by property name — the same local names the
+/// construction expressions reference, so nothing here can disagree with what the emitter renders.
+private struct ConstructionEdges {
+    let names: Set<String>
+    /// Consumer → the bindings it reads.
+    let producers: [String: [String]]
+    /// Producer → the bindings that read it.
+    let consumers: [String: [String]]
+}
+
+private func constructionEdges(in topologicalOrder: [DiscoveredBinding]) -> ConstructionEdges {
+    let names = Set(topologicalOrder.map { propertyName(for: $0) })
+    var producers: [String: [String]] = [:]
+    var consumers: [String: [String]] = [:]
+    for binding in topologicalOrder {
+        let consumer = propertyName(for: binding)
+        for local in Set(constructionDependencyLocals(of: binding)) where names.contains(local) {
+            producers[consumer, default: []].append(local)
+            consumers[local, default: []].append(consumer)
+        }
+    }
+    return ConstructionEdges(names: names, producers: producers, consumers: consumers)
+}
+
+/// The async bindings with at least one *independent* async partner, or `nil` when there are none — which
+/// is the whole of the between-graphs trigger. An async binding comparable with every other async binding
+/// never runs beside anything, so it is not a reason to open a group.
+private func overlappingAsyncBindings(
+    in topologicalOrder: [DiscoveredBinding],
+    edges: ConstructionEdges
+) -> Set<String>? {
+    let asyncNames = topologicalOrder.filter(bindingIsAsync).map { propertyName(for: $0) }
+    guard asyncNames.count >= 2 else { return nil }
+
+    // Downstream closure of each async binding, so "independent" is decidable both ways.
+    var downstream: [String: Set<String>] = [:]
+    for source in asyncNames {
+        var reached: Set<String> = []
+        var stack = edges.consumers[source] ?? []
+        while let next = stack.popLast() {
+            guard reached.insert(next).inserted else { continue }
+            stack.append(contentsOf: edges.consumers[next] ?? [])
+        }
+        downstream[source] = reached
+    }
+
+    var overlap: Set<String> = []
+    for (index, first) in asyncNames.enumerated() {
+        for second in asyncNames[(index + 1)...]
+        where !(downstream[first]?.contains(second) ?? false)
+            && !(downstream[second]?.contains(first) ?? false)
+        {
+            overlap.insert(first)
+            overlap.insert(second)
+        }
+    }
+    return overlap.isEmpty ? nil : overlap
 }

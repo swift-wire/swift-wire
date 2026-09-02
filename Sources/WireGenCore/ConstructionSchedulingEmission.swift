@@ -403,7 +403,11 @@ private func cascadeLines(
 ///
 /// The caller appends the seam, the suffix and the memberwise init after this, then
 /// `schedulerBootstrapClosingLines`.
-func schedulerBootstrapOpeningLines(structName: String, regions: ConstructionRegions) -> [String] {
+func schedulerBootstrapOpeningLines(
+    structName: String,
+    regions: ConstructionRegions,
+    tornInGroup: [DiscoveredBinding]
+) -> [String] {
     let names = Set(regions.group.map { propertyName(for: $0) })
     let arguments = regions.frontier
         .map { "\(propertyName(for: $0)): \(propertyName(for: $0))" }
@@ -414,13 +418,20 @@ func schedulerBootstrapOpeningLines(structName: String, regions: ConstructionReg
             + ") { \(groupParameterName) in",
         "        var building = \(buildingStructName(forGraph: structName))(\(arguments))",
     ]
+    // M7c.5 — a scheduled `@Teardown` binding is built inside a method of the building struct, where the
+    // accumulator is out of scope, so a throw during the drain is where its cell has to be read instead.
+    // The `do` is emitted only when there is such a binding; otherwise the outer `catch` is the whole story.
+    let recovers = !tornInGroup.isEmpty
+    let bodyIndent = recovers ? "            " : "        "
+    if recovers { lines.append("        do {") }
     for binding in regions.group
     where constructionDependencyLocals(of: binding).allSatisfy({ !names.contains($0) }) {
-        lines.append("        try building.\(stateAddName(for: binding))(&\(groupParameterName))")
+        lines.append("\(bodyIndent)try building.\(stateAddName(for: binding))(&\(groupParameterName))")
     }
-    lines.append("        while let \(resultParameterName) = try await \(groupParameterName).next() {")
-    lines.append("            try building._wireUpdate(\(resultParameterName), &\(groupParameterName))")
-    lines.append("        }")
+    lines.append("\(bodyIndent)while let \(resultParameterName) = try await \(groupParameterName).next() {")
+    lines.append("\(bodyIndent)    try building._wireUpdate(\(resultParameterName), &\(groupParameterName))")
+    lines.append("\(bodyIndent)}")
+    lines.append(contentsOf: groupTeardownRecoveryLines(tornInGroup: tornInGroup, indent: "        "))
     return lines
 }
 

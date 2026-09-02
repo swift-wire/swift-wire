@@ -100,7 +100,18 @@ Hummingbird's own server service inside the `ServiceGroup` — the M2 lifecycle 
 already "verified against Hummingbird's reverse-order `ServiceGroup` shutdown," so this
 extends that check rather than opening it fresh.
 
-## Init-failure partial teardown — deferred to M7c
+## Init-failure partial teardown — shipped with M7c.5 (2026-09)
+
+> The deferral below is kept as written, because its reasoning is what decided the final shape — one step
+> later than it expected. "The already-constructed set is whatever the construction shape makes it" held,
+> but M7c.4 split the bootstrap into a chain, a group and a chain, so the set is three things at once: a
+> linear prefix of locals, a set of resolved cells, and a linear suffix of locals. It is therefore
+> **accumulated** as each `@Teardown` binding is built rather than inspected on failure — with one
+> exception, a scheduled binding, whose action the drain's own `catch` recovers from its cell. The design
+> is [ConstructionScheduling.md](ConstructionScheduling.md) § *Init-failure partial teardown*; the fixture
+> this section asks for is `Tests/IntegrationTests/PartialTeardownExample.swift`, in both construction
+> shapes.
+
 
 Distinct from `graph.teardown()`: if an init throws **partway through bootstrap**, the
 already-constructed teardown-annotated bindings must be torn down in reverse before the

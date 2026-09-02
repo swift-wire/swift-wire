@@ -271,46 +271,90 @@ private func appendConstructionBody(
     let seedScopes = context.seedScopes(structName)
     // Recomputed rather than passed: it is one filter over the order this function already has, and
     // threading it through would put the parameter list past what the linter allows.
-    let torn = topologicalOrder.reversed().filter { $0.teardown != nil }
+    let torn = topologicalOrder.contains { $0.teardown != nil }
     let aliases = bootstrapExistentialAliasPlan(context.existentialPromotions, constructedIn: topologicalOrder)
+    let tornInGroup = plan?.group.filter { $0.teardown != nil } ?? []
 
-    // Post-init member injection, then the captured teardown. Both run over *every* binding's local, in
-    // both shapes: injection parameters are not construction edges (so an injection reads across regions
-    // freely), and the teardown closure closes over each binding's concrete local, which is what lets
-    // `@Teardown` work on an opaquely-bound (`@Singleton(as:)`) type.
-    var tail = renderMemberInjections(for: topologicalOrder)
-    tail.append(contentsOf: bootstrapTeardownClosureLines(torn))
-
+    // M7c.5 — the construction lines, built before they are placed, because two decisions read them: the
+    // `try` scan that decides whether a `catch` would be reachable, and the indent, which shifts by one
+    // level if the body ends up inside a `do`.
+    var body: [String] = []
     if let plan {
-        file.lines.append(
-            contentsOf: chainConstructionLines(for: plan.prefix, seedScopes: seedScopes, aliases: aliases)
-        )
-        file.lines.append(contentsOf: schedulerBootstrapOpeningLines(structName: structName, regions: plan))
-        file.lines.append(contentsOf: schedulerSeamLines(regions: plan))
-        file.lines.append(
-            contentsOf: indentedForGroupBody(
-                chainConstructionLines(for: plan.suffix, seedScopes: seedScopes, aliases: aliases)
+        body.append(
+            contentsOf: chainConstructionLines(
+                for: plan.prefix,
+                seedScopes: seedScopes,
+                aliases: aliases,
+                accumulatesTeardown: torn
             )
         )
-        file.lines.append(contentsOf: indentedForGroupBody(tail))
-    } else {
-        file.lines.append(
-            contentsOf: chainConstructionLines(for: topologicalOrder, seedScopes: seedScopes, aliases: aliases)
+        body.append(
+            contentsOf: schedulerBootstrapOpeningLines(
+                structName: structName,
+                regions: plan,
+                tornInGroup: tornInGroup
+            )
         )
-        file.lines.append(contentsOf: tail)
+        body.append(contentsOf: schedulerSeamLines(regions: plan))
+        // A scheduled `@Teardown` binding records its action here rather than at its construction, which
+        // happens inside a method of the building struct where the accumulator is not in scope. The drain's
+        // own `catch` covers the case where the throw came first — see `groupTeardownRecoveryLines`.
+        for binding in tornInGroup where torn {
+            body.append(contentsOf: teardownActionAppendLines(for: binding, indent: "        "))
+        }
+        body.append(
+            contentsOf: indentedForGroupBody(
+                chainConstructionLines(
+                    for: plan.suffix,
+                    seedScopes: seedScopes,
+                    aliases: aliases,
+                    accumulatesTeardown: torn
+                )
+            )
+        )
+    } else {
+        body.append(
+            contentsOf: chainConstructionLines(
+                for: topologicalOrder,
+                seedScopes: seedScopes,
+                aliases: aliases,
+                accumulatesTeardown: torn
+            )
+        )
     }
+    let canThrow = constructionCanThrow(body)
+
+    // Post-init member injection, then the captured teardown — both after every binding is a local, in
+    // both construction shapes. Injection parameters are not construction edges, so an injection reads
+    // across regions freely; the teardown closure folds the accumulator, whose actions each closed over a
+    // concrete local, which is what lets `@Teardown` work on an opaquely-bound (`@Singleton(as:)`) type.
+    var tail = renderMemberInjections(for: topologicalOrder)
+    if torn { tail.append(contentsOf: accumulatedTeardownClosureLines(indent: "    ")) }
+    body.append(contentsOf: plan == nil ? tail : indentedForGroupBody(tail))
 
     // Final return — memberwise init takes one argument per stored property in declaration order. Label is
     // the property name; value is the matching local. The captured teardown, when present, is the trailing
     // stored property and is passed last. Reserved here and patched once the whole file exists, because
     // *what* is stored is decided by what the rest of the file reads off this graph (M7c.1).
-    let returnLineIndex = file.lines.count
-    file.lines.append(storagePlaceholder)
-    if plan != nil {
-        file.lines.append(contentsOf: schedulerBootstrapClosingLines())
+    let returnPlaceholderOffset = body.count
+    body.append(storagePlaceholder)
+    if plan != nil { body.append(contentsOf: schedulerBootstrapClosingLines()) }
+
+    // M7c.5 — wrap in `do`/`catch` only when there is something to tear down *and* something that can
+    // throw. A `do` block that cannot throw draws `'catch' block is unreachable`, and a graph with no
+    // `@Teardown` binding has nothing to unwind, so both keep the body they always had.
+    let unwinds = torn && canThrow
+    if unwinds {
+        file.lines.append(contentsOf: teardownAccumulatorLines())
+        file.lines.append("    do {")
     }
+    let placedBody = unwinds ? indentedForGroupBody(body) : body
+    let returnLineIndex = file.lines.count + returnPlaceholderOffset
+    file.lines.append(contentsOf: placedBody)
+    if unwinds { file.lines.append(contentsOf: partialTeardownCatchLines(indent: "    ")) }
     file.lines.append("}")
 
+    let baseReturnIndent = plan == nil ? "    " : schedulerReturnIndent
     file.storagePatches.append(
         GraphStoragePatch(
             structName: structName,
@@ -318,10 +362,10 @@ private func appendConstructionBody(
             topologicalOrder: topologicalOrder,
             roots: roots,
             liftedParameterForIdentity: lift.parameterForIdentity,
-            hasTeardown: !torn.isEmpty,
+            hasTeardown: torn,
             propertyBlockIndex: propertyBlockIndex,
             returnLineIndex: returnLineIndex,
-            returnIndent: plan == nil ? "    " : schedulerReturnIndent
+            returnIndent: unwinds ? "    " + baseReturnIndent : baseReturnIndent
         )
     )
 }
@@ -334,7 +378,8 @@ private func appendConstructionBody(
 private func chainConstructionLines(
     for bindings: [DiscoveredBinding],
     seedScopes: [String: SeedScopeEmission],
-    aliases: ExistentialAliasPlan
+    aliases: ExistentialAliasPlan,
+    accumulatesTeardown: Bool
 ) -> [String] {
     // Construction body — bare local names. `let logger = logger`
     // works because Swift resolves the RHS in the outer scope before
@@ -372,6 +417,11 @@ private func chainConstructionLines(
         // line the consumers share rather than a conversion repeated at each
         // argument site. See `ExistentialPromotion`.
         lines.append(contentsOf: existentialAliasLines(aliases.afterConstruction[binding.identity], boundTo: local))
+        // M7c.5 — record the teardown action here, where the binding is known to exist. On a later throw
+        // the `catch` walks what was accumulated; on success the same list becomes `_wireTeardown`.
+        if accumulatesTeardown {
+            lines.append(contentsOf: teardownActionAppendLines(for: binding, indent: "    "))
+        }
     }
     return lines
 }

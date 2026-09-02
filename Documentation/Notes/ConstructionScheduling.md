@@ -6,7 +6,9 @@
 > toolchain findings each surfaced. **M7c.4 was rewritten before it started and then shipped** — § *The
 > scheduled region* settles how much of one graph the group spans, and the answer took that step from five
 > emitter translations to one change of scope: fifteen graphs schedule where two did, on 44 cells across
-> the whole corpus. M7c.5 onward keep their trigger. It
+> the whole corpus. **M7c.5 — init-failure partial teardown, the half deferred from M4 — shipped with it**,
+> and § *Init-failure partial teardown* is rewritten against what M7c.4 built rather than what this note
+> predicted. M7c.6 keeps its trigger. It
 > **supersedes the
 > `AtomicState<T>`-cell sketch** in [EffectAwareResolution.md](EffectAwareResolution.md) *§ Strict
 > per-level vs dynamic ready-as-deps-resolve*; that note stays as the conceptual framing (the levels
@@ -305,16 +307,49 @@ invents.
 
 ## Init-failure partial teardown
 
-The half deferred from M4 ([TeardownDesign.md](TeardownDesign.md) *§ Init-failure partial teardown*) falls
-out of this structure rather than needing its own design. The `do`/`catch` goes **inside** the group body,
-where `building` is still live; the walk is the static reverse topological order filtered to cells that
-reached `.resolved`, reusing `teardownCallLines` with cell reads in place of locals. The concrete-type
-capture that makes `@Teardown` work on an `@Singleton(as:)` binding is unaffected. Verified compiling.
+> **Shipped as M7c.5 (2026-09), and *not* in the shape this section predicted.** The prediction is kept
+> below, because what invalidated it is the point: it was written when the state struct held every binding,
+> and M7c.4 split the body into a chain, a group and a chain.
 
-One ordering detail: `withThrowingTaskGroup`'s own `catch` does `cancelAll()` then
-`awaitAllRemainingTasks()`, but that runs *after* a `catch` written inside the body. If a teardown action
-would close something a sibling task is still using, the generated code must do its own `cancelAll()` and
-drain first rather than relying on the enclosing machinery.
+The half deferred from M4 ([TeardownDesign.md](TeardownDesign.md) *§ Init-failure partial teardown*) does
+fall out of this structure rather than needing its own design — but the deferral's own reasoning is what
+decided the shape, one step later than expected. M4 deferred it because "the already-constructed set" is
+whatever the construction shape makes it. Under M7c.2/M7c.3 that was one thing, the cells. Under M7c.4 it
+is **three things at once**: a linear prefix of locals, a set of resolved cells, and a linear suffix of
+locals. No single inspection reaches all three.
+
+So the constructed set is **accumulated, not inspected**. A `var _wireTeardownActions: [@Sendable () async
+-> [any Error]]` is declared before a `do` that wraps the whole body, and each `@Teardown` binding appends
+its action where it is built. On a throw the `catch` walks the list in reverse and rethrows; on success the
+same list folds into the graph's `_wireTeardown`. One list serves both paths, so the teardown call lines
+exist once — a second list for the failure path would be the same lines emitted twice and kept in step by
+hand. The concrete-type capture that makes `@Teardown` work on an `@Singleton(as:)` binding is unaffected,
+because each action still closes over the binding's local.
+
+Two things the split forces, and one it removes:
+
+- **A scheduled binding cannot append at its construction site**, which happens inside a method of the
+  building struct where the accumulator is out of scope. So the drain gets a `do`/`catch` of its own, and
+  *that* catch is where the note's original idea survives: for each scheduled `@Teardown` binding, if its
+  cell `isResolved()`, `take()` the payload and append the action, then rethrow into the outer `catch`.
+  Emitted in the group's order and appended last, so the outer walk reverses them ahead of anything the
+  prefix contributed. On the success path the same appends happen after the seam instead; the two are
+  mutually exclusive.
+- **The wrapper is conditional.** A graph with no `@Teardown` binding has nothing to unwind, and a `do`
+  whose body cannot throw draws `'catch' block is unreachable` — in generated code, where nobody can
+  silence it. So the `do`/`catch` is emitted only when the graph has a torn binding *and* its construction
+  lines contain a `try`, scanned off the emitted text for the reason M7c.1's retention scan gives.
+- **The explicit `cancelAll()` is unnecessary, not forgotten.** This section warned that
+  `withThrowingTaskGroup`'s own `cancelAll()`/`awaitAllRemainingTasks()` runs *after* a `catch` written
+  inside the body, so generated code would have to cancel and drain itself before touching a resource a
+  sibling task might still hold. The accumulator puts the outer `catch` **outside** the group — it has to,
+  since the prefix is built before the group opens — and by the time it runs the group has already
+  cancelled and awaited every child. The warning was correct about the shape it was written for.
+
+**Teardown errors are discarded on this path**, and the original error propagates. A caller of
+`Wire.bootstrap()` is being told why the graph could not be built; a secondary failure while unwinding
+resources that are about to be abandoned is not the answer to that question. Happy-path `teardown()` does
+the opposite and returns them, because there the errors *are* the result.
 
 ## The scheduled region — how much of one graph the group spans
 
@@ -639,6 +674,20 @@ seam first. **Every gate compiles the generated output**, per the `-typecheck`-i
   `cancelAll()`-and-drain. **Gate:** a fixture with a throwing init downstream of a constructed
   `@Teardown` binding asserts the earlier action fired — the fixture [TeardownDesign.md](TeardownDesign.md)
   asks for.
+
+  **Gate: met, with two fixtures rather than one, because M7c.4 left two construction shapes.**
+  `PartialTeardownContainer` is the linear chain; `ScheduledPartialTeardownContainer` puts its `@Teardown`
+  binding **in the group region**, which is the case the accumulator cannot reach at the construction site
+  and the drain's own `catch` recovers from a cell. Its failing binding waits for the torn one to be
+  recorded before it throws, bounded, so "the resource was already built when the init failed" is a fact
+  rather than a race. A third test asserts the *original* error propagates.
+
+  The design is § *Init-failure partial teardown* above, rewritten against what M7c.4 actually built. Two
+  notes on the change's shape: the accumulator replaced `bootstrapTeardownClosureLines`, so the happy-path
+  closure is now a fold over the same list — which moves the reverse-order guarantee from *emission* order
+  to `.reversed()` at runtime, and `teardownActionsEmitReverseOrderCalls` asserts it there instead. And of
+  the golden's 4,473-line churn, **1,964 lines are the same text at a deeper indent** (bodies moved inside
+  the `do`); 532 lines are genuinely new and 13 are gone.
 - **M7c.6 — scope paths.** Decide, explicitly, which of `SeedScopeStructEmission.swift:134`,
   `ScopeEntryEmission.swift:128`, `SeedlessReconstructionEmission.swift:136` and
   `ContributorProxyFacadeEmission.swift:62` get the scheduler. Per-request scope entry is where async data
