@@ -193,7 +193,7 @@ answer on the forums is exactly this situation ([thread][disc-thread]): *"You ca
 that a property has to hold a disconnected value — we'd like to be able to express that, but it's not in
 the language yet."* A cell is a property holding a value, and it cannot say the value is disconnected, so
 `take()` cannot promise it. The recommended workaround is `nonisolated(unsafe)`, applied narrowly where
-the disconnectedness really is maintained — which is what § *A cell that can promise `sending`* below is.
+the disconnectedness really is maintained — which is what § *A boxed payload, not a second cell* below is.
 
 [disc-thread]: https://forums.swift.org/t/swift-6-consume-optional-noncopyable-property-and-transfer-sending-it-out/72414
 
@@ -229,165 +229,71 @@ plan survives; what does not survive is the claim that the cell buys non-Sendabl
    scope transfers fine, non-Sendable included, because region isolation can see it is disconnected.
    Buys the non-Sendable case back and gives up the state struct's method structure, which is most of
    what makes the emission flat and mechanical.
-3. **A cell that can promise `sending`** — below. Keeps the method structure *and* buys the non-Sendable
-   dependency case, at the cost of a second cell kind.
+3. **Box the payload** — below. Keeps the method structure *and* buys the non-Sendable dependency case,
+   with no change to the cell at all.
 
-### A cell that can promise `sending`
+### A boxed payload, not a second cell
 
 The route the forum answer points at, and the one SE-0538 `Disconnected<Value>` standardises — **accepted
 and under implementation** (`swiftlang/swift#89597`), and already vendored in wire-mvc as
-`WireDisconnected` for M5.5. Verified to compile on **both** toolchains and to run:
+`WireDisconnected` for M5.5.
+
+The shape to reach for is *not* a second kind of cell. It is the cell above, unchanged, with the payload
+wrapped:
 
 ```swift
-struct WireDisconnectedState<Value: ~Copyable>: ~Copyable {
-    nonisolated(unsafe) private var storage: Value?
-    init() { self.storage = nil }
+var _wireState_logger: _WireBindingState<WireDisconnected<Logger>> = .unmarked
 
-    /// Entry is `sending`: the caller proves the value is disconnected on the way in.
-    mutating func asResolved(_ value: consuming sending Value) { self.storage = consume value }
-
-    /// Readiness only — it aliases no payload. Reading the payload is not offered at all, which is
-    /// exactly what keeps the disconnectedness true.
-    borrowing func isResolved() -> Bool {
-        switch storage { case .some: return true; case .none: return false }
-    }
-
-    mutating func take() -> sending Value { storage.take()! }
-}
-```
-
-which makes this compile, where the ordinary cell does not:
-
-```swift
 mutating func _wireAdd_service(_ g: inout ThrowingTaskGroup<GraphTaskResult, any Error>) {
     guard _wireState_logger.isResolved() else { return }
-    let logger = _wireState_logger.take()                       // sending Logger
+    guard _wireState_service.asPending() else { return }
+    let boxed = _wireState_logger.take()   // plain WireDisconnected — no `sending` needed
+    let logger = boxed.take()              // sending Logger — the box's own contract
     g.addTask { .service(try await makeService(logger: logger)) }
 }
 ```
 
-`Logger` is a non-Sendable class, moved out of a cell, from inside a `mutating` method holding the group
-`inout`. The control — the same graph over the ordinary cell — is rejected, so the box is what buys it.
+`Logger` is a non-Sendable class moved out of a cell, from inside a `mutating` method holding the group
+`inout` — the shape § *What this permits at the task boundary* shows being rejected. Verified to compile
+on **both** toolchains, and to run. The control, the same graph with the payload unwrapped, is rejected.
 
-**What it buys is narrow, and worth stating exactly: a non-Sendable, single-consumer *dependency* moving
-into a child task whose *product* is `Sendable`.** The return direction is untouched —
-`ChildTaskResult: Sendable` still applies — so a non-Sendable async binding still constructs inline on
-the parent. And there is deliberately no `value()`, so a binding in one of these has exactly one consumer
-by construction; multi-consumer bindings stay in the ordinary cell. That is why this is a *second* cell
-kind and not an upgrade, and it gives the emitter a new per-binding classification to make: consumer
-count Wire can compute from its edges, but "is this consumer built in a child task" is the scheduler's
-call, so the two decisions have to be made together.
+The cell never promises `sending` and needs no change, because it does not have to: the box's `sending`
+result is a contract verified in *the box's* body against its `nonisolated(unsafe)` storage, and that
+verification does not care where the box came from. The cell stays honest and the box does the single
+unsafe thing, once.
+
+**Composition is not merely tidier here — it is what makes the invariant checkable.** A bespoke
+`sending`-capable cell would rest on "this type must never offer a borrowing read", which is a promise its
+author keeps; adding a `value()` to such a type compiles. Wrapping makes the payload noncopyable, so the
+cell's existing `extension … where Value: Copyable` takes the read away by construction:
+
+```
+error: referencing instance method 'value()' on '_WireBindingState'
+       requires that 'WireDisconnected<Logger>' conform to 'Copyable'
+```
+
+Box a binding and it *cannot* be copy-read. That is the property the whole design depends on, and it stops
+being something the emitter has to be careful about. The boxing site is where disconnectedness is proven,
+and it is checked there: `WireDisconnected(makeLogger())` type-checks because the value is fresh, and a
+value that had been read out of another cell would be refused by `init(_ value: consuming sending Value)`.
+
+What it buys stays narrow, and worth stating exactly: **a non-Sendable, single-consumer *dependency*
+moving into a child task whose *product* is `Sendable`.** The return direction is untouched —
+`ChildTaskResult: Sendable` still applies — so a non-Sendable async binding still constructs inline on the
+parent. And a boxed binding has exactly one consumer by construction, which is now the type system's rule
+rather than the emitter's. So M7c.3's decision is per binding and about the *payload*: box the ones whose
+single consumer is built in a child task. Consumer count Wire computes from its edges; "is this consumer
+built in a child task" is the scheduler's call, so the two are decided together.
 
 **This is consistent with *§ the upstream ask*'s rejection of a Sendable box, not a reversal of it.** What
 was rejected there is a *copyable* box whose soundness "would rest on 'the generated scheduler takes
-exactly once and never aliases', an invariant asserted by codegen". This is `~Copyable` and linear with no
-copy-out at all, so the invariant is carried by the type's API surface — the same ground
-`WireDisconnected`'s own doc stands on, and the bar this note endorses. SE-0538 argues it identically, and
-**refuses a borrow accessor for exactly the reason the ordinary cell cannot promise `sending`**: "any such
-accessor is unsound given the unconditional `Sendable` conformance". Note what `nonisolated(unsafe)` costs
-in exchange — the compiler stops checking. Adding a `value()` to the box above still compiles, which is
-the whole risk in one sentence: the invariant is the type author's to hold, and the type's shape is the
-only thing holding it.
-
-## Step 1 — narrow what the graph retains
-
-> **Shipped as M7c.1 (2026-09).** `Sources/WireGenCore/Retention.swift` is this section in code; the
-> outcome, and the four places the implementation departed from what is written below, are recorded under
-> the M7c.1 gate in *§ Suggested sequencing*.
-
-The scheduler's one real constraint is that a value which is **retained** while a child task uses it must
-be `Sendable`. Retention, not asynchrony, is the lever — and `_WireGraph` retains everything today, one
-stored property per binding. Narrowing that is worth doing on its own and makes the rest cheaper.
-
-**The target set is M7b's root model,** which the repository already commits to: an aggregate a graph
-conformance names, and `allowUnused: true` in the home package (with `@GraphInputs` properties already
-the second of those). A binding that is neither is, by M7b's own rule, only reachable *through* another
-binding — so storing it is redundant.
-
-Three additions to that set, which the roots model does not cover:
-
-- **`@Teardown` bindings.** `bootstrapTeardownClosureLines` (`Sources/WireGenCore/TeardownEmission.swift`)
-  captures each binding's concrete local — that *is* retention, and a consumed binding cannot be torn
-  down. Worth stating loudly because the ROADMAP settled that `@Teardown` does **not** root a binding for
-  *reachability*; retention is a different question with the opposite answer, and the shared word will
-  invite confusion.
-- **Facade borrows.** Seed-scope façades, factory proxies and contributor-proxy facades read
-  `_wireGraph.<property>` — 12 sites in the current golden. M7d already removed this wherever a bridging
-  proxy enters the scope (those thunks capture locals directly); this is the residue.
-- **Multi-consumer bindings**, which need frame retention even when they need no graph storage. Dropping
-  the stored property removes *one* retainer; a binding with three consumers still has three.
-
-`introspect()` costs nothing — it is baked string literals at codegen with no property reads
-(`Sources/WireGenCore/IntrospectionEmission.swift`).
-
-**Compatibility.** M7b already made "a binding you read from user code must be `allowUnused: true`" the
-contract, with a diagnostic and a fix-it, so most of the migration is done. The residual break is a
-binding that is *reachable via a consumer* **and** read by user code: it survived pruning without the
-annotation and would lose its stored property here. Same annotation, same fix-it shape, but it needs its
-own diagnostic rather than riding M7b's.
-
-**Why it pays.** Retention is what makes a value un-transferable, so removing a retainer converts a
-single-consumer binding into one that can be moved into its consumer — including into a child task, even
-when non-Sendable. The correlation runs the right way: many-consumer bindings (logger, config, pool) are
-the ones that are `Sendable` anyway because they are built for concurrent use, while non-Sendable
-bindings tend to be narrow helpers with one consumer.
-
-## The constraint model
-
-Classifying these correctly is the point of the note — it decides what to design around permanently and
-what not to build workarounds for.
-
-**Intrinsic — no change to any library lifts these.**
-
-- A dependency that is **retained** (2+ consumers, or stored, or captured by the teardown closure) and is
-  used inside a concurrently-running construction must be `Sendable`. This is a real race: the parent
-  constructing a sync dependent from a non-Sendable object while a child task mutates it. Region
-  isolation says so from two independent directions — the `sending`-parameter route gives *"task-isolated
-  'counter' is passed as a 'sending' parameter; Uses in callee may race with later task-isolated uses"*,
-  and two `async let`s over one non-Sendable local give *"access can happen concurrently"*. Drop to one
-  consumer and both compile.
-- A noncopyable binding has exactly one consumer, so it can never be a shared dependency in a parallel
-  fan-out. Already M8's rule.
-
-**`ThrowingTaskGroup`'s signature — would lift with stdlib adoption, no semantics behind them.**
-
-- `ChildTaskResult: Sendable`, declared on the struct (SDK interface, the `ThrowingTaskGroup`
-  declaration), inherited by `addTask`'s operation return and by `next()`. `async let` produces a
-  non-Sendable result under `-strict-concurrency=complete` today, so the *language* already handles
-  "child constructs a fresh value, transfers it to the parent". Note that `addTask`'s `operation:` is
-  already `sending` — the inbound direction has been modernised for region isolation and the outbound
-  one has not.
-- `GroupResult: Copyable` — an implicit constraint with no `where` clause behind it. Also routable
-  today: return the copyable values and build the noncopyable chain in the enclosing frame.
-
-**Unimplemented, with intent clear.**
-
-- Noncopyable `async let` results: `async let t = makeToken(); return await t` gives *"copy of noncopyable
-  typed value. This is a compiler bug. Please file a bug"*.
-- Consuming captures into escaping closures — there is no `[consume x]` capture list, and the diagnostic
-  when you try is a region-isolation message about the parent retaining access, not a rule against
-  capturing noncopyable values.
-- `sending` does not compose with noncopyable ownership on **parameters**: `sending Token` gives
-  *"parameter of noncopyable type 'Token' must specify ownership"*. On **results** it composes, but only
-  where the payload is concretely noncopyable — a generic `<Value: ~Copyable>` cannot promise it, because
-  the suppression admits copyable instantiations. See § "What `sending` can and cannot promise".
-
-### The decision Wire cannot compute
-
-`WireGenCore` is a SwiftSyntax pipeline; `Sendable` is usually derived rather than written, so Wire cannot
-answer "is this binding Sendable?" at codegen time.
-
-The way out is to decide scheduling on something Wire *does* know. **Put only async bindings in child
-tasks** — parallelism only pays where there is a suspension, and effect flags are already captured
-(`Sources/WireGenCore/EffectSpecifiers.swift`). The `Sendable` requirement then lands on exactly two sets,
-both computable from the graph and both small enough to document by name: async bindings' products, and
-the *retained* dependencies of async bindings. After step 1 the second set is "dependencies of async
-bindings with 2+ consumers, or that carry `@Teardown`, or that a facade borrows."
-
-A binding in neither set needs no annotation and no user action. For a non-Sendable async binding — the
-one case with no route — the fallback is a bare `await` inline on the parent inside the group body
-(`addX` becomes `async throws`): that binding loses parallelism, already-scheduled siblings keep running,
-and only the scheduling of newly-ready work stalls.
+exactly once and never aliases', an invariant asserted by codegen". `WireDisconnected` is `~Copyable` and
+linear with no copy-out, so the invariant is carried by the type — the ground its own doc already stands
+on. SE-0538 argues it identically, and **refuses a borrow accessor for exactly the reason the ordinary
+cell cannot promise `sending`**: "any such accessor is unsound given the unconditional `Sendable`
+conformance". The residual cost is that `nonisolated(unsafe)` stops the compiler checking *inside the
+box*, which is why the box stays the vendored, audited, already-shipping one rather than something codegen
+invents.
 
 ## Init-failure partial teardown
 
@@ -509,8 +415,9 @@ Two routes exist without waiting, and both are worse:
   degenerate case. It buys non-Sendable support by giving up the scheduling model.
 - **A Sendable box.** wire-mvc's `WireDisconnected` (the SE-0538 subset vendored for M5.5) is the right
   idea but the wrong shape **for this direction**: it is `~Copyable`, and `ChildTaskResult` must be
-  `Copyable`. For the *inbound* direction it is exactly the right shape — see § *A cell that can promise
-  `sending`*, where the same type carries a non-Sendable dependency into a child task. SE-0538 is now
+  `Copyable`. For the *inbound* direction it is exactly the right shape — see § *A boxed payload, not a
+  second cell*, where the same type carries a non-Sendable dependency into a child task as a cell's
+  payload. SE-0538 is now
   accepted and under implementation, so the vendored subset has a swap path. A copyable box —
   a final class, `@unchecked Sendable`, nil-ing out on take — works mechanically, but its soundness would
   rest on "the generated scheduler takes exactly once and never aliases", an invariant asserted by
@@ -529,9 +436,9 @@ emitted concretely per binding; the requirement would collapse all of those back
 It is not worth pitching, because SE-0427 *§ Alternatives Considered* weighed exactly this and set it
 aside: formalising `T: ~Copyable` as the **logical negation** of a conformance, where *"it is not apparent
 how this leads to a sound and usable model and we have not explored this further."* Recorded so the next
-reader does not mistake it for an unexplored opening — and because § *A cell that can promise `sending`*
-gets the same result without it, by pinning disconnectedness in the type instead of copyability in the
-generic signature.
+reader does not mistake it for an unexplored opening — and because § *A boxed payload, not a second cell*
+gets the same result without it, by pinning disconnectedness in the payload's type instead of copyability
+in the generic signature.
 
 The noncopyable restrictions are a separate, larger ask (noncopyable task results, consuming captures in
 escaping closures, `sending` composing with ownership modifiers on parameters). They are unimplemented rather than
