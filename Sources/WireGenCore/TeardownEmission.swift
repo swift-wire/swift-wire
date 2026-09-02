@@ -67,28 +67,28 @@ func bootstrapTeardownClosureLines(_ torn: [DiscoveredBinding]) -> [String] {
 /// a non-throwing member action needs no wrapping. The producer action coerces to the
 /// macro's `@Sendable (T) async throws -> Void` type — pinned via a typed local so a sync,
 /// non-throwing action coerces cleanly — and so is always `try await`.
-func teardownCallLines(for binding: DiscoveredBinding) -> [String] {
+func teardownCallLines(for binding: DiscoveredBinding, indent: String = "        ") -> [String] {
     guard let action = binding.teardown else { return [] }
     let property = propertyName(for: binding)
     switch action.kind {
     case .member(let methodName, let isAsync, let isThrowing):
         let call = "\(effectPrefix(isAsync: isAsync, isThrowing: isThrowing))\(property).\(methodName)()"
-        guard isThrowing else { return ["        \(call)"] }
+        guard isThrowing else { return ["\(indent)\(call)"] }
         return [
-            "        do {",
-            "            \(call)",
-            "        } catch {",
-            "            errors.append(error)",
-            "        }",
+            "\(indent)do {",
+            "\(indent)    \(call)",
+            "\(indent)} catch {",
+            "\(indent)    errors.append(error)",
+            "\(indent)}",
         ]
     case .action(let expression):
         return [
-            "        do {",
-            "            let action: @Sendable (\(binding.boundTypeReference)) async throws -> Void = \(expression)",
-            "            try await action(\(property))",
-            "        } catch {",
-            "            errors.append(error)",
-            "        }",
+            "\(indent)do {",
+            "\(indent)    let action: @Sendable (\(binding.boundTypeReference)) async throws -> Void = \(expression)",
+            "\(indent)    try await action(\(property))",
+            "\(indent)} catch {",
+            "\(indent)    errors.append(error)",
+            "\(indent)}",
         ]
     }
 }
