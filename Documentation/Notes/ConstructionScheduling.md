@@ -11,7 +11,9 @@
 > when construction latency is worth optimising, or earlier if an adopter forces init-failure partial
 > teardown. Nothing here argues for scheduling it. Every Swift-level claim below was verified against
 > the repository's toolchain floor (6.3.3) with a compiling fixture, not reasoned from the language
-> reference; the error texts quoted are real.
+> reference; the error texts quoted are real. **Verifying against the floor alone turned out not to be
+> enough**: § "What `sending` can and cannot promise" records where the 6.4 snapshot `.swift-version` also
+> pins disagrees, why it is right to, and what that supersedes in this note's own sketch.
 
 ## Why the cell sketch was dropped
 
@@ -58,10 +60,11 @@ enum State<Value: ~Copyable>: ~Copyable {
     }
     mutating func asResolved(_ value: consuming Value) { self = .resolved(value) }
 
-    /// `sending` is what lets a *non-Sendable* payload leave for a child task; the
-    /// `.consumed` transition is the proof obligation behind it — the struct has
-    /// provably surrendered its only reference.
-    mutating func take() -> sending Value {
+    /// `sending` is what would let a *non-Sendable* payload leave for a child task.
+    /// **It cannot be spelled here** — see § "What `sending` can and cannot promise".
+    /// `.consumed` records that the cell surrendered *its* reference, which is only
+    /// the same thing as *the only* reference when `Value` is noncopyable.
+    mutating func take() -> Value {
         switch consume self {
         case .resolved(let v): self = .consumed; return v
         default: fatalError("unreachable")
@@ -153,6 +156,139 @@ That third one consumes the *enclosing* struct, not just the cell, and does so e
 copyable. So the emitter has exactly three read forms: `isResolved()` for readiness, `value()` for a
 copyable dependency, `take()` for a move.
 
+### What `sending` can and cannot promise
+
+The sketch above put `sending` on `take()`, arguing that the `.consumed` transition proves the cell "has
+provably surrendered its only reference". **That argument is wrong for a copyable payload, and the newer
+toolchain is right to reject it.** Established by probe against both toolchains this package pins — 6.3.3
+(the CI floor) and the 6.4 snapshot `.swift-version` names:
+
+| `take()` declared on | 6.3.3 | 6.4 |
+|---|---|---|
+| a **concrete** noncopyable payload (`enum TokenCell { case resolved(Token) }`) | accepted | **accepted** |
+| a **concrete** copyable payload (`case resolved(Counter)`, a class) | accepted | **rejected** |
+| the **generic** `<Value: ~Copyable>` cell above | accepted | **rejected** |
+
+The mechanism is that `~Copyable` on a generic parameter is a **suppression, not a requirement**. It
+removes the implicit `Copyable` constraint, which *widens* the admissible set rather than narrowing it —
+`AnyCell<Counter>` and `AnyCell<Int>` are legal instantiations, verified. Swift cannot express "this
+parameter must be noncopyable".
+
+That decides everything else. A `sending` result is a contract the body must prove, and the only way a
+value enters a cell is `asResolved(_ value: consuming Value)`:
+
+- **noncopyable payload** — `consuming` transfers *the* reference; the language forbids a second existing,
+  so the value `consume self` pulls back out is provably unaliased and the contract holds;
+- **copyable payload** — `consuming` transfers *a* reference. For a class that is a retain, and the caller
+  may keep its own and go on using it, so the extracted value may be aliased from the caller's region.
+
+A generic body is checked once for every instantiation, so it must hold in the worst case — hence the
+third row. 6.3.3 accepts even the second row, where there is no instantiation freedom at all and the
+promise is plainly false; it was simply not running the check. **6.4 is correctly stricter, and precisely
+so** — it accepts exactly the case that can be proven.
+
+**This is an acknowledged language gap rather than a toolchain quirk**, which is worth knowing before
+anyone files it. Asked about consuming a noncopyable property and returning it `sending`, John McCall's
+answer on the forums is exactly this situation ([thread][disc-thread]): *"You cannot currently declare
+that a property has to hold a disconnected value — we'd like to be able to express that, but it's not in
+the language yet."* A cell is a property holding a value, and it cannot say the value is disconnected, so
+`take()` cannot promise it. The recommended workaround is `nonisolated(unsafe)`, applied narrowly where
+the disconnectedness really is maintained — which is what § *A cell that can promise `sending`* below is.
+
+[disc-thread]: https://forums.swift.org/t/swift-6-consume-optional-noncopyable-property-and-transfer-sending-it-out/72414
+
+Two consequences, neither of which changes what M7c should build:
+
+- **The cell ships without `sending`.** It costs M7c.2 nothing, which has no task boundary to cross.
+- **`sending` is unavailable to any generic cell, ever, under today's language.** When M8 makes
+  noncopyable bindings real, a cell that carries `sending` has to be **monomorphised** — a concrete
+  `_WireState_<Binding>` emitted per noncopyable binding — because only concreteness pins the payload.
+
+### What this permits at the task boundary (M7c.3)
+
+The constraint that actually binds M7c.3 is narrower than "non-Sendable cannot be transferred", and it is
+about *where* the transfer is written rather than about the cell. Probed on 6.4:
+
+- a value taken from a cell **and sent from the same scope** transfers fine, non-Sendable and copyable
+  included — region isolation can see it is disconnected;
+- the same value sent from inside `mutating func addX(_ g: inout ThrowingTaskGroup…)` — **the shape this
+  note proposes** — is rejected, because `self` is `inout` and so everything taken out of it belongs to
+  the *caller's* region. Breaking that link across a function boundary is exactly what `sending` on
+  `take()` would do, and cannot.
+
+So with the cell as it ships, and until M8, a binding is schedulable into a child task iff its type is
+`Sendable`. That is where *§ The decision Wire cannot compute* already lands by a different road, so the
+plan survives; what does not survive is the claim that the cell buys non-Sendable transferability.
+
+**Three routes, to be chosen before M7c.3 starts rather than inside it.**
+
+1. **Accept it.** Keep `addX` a method, schedule only `Sendable` bindings into tasks, and construct
+   everything else inline on the parent — the fallback this note already describes. Costs nothing and
+   builds nothing.
+2. **Inline the scheduling into the group body.** A value taken from a cell and sent from the *same*
+   scope transfers fine, non-Sendable included, because region isolation can see it is disconnected.
+   Buys the non-Sendable case back and gives up the state struct's method structure, which is most of
+   what makes the emission flat and mechanical.
+3. **A cell that can promise `sending`** — below. Keeps the method structure *and* buys the non-Sendable
+   dependency case, at the cost of a second cell kind.
+
+### A cell that can promise `sending`
+
+The route the forum answer points at, and the one SE-0538 `Disconnected<Value>` standardises — **accepted
+and under implementation** (`swiftlang/swift#89597`), and already vendored in wire-mvc as
+`WireDisconnected` for M5.5. Verified to compile on **both** toolchains and to run:
+
+```swift
+struct WireDisconnectedState<Value: ~Copyable>: ~Copyable {
+    nonisolated(unsafe) private var storage: Value?
+    init() { self.storage = nil }
+
+    /// Entry is `sending`: the caller proves the value is disconnected on the way in.
+    mutating func asResolved(_ value: consuming sending Value) { self.storage = consume value }
+
+    /// Readiness only — it aliases no payload. Reading the payload is not offered at all, which is
+    /// exactly what keeps the disconnectedness true.
+    borrowing func isResolved() -> Bool {
+        switch storage { case .some: return true; case .none: return false }
+    }
+
+    mutating func take() -> sending Value { storage.take()! }
+}
+```
+
+which makes this compile, where the ordinary cell does not:
+
+```swift
+mutating func _wireAdd_service(_ g: inout ThrowingTaskGroup<GraphTaskResult, any Error>) {
+    guard _wireState_logger.isResolved() else { return }
+    let logger = _wireState_logger.take()                       // sending Logger
+    g.addTask { .service(try await makeService(logger: logger)) }
+}
+```
+
+`Logger` is a non-Sendable class, moved out of a cell, from inside a `mutating` method holding the group
+`inout`. The control — the same graph over the ordinary cell — is rejected, so the box is what buys it.
+
+**What it buys is narrow, and worth stating exactly: a non-Sendable, single-consumer *dependency* moving
+into a child task whose *product* is `Sendable`.** The return direction is untouched —
+`ChildTaskResult: Sendable` still applies — so a non-Sendable async binding still constructs inline on
+the parent. And there is deliberately no `value()`, so a binding in one of these has exactly one consumer
+by construction; multi-consumer bindings stay in the ordinary cell. That is why this is a *second* cell
+kind and not an upgrade, and it gives the emitter a new per-binding classification to make: consumer
+count Wire can compute from its edges, but "is this consumer built in a child task" is the scheduler's
+call, so the two decisions have to be made together.
+
+**This is consistent with *§ the upstream ask*'s rejection of a Sendable box, not a reversal of it.** What
+was rejected there is a *copyable* box whose soundness "would rest on 'the generated scheduler takes
+exactly once and never aliases', an invariant asserted by codegen". This is `~Copyable` and linear with no
+copy-out at all, so the invariant is carried by the type's API surface — the same ground
+`WireDisconnected`'s own doc stands on, and the bar this note endorses. SE-0538 argues it identically, and
+**refuses a borrow accessor for exactly the reason the ordinary cell cannot promise `sending`**: "any such
+accessor is unsound given the unconditional `Sendable` conformance". Note what `nonisolated(unsafe)` costs
+in exchange — the compiler stops checking. Adding a `value()` to the box above still compiles, which is
+the whole risk in one sentence: the invariant is the type author's to hold, and the type's shape is the
+only thing holding it.
+
 ## Step 1 — narrow what the graph retains
 
 > **Shipped as M7c.1 (2026-09).** `Sources/WireGenCore/Retention.swift` is this section in code; the
@@ -231,8 +367,10 @@ what not to build workarounds for.
 - Consuming captures into escaping closures — there is no `[consume x]` capture list, and the diagnostic
   when you try is a region-isolation message about the parent retaining access, not a rule against
   capturing noncopyable values.
-- `sending` does not compose with noncopyable ownership: `sending Token` gives *"parameter of noncopyable
-  type 'Token' must specify ownership"*.
+- `sending` does not compose with noncopyable ownership on **parameters**: `sending Token` gives
+  *"parameter of noncopyable type 'Token' must specify ownership"*. On **results** it composes, but only
+  where the payload is concretely noncopyable — a generic `<Value: ~Copyable>` cannot promise it, because
+  the suppression admits copyable instantiations. See § "What `sending` can and cannot promise".
 
 ### The decision Wire cannot compute
 
@@ -370,7 +508,10 @@ Two routes exist without waiting, and both are worse:
   degrades to the strict per-level form [EffectAwareResolution.md](EffectAwareResolution.md) treats as the
   degenerate case. It buys non-Sendable support by giving up the scheduling model.
 - **A Sendable box.** wire-mvc's `WireDisconnected` (the SE-0538 subset vendored for M5.5) is the right
-  idea but the wrong shape: it is `~Copyable`, and `ChildTaskResult` must be `Copyable`. A copyable box —
+  idea but the wrong shape **for this direction**: it is `~Copyable`, and `ChildTaskResult` must be
+  `Copyable`. For the *inbound* direction it is exactly the right shape — see § *A cell that can promise
+  `sending`*, where the same type carries a non-Sendable dependency into a child task. SE-0538 is now
+  accepted and under implementation, so the vendored subset has a swap path. A copyable box —
   a final class, `@unchecked Sendable`, nil-ing out on take — works mechanically, but its soundness would
   rest on "the generated scheduler takes exactly once and never aliases", an invariant asserted by
   codegen. That is strictly weaker than the argument the project already made for itself:
@@ -378,8 +519,22 @@ Two routes exist without waiting, and both are worse:
   linearity enforcing it. Lowering that bar inside generated code, for a performance milestone, is a bad
   trade. Recorded so it is not re-proposed.
 
+A second ask fell out of M7c.2, and unlike the first it is **already answered, in the negative**: a way to
+*require* a generic parameter to be noncopyable. `~Copyable` only suppresses the implicit `Copyable`
+requirement, so a cell generic over it is type-checked for copyable instantiations too and can never
+promise `sending` — even though the noncopyable case it exists for could. Today the only way to pin the
+payload is to monomorphise, so a cell carrying `sending` for M8's noncopyable bindings would have to be
+emitted concretely per binding; the requirement would collapse all of those back into one generic cell.
+
+It is not worth pitching, because SE-0427 *§ Alternatives Considered* weighed exactly this and set it
+aside: formalising `T: ~Copyable` as the **logical negation** of a conformance, where *"it is not apparent
+how this leads to a sound and usable model and we have not explored this further."* Recorded so the next
+reader does not mistake it for an unexplored opening — and because § *A cell that can promise `sending`*
+gets the same result without it, by pinning disconnectedness in the type instead of copyability in the
+generic signature.
+
 The noncopyable restrictions are a separate, larger ask (noncopyable task results, consuming captures in
-escaping closures, `sending` composing with ownership modifiers). They are unimplemented rather than
+escaping closures, `sending` composing with ownership modifiers on parameters). They are unimplemented rather than
 forbidden, and they sit in the same actively-moving area as M8's own toolchain-floor bet, so the right
 posture is to let M8 own that timeline.
 
