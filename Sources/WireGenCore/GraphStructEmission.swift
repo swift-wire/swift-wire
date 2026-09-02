@@ -268,60 +268,20 @@ private func appendConstructionBody(
     propertyBlockIndex: Int,
     into file: inout WireFileBuffer
 ) {
-    let seedScopes = context.seedScopes(structName)
     // Recomputed rather than passed: it is one filter over the order this function already has, and
     // threading it through would put the parameter list past what the linter allows.
     let torn = topologicalOrder.contains { $0.teardown != nil }
-    let aliases = bootstrapExistentialAliasPlan(context.existentialPromotions, constructedIn: topologicalOrder)
-    let tornInGroup = plan?.group.filter { $0.teardown != nil } ?? []
 
     // M7c.5 — the construction lines, built before they are placed, because two decisions read them: the
     // `try` scan that decides whether a `catch` would be reachable, and the indent, which shifts by one
     // level if the body ends up inside a `do`.
-    var body: [String] = []
-    if let plan {
-        body.append(
-            contentsOf: chainConstructionLines(
-                for: plan.prefix,
-                seedScopes: seedScopes,
-                aliases: aliases,
-                accumulatesTeardown: torn
-            )
-        )
-        body.append(
-            contentsOf: schedulerBootstrapOpeningLines(
-                structName: structName,
-                regions: plan,
-                tornInGroup: tornInGroup
-            )
-        )
-        body.append(contentsOf: schedulerSeamLines(regions: plan))
-        // A scheduled `@Teardown` binding records its action here rather than at its construction, which
-        // happens inside a method of the building struct where the accumulator is not in scope. The drain's
-        // own `catch` covers the case where the throw came first — see `groupTeardownRecoveryLines`.
-        for binding in tornInGroup where torn {
-            body.append(contentsOf: teardownActionAppendLines(for: binding, indent: "        "))
-        }
-        body.append(
-            contentsOf: indentedForGroupBody(
-                chainConstructionLines(
-                    for: plan.suffix,
-                    seedScopes: seedScopes,
-                    aliases: aliases,
-                    accumulatesTeardown: torn
-                )
-            )
-        )
-    } else {
-        body.append(
-            contentsOf: chainConstructionLines(
-                for: topologicalOrder,
-                seedScopes: seedScopes,
-                aliases: aliases,
-                accumulatesTeardown: torn
-            )
-        )
-    }
+    var body = constructionRegionLines(
+        structName: structName,
+        topologicalOrder: topologicalOrder,
+        plan: plan,
+        context: context,
+        accumulatesTeardown: torn
+    )
     let canThrow = constructionCanThrow(body)
 
     // Post-init member injection, then the captured teardown — both after every binding is a local, in
@@ -348,9 +308,8 @@ private func appendConstructionBody(
         file.lines.append(contentsOf: teardownAccumulatorLines())
         file.lines.append("    do {")
     }
-    let placedBody = unwinds ? indentedForGroupBody(body) : body
     let returnLineIndex = file.lines.count + returnPlaceholderOffset
-    file.lines.append(contentsOf: placedBody)
+    file.lines.append(contentsOf: unwinds ? indentedForGroupBody(body) : body)
     if unwinds { file.lines.append(contentsOf: partialTeardownCatchLines(indent: "    ")) }
     file.lines.append("}")
 
@@ -368,6 +327,51 @@ private func appendConstructionBody(
             returnIndent: unwinds ? "    " + baseReturnIndent : baseReturnIndent
         )
     )
+}
+
+/// The construction lines for one graph — the whole topological order as a chain, or the prefix / group /
+/// suffix split when there is a plan.
+///
+/// Split out from the placement above so each half stays readable on its own: this one knows the regions
+/// and nothing about `do`/`catch` or the storage patch; the caller knows where the lines go and reads them
+/// only to decide that.
+private func constructionRegionLines(
+    structName: String,
+    topologicalOrder: [DiscoveredBinding],
+    plan: ConstructionRegions?,
+    context: GraphEmissionContext,
+    accumulatesTeardown: Bool
+) -> [String] {
+    let seedScopes = context.seedScopes(structName)
+    let aliases = bootstrapExistentialAliasPlan(context.existentialPromotions, constructedIn: topologicalOrder)
+    func chain(_ bindings: [DiscoveredBinding]) -> [String] {
+        chainConstructionLines(
+            for: bindings,
+            seedScopes: seedScopes,
+            aliases: aliases,
+            accumulatesTeardown: accumulatesTeardown
+        )
+    }
+    guard let plan else { return chain(topologicalOrder) }
+
+    var lines = chain(plan.prefix)
+    let tornInGroup = plan.group.filter { $0.teardown != nil }
+    lines.append(
+        contentsOf: schedulerBootstrapOpeningLines(
+            structName: structName,
+            regions: plan,
+            tornInGroup: tornInGroup
+        )
+    )
+    lines.append(contentsOf: schedulerSeamLines(regions: plan))
+    // A scheduled `@Teardown` binding records its action here rather than at its construction, which
+    // happens inside a method of the building struct where the accumulator is not in scope. The drain's own
+    // `catch` covers the case where the throw came first — see `groupTeardownRecoveryLines`.
+    for binding in tornInGroup where accumulatesTeardown {
+        lines.append(contentsOf: teardownActionAppendLines(for: binding, indent: "        "))
+    }
+    lines.append(contentsOf: indentedForGroupBody(chain(plan.suffix)))
+    return lines
 }
 
 /// One region as the linear `let` chain — one construction line per binding in the order given, with the
