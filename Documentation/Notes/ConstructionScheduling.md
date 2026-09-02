@@ -1,9 +1,9 @@
 # Construction scheduling — design note (M7c)
 
 > **Status:** the implementation design for M7c, dynamic construction scheduling. **M7c.1 — narrow
-> retention — and M7c.2 — the state struct, sequential — shipped 2026-09**; their outcomes are recorded
-> under their gates in *§ Suggested sequencing*, with the pre-existing bugs and the toolchain finding each
-> surfaced. M7c.3 onward keep their trigger. It
+> retention — M7c.2 — the state struct, sequential — and M7c.3 — the task group — shipped 2026-09**; their
+> outcomes are recorded under their gates in *§ Suggested sequencing*, with the pre-existing bugs and the
+> toolchain findings each surfaced. M7c.4 onward keep their trigger. It
 > **supersedes the
 > `AtomicState<T>`-cell sketch** in [EffectAwareResolution.md](EffectAwareResolution.md) *§ Strict
 > per-level vs dynamic ready-as-deps-resolve*; that note stays as the conceptual framing (the levels
@@ -218,10 +218,12 @@ about *where* the transfer is written rather than about the cell. Probed on 6.4:
   `take()` would do, and cannot.
 
 So with the cell as it ships, and until M8, a binding is schedulable into a child task iff its type is
-`Sendable`. That is where *§ The decision Wire cannot compute* already lands by a different road, so the
-plan survives; what does not survive is the claim that the cell buys non-Sendable transferability.
+`Sendable`. The plan survives; what does not survive is the claim that the cell buys non-Sendable
+transferability.
 
-**Three routes, to be chosen before M7c.3 starts rather than inside it.**
+**Three routes, chosen before M7c.3 started rather than inside it. M7c.3 took route 1**, and the reasoning
+is recorded under its gate in *§ Suggested sequencing* — the short of it is that route 3 buys back a case
+no graph in the corpus has, and the *product* direction it cannot reach is the one that actually binds.
 
 1. **Accept it.** Keep `addX` a method, schedule only `Sendable` bindings into tasks, and construct
    everything else inline on the parent — the fallback this note already describes. Costs nothing and
@@ -231,7 +233,9 @@ plan survives; what does not survive is the claim that the cell buys non-Sendabl
    Buys the non-Sendable case back and gives up the state struct's method structure, which is most of
    what makes the emission flat and mechanical.
 3. **Box the payload** — below. Keeps the method structure *and* buys the non-Sendable dependency case,
-   with no change to the cell at all.
+   with no change to the cell at all. Re-verified compiling and running on both toolchains when M7c.3 was
+   built, so it is a change M7c.4 or an adopter can make without re-establishing anything; what it needs
+   first is a graph that wants it.
 
 ### A boxed payload, not a second cell
 
@@ -282,8 +286,8 @@ What it buys stays narrow, and worth stating exactly: **a non-Sendable, single-c
 moving into a child task whose *product* is `Sendable`.** The return direction is untouched —
 `ChildTaskResult: Sendable` still applies — so a non-Sendable async binding still constructs inline on the
 parent. And a boxed binding has exactly one consumer by construction, which is now the type system's rule
-rather than the emitter's. So M7c.3's decision is per binding and about the *payload*: box the ones whose
-single consumer is built in a child task. Consumer count Wire computes from its edges; "is this consumer
+rather than the emitter's. So the decision this route asks for, whenever it is taken, is per binding and
+about the *payload*: box the ones whose single consumer is built in a child task. Consumer count Wire computes from its edges; "is this consumer
 built in a child task" is the scheduler's call, so the two are decided together.
 
 **This is consistent with *§ the upstream ask*'s rejection of a Sendable box, not a reversal of it.** What
@@ -317,8 +321,11 @@ construct on the parent, so two *expensive sync* bindings downstream of two diff
 serially rather than concurrently in their child tasks. Wire has no cost model to know when that matters,
 and the trade buys non-Sendable and noncopyable support, so it is the right one.
 
-Generated volume goes up: a cell, an `addX` and an `update` arm per binding, against one `let` today. It
-is flat and mechanical, and it is the same shape for all four binding categories.
+Generated volume goes up: a cell, an `addX` and an `update` arm per binding, against one `let` today,
+plus a marker case and a `Sendable` assertion for each binding that crosses the task boundary. It is flat
+and mechanical, and it is the same shape for all four binding categories. It is also paid only by a graph
+the scheduler applies to: on the integration corpus that is two `@Container`s, and the narrowed trigger is
+what keeps it that way.
 
 ## Suggested sequencing
 
@@ -404,6 +411,64 @@ seam first. **Every gate compiles the generated output**, per the `-typecheck`-i
 - **M7c.3 — the group.** Async bindings move into `group.addTask`, the parent drains and cascades.
   **Gate:** a fixture with a fast and a slow independent async binding plus a dependent of the fast one
   shows the dependent starting before the slow one finishes; `-enforce-exclusivity=checked` clean.
+
+  **Gate: met.** `Tests/IntegrationTests/ParallelSchedulerExample.swift` is a `@Container` whose
+  `FastDependent` is constructed while `makeSlowSignal` is still suspended, and the emission around it is
+  a `_XWireTaskResult` marker enum, an `addX(_ _wireGroup: inout ThrowingTaskGroup<…>) throws` per binding
+  and a `_wireUpdate` over the marker. Only the two scheduled graphs moved; the rest of the golden is
+  byte-identical. **`GroupResult` is not `Sendable`-constrained**, so the graph the closure returns can
+  hold a non-Sendable binding — verified, and it is what lets `SchedulerContainer` keep its
+  `SchedulerCounter` while its two async bindings run in child tasks.
+
+  Four things this step settled, three of them departures from the plan above:
+
+  - **The trigger narrowed to graphs a group can win on: two async bindings with no dependency path
+    between them.** M7c.2's predicate was "contains an async binding", which was right while the cascade
+    ran inline and wrong the moment it costs a group: one async binding in a group is one child task the
+    parent immediately blocks on, and a *chain* of async bindings is sequential however it is scheduled.
+    Both would take the `Sendable` requirement below and gain nothing. The consequence is that M7c.2's
+    sequential state struct no longer has a population — a graph either schedules or keeps the linear
+    chain — which is the right end for a staging step, and it took `EffectAwareEmission`'s async fixtures
+    back to the `let` form they had before M7c.2.
+  - **The `Sendable` requirement is asserted, not decided.** `ChildTaskResult` is `Sendable` *and*
+    `Copyable` on 6.4 (re-verified: a `~Copyable` result is "requires that 'Linear' conform to
+    'Copyable'"), and `addTask`'s closure is `sending`, so a scheduled binding's product and every
+    dependency its closure captures must be `Sendable`. Wire reads syntax and has no conformance
+    information at all — implicit derivation, an extension and an external type are each invisible — so it
+    cannot restrict the trigger to bindings it knows are safe without making the feature inert. What it
+    can do is put the resulting error where the fix goes: each graph emits a `_wireSendableChecks…`
+    function, never called, holding one `_check<T: Sendable>(_: T.Type)` per binding that crosses the
+    boundary, each wrapped in `#sourceLocation` — the instrument `_WireKeyChecks.swift` already uses to
+    attribute a keyed binding's type mismatch to the user's own line. The check is emitted in the graph
+    file rather than in `_WireKeyChecks.swift` because the requirement is a property of *this graph's
+    construction plan*, and that file is rendered from a flat binding list with no notion of one. This is
+    the one user-visible edge of the milestone, and it is bounded by the trigger: a graph with a
+    non-Sendable async binding qualifies only if it also has a second, independent async binding.
+
+    **Which of the two failures the assertion actually improves is worth stating, because it is only one
+    of them.** For a non-Sendable *dependency* it is the whole diagnostic: the build reports
+    `ParallelSchedulerExample.swift:38:5: error: type 'ConstructionClock' does not conform to the
+    'Sendable' protocol` at the binding, and nothing else — the `sending closure risks causing data races`
+    that would otherwise name a closure the user never wrote is never reached. For a non-Sendable
+    *product* the assertion is suppressed: the marker enum's own conformance fails at module level, which
+    aborts before function bodies are type-checked, so what is reported is `associated value 'fastSignal'
+    of 'Sendable'-conforming enum '…WireTaskResult' has non-Sendable type 'FastSignal'` — in the generated
+    file, but carrying the binding's property name, the type, **and a note anchored at the user's own type
+    declaration**. Leaving the enum's conformance to derivation instead does let the assertion through,
+    and was measured: it buys the located error at the cost of three `type '…WireTaskResult' does not
+    conform to 'Sendable'` errors against generated code that name nothing. Declared is the better trade,
+    and the enum stays declared.
+  - **`while let … = try await next()`, not `for try await … in group`.** The sketch above iterates the
+    group while the body passes it `inout` to schedule from a cascade, which is an overlapping access.
+    The `next()` form is what compiles, and it is also the shape that makes the cascade's scheduling
+    obviously legal.
+  - **`-typecheck` misses concurrency diagnostics too, not only the noncopyable spellings.** Region
+    isolation runs as a SIL pass, so `swiftc -swift-version 6 -strict-concurrency=complete -typecheck`
+    accepts an actor call that `-c` rejects with `sending 'c' risks causing data races` — the same file,
+    the same flags. Every probe for this step was therefore run as a SwiftPM package matching the
+    repository's own settings rather than as a bare `swiftc` invocation, and the first round of probes
+    that was not had to be thrown away. This generalises *§ Spellings that are load-bearing*: for
+    anything in this milestone, the compile has to reach SIL.
 - **M7c.4 — the interacting constructs.** Builder folds, scope-entry thunks, existential-promotion
   aliases, member injections and weak-cycle post-construct, translated into the `addX` form. **Gate:** the
   integration corpus, which already exercises all five.
@@ -416,9 +481,9 @@ seam first. **Every gate compiles the generated output**, per the `-typecheck`-i
   `ContributorProxyFacadeEmission.swift:62` get the scheduler. Per-request scope entry is where async data
   resolution actually shows up, so "app bootstrap only" is a defensible first cut but not obviously right.
 
-The per-graph rule — scheduler if the graph contains an async binding, today's linear chain otherwise —
-is what protects the 6,417-line golden and what keeps this from being a per-binding predicate Wire cannot
-compute.
+The per-graph rule — scheduler if two of the graph's async bindings can be in flight at once, today's
+linear chain otherwise — is what protects the golden and what keeps this from being a per-binding
+predicate Wire cannot compute.
 
 ## The upstream ask, and what it would give
 
