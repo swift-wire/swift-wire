@@ -3,9 +3,10 @@
 > **Status:** the implementation design for M7c, dynamic construction scheduling. **M7c.1 — narrow
 > retention — M7c.2 — the state struct, sequential — and M7c.3 — the task group — shipped 2026-09**; their
 > outcomes are recorded under their gates in *§ Suggested sequencing*, with the pre-existing bugs and the
-> toolchain findings each surfaced. **M7c.4 was rewritten before it started** — § *The scheduled region*
-> settles how much of one graph the group spans, and the answer takes that step from five emitter
-> translations to one change of scope. M7c.4 onward keep their trigger. It
+> toolchain findings each surfaced. **M7c.4 was rewritten before it started and then shipped** — § *The
+> scheduled region* settles how much of one graph the group spans, and the answer took that step from five
+> emitter translations to one change of scope: fifteen graphs schedule where two did, on 44 cells across
+> the whole corpus. M7c.5 onward keep their trigger. It
 > **supersedes the
 > `AtomicState<T>`-cell sketch** in [EffectAwareResolution.md](EffectAwareResolution.md) *§ Strict
 > per-level vs dynamic ready-as-deps-resolve*; that note stays as the conceptual framing (the levels
@@ -597,6 +598,33 @@ seam first. **Every gate compiles the generated output**, per the `-typecheck`-i
   appears in the group region". **Gate:** the integration corpus — all twelve large graphs take the
   scheduled form, and the golden grows by the machinery for four bindings each rather than for a hundred
   and ten.
+
+  **Gate: met, and the regions came out smaller than the survey's upper bound.** `ConstructionRegions.swift`
+  computes the split; `chainConstructionLines` emits a region as the linear chain and is called twice, once
+  for the prefix and once for the suffix. **Fifteen graphs are now scheduled where two were** — every graph
+  in the corpus with an independent async pair, the four wholly-sync containers untouched and byte-identical
+  — and the whole corpus carries **44 cells**, thirteen graphs at three and one at two. The golden grows
+  6,646 → 7,398, about 58 lines per newly-scheduled graph against the ~790 a whole-graph conversion would
+  have cost. The survey predicted four per graph and said so as an upper bound; the suffix trim is the
+  difference.
+
+  Three things this step settled:
+
+  - **A bug the design missed, and the first probe missed with it.** A frontier value is a stored property
+    on the building struct, and *naming one inside `addTask`'s escaping closure captures `self`* — which is
+    `inout` in a mutating method: `escaping closure captures mutating 'self' parameter`. The seam probe had
+    only a *sync* consumer reading the frontier value, so it never formed the closure. The fix is one line
+    per crossing dependency — `let config = self.config` after the guards — and the closure captures the
+    local. Region isolation is unaffected for a `Sendable` payload, and a non-Sendable one is what
+    `_wireSendableChecks` already asserts against, at the binding's own line.
+  - **The seam retired `GraphStoragePatch.builderLocal`.** M7c.2 added it so the memberwise init could take
+    each stored binding out of its cell; now the seam does that first, so the init names a plain local in
+    both shapes and the field had no second value left to hold.
+  - **Two clauses deleted rather than narrowed, and the corpus exercises both.** Every large graph carries
+    four `@Teardown` bindings and five member injections, all in the prefix — but the clauses are gone
+    outright rather than region-scoped, because both name post-construction blocks that run after the seam.
+    `aTeardownBindingNoLongerBlocksScheduling` puts a `@Teardown` binding *in the group* and asserts the
+    closure still closes over its local.
 
   It used to read: *"builder folds, scope-entry thunks, existential-promotion aliases, member injections
   and weak-cycle post-construct, translated into the `addX` form. Gate: the integration corpus, which

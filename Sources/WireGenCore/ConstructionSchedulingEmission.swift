@@ -76,94 +76,51 @@ func constructionDependencyLocals(of binding: DiscoveredBinding) -> [String] {
         }
 }
 
-/// Whether one graph takes the scheduled form.
+/// The construction plan for one graph, or `nil` when it keeps today's linear `let` chain end to end.
 ///
-/// **Positive half: the graph contains two async bindings neither of which depends on the other.** That is
-/// the only shape a task group wins anything on. A single async binding in a group is one child task the
-/// parent immediately blocks on — strictly the sequential chain plus machinery — and a *chain* of async
-/// bindings is sequential by construction however it is scheduled. Both would take the `Sendable`
-/// requirement below for no gain, so both keep today's linear chain, which is also what holds
-/// `GoldenHarness` byte-identical for them. This is the per-*graph* predicate the note insists on rather
-/// than a per-binding one, because a per-binding predicate would need to know whether a type is
+/// **Positive half: the graph has two async bindings neither of which depends on the other**, which is
+/// what `constructionRegions` computes as Overlap. A single async binding in a group is one child task the
+/// parent immediately blocks on, and a *chain* of async bindings is sequential however it is scheduled;
+/// both would take the `Sendable` requirement below for no gain. This is the per-*graph* half of the
+/// predicate, and it stays per-graph because a per-binding one would need to know whether a type is
 /// `Sendable`, which a SwiftSyntax pipeline cannot answer.
 ///
-/// **Negative half — the constructs M7c.4 owns.** Each is excluded because its *emission* has not been
-/// translated into the `add` form yet, not because it cannot be:
+/// **Negative half — the constructs M7c.4 has not translated, tested against the *group region* only.**
+/// M7c.3 asked whether the construct appeared anywhere in the graph, which is what made every large graph
+/// in the corpus fail on five clauses at once. A construct in the prefix or the suffix is emitted by the
+/// linear chain exactly as it always was, so it is not the scheduler's business:
 ///
 /// - **builder aggregates**, which emit a `@resultBuilder`-annotated local function rather than a single
-///   expression, so there is nothing to hand `asResolved`;
-/// - **scope-entry thunks**, whose closure captures the bootstrap's singleton locals — locals the
-///   scheduled form does not have;
-/// - **existential-promotion aliases**, which bind one `any P` local *after* a construction for its
-///   consumers to share, a second definition site per binding;
-/// - **member injections**, which run as a post-construction block over every local at once, so they have
-///   no single resolution to hang off;
-/// - **`@Teardown`**, whose closure captures each binding's concrete local for the same reason;
+///   expression, so there is nothing to hand `asResolved`. (A *collected* or *mapped* aggregate is a
+///   single expression and has always worked, including one folding async contributors.)
+/// - **scope-entry thunks**, whose *escaping* closure captures the bootstrap's singleton locals — and
+///   whose capture set is `.scopeCapture` dependencies, which `constructionDependencyLocals` excludes, so
+///   the readiness guard would not cover them;
+/// - **existential-promotion aliases**, which bind one `any P` local *after* a construction for consumers
+///   to share, a second definition site per binding. Tested on **either** endpoint: a promotion whose
+///   producer is scheduled would need its alias emitted after the seam rather than after the construction.
 /// - **opaque (`some P`) lifts**, which put a generic parameter on the graph struct that the building
 ///   struct would have to mirror and the bootstrap infer through both.
 ///
-/// Listed as one predicate, in one place, so relaxing it in M7c.4 is a matter of deleting a clause and
-/// its gate rather than hunting for what "simple" meant.
-func schedulerApplies(
-    to topologicalOrder: [DiscoveredBinding],
+/// Two clauses M7c.3 carried are **gone rather than narrowed**, because both name post-construction blocks
+/// that run after the seam, where every binding is a local again: **member injection** (which cannot be
+/// region-scoped at all — its parameters are not construction edges) and **`@Teardown`** (whose closure is
+/// built at the end of the bootstrap over each binding's concrete local). Twelve corpus graphs exercise
+/// both.
+func schedulerPlan(
+    for topologicalOrder: [DiscoveredBinding],
     seedScopes: [String: SeedScopeEmission],
     existentialPromotions: [ExistentialPromotion]
-) -> Bool {
-    guard hasIndependentAsyncPair(in: topologicalOrder) else { return false }
-    let promoted = Set(existentialPromotions.map(\.consumer))
-    for binding in topologicalOrder {
-        if case .aggregate(let aggregate) = binding, aggregate.flavour == .builder { return false }
-        if scopeEntryThunkLines(forBridgeProxy: binding, scopes: seedScopes) != nil { return false }
-        if promoted.contains(binding.identity) { return false }
-        if !binding.memberInjections.isEmpty { return false }
-        if binding.teardown != nil { return false }
-        if binding.boundType.hasPrefix("some ") { return false }
+) -> ConstructionRegions? {
+    guard let regions = constructionRegions(for: topologicalOrder) else { return nil }
+    let promoted = Set(existentialPromotions.flatMap { [$0.consumer, $0.producer] })
+    for binding in regions.group {
+        if case .aggregate(let aggregate) = binding, aggregate.flavour == .builder { return nil }
+        if scopeEntryThunkLines(forBridgeProxy: binding, scopes: seedScopes) != nil { return nil }
+        if promoted.contains(binding.identity) { return nil }
+        if binding.boundType.hasPrefix("some ") { return nil }
     }
-    return true
-}
-
-/// Whether two async bindings can be in flight at once — the positive half of the trigger.
-///
-/// Two are independent when neither is reachable from the other through the dependency edges, which is
-/// exactly the condition under which the group has two tasks running rather than one waiting on the next.
-/// Walked over the same local names the construction expressions reference, so this cannot disagree with
-/// the cascade the emission below builds.
-private func hasIndependentAsyncPair(in topologicalOrder: [DiscoveredBinding]) -> Bool {
-    let asyncNames = topologicalOrder.filter(bindingIsAsync).map { propertyName(for: $0) }
-    guard asyncNames.count >= 2 else { return false }
-
-    let names = Set(topologicalOrder.map { propertyName(for: $0) })
-    var dependents: [String: [String]] = [:]
-    for binding in topologicalOrder {
-        let consumer = propertyName(for: binding)
-        for local in Set(constructionDependencyLocals(of: binding)) where names.contains(local) {
-            dependents[local, default: []].append(consumer)
-        }
-    }
-
-    // Downstream closure of each async binding, restricted to the async ones — the only names the
-    // comparison below reads.
-    var asyncDescendants: [String: Set<String>] = [:]
-    let asyncSet = Set(asyncNames)
-    for source in asyncNames {
-        var reached: Set<String> = []
-        var stack = dependents[source] ?? []
-        while let next = stack.popLast() {
-            guard reached.insert(next).inserted else { continue }
-            stack.append(contentsOf: dependents[next] ?? [])
-        }
-        asyncDescendants[source] = reached.intersection(asyncSet)
-    }
-
-    for (index, first) in asyncNames.enumerated() {
-        for second in asyncNames[(index + 1)...]
-        where !(asyncDescendants[first]?.contains(second) ?? false)
-            && !(asyncDescendants[second]?.contains(first) ?? false)
-        {
-            return true
-        }
-    }
-    return false
+    return regions
 }
 
 /// Whether the binding's construction expression suspends — which is what puts it in a child task.
@@ -176,19 +133,21 @@ func bindingIsAsync(_ binding: DiscoveredBinding) -> Bool {
     }
 }
 
-/// The bindings that cross the task boundary, and therefore have to be `Sendable`: every scheduled
-/// binding (its product is a `ChildTaskResult`) and every graph binding one of them reads as a dependency
-/// (its value is captured by a `sending` closure). Returned in topological order, deduplicated.
-private func sendableRequiredBindings(in topologicalOrder: [DiscoveredBinding]) -> [DiscoveredBinding] {
-    let scheduled = topologicalOrder.filter(bindingIsAsync)
+/// The bindings that cross the task boundary, and therefore have to be `Sendable`: every scheduled binding
+/// that suspends (its product is a `ChildTaskResult`) and every binding one of those reads as a dependency
+/// (its value is captured by a `sending` closure), whichever region that dependency lives in. Returned in
+/// the group's order, deduplicated.
+private func sendableRequiredBindings(in regions: ConstructionRegions) -> [DiscoveredBinding] {
+    let scheduled = regions.group.filter(bindingIsAsync)
     var required = Set(scheduled.map { propertyName(for: $0) })
-    let names = Set(topologicalOrder.map { propertyName(for: $0) })
+    let reachable = regions.group + regions.frontier
+    let names = Set(reachable.map { propertyName(for: $0) })
     for binding in scheduled {
         for local in constructionDependencyLocals(of: binding) where names.contains(local) {
             required.insert(local)
         }
     }
-    return topologicalOrder.filter { required.contains(propertyName(for: $0)) }
+    return reachable.filter { required.contains(propertyName(for: $0)) }
 }
 
 /// The `Sendable` assertions for one scheduled graph.
@@ -207,8 +166,8 @@ private func sendableRequiredBindings(in topologicalOrder: [DiscoveredBinding]) 
 ///
 /// The function is never called. `_check` unifies nothing; the constraint on its generic parameter is the
 /// whole assertion, and a type that does not satisfy it fails at the call site.
-func schedulerSendableCheckLines(structName: String, topologicalOrder: [DiscoveredBinding]) -> [String] {
-    let required = sendableRequiredBindings(in: topologicalOrder)
+func schedulerSendableCheckLines(structName: String, regions: ConstructionRegions) -> [String] {
+    let required = sendableRequiredBindings(in: regions)
     guard !required.isEmpty else { return [] }
 
     var lines = [
@@ -250,29 +209,30 @@ private func sendableCheckFunctionName(forGraph structName: String) -> String {
 /// That assertion earns its place on the other half — a non-Sendable *dependency*, where nothing is wrong
 /// with the marker and the native failure is `sending closure risks causing data races` inside a closure
 /// the user never wrote.
-func schedulerTaskResultEnumLines(structName: String, topologicalOrder: [DiscoveredBinding]) -> [String] {
+func schedulerTaskResultEnumLines(structName: String, regions: ConstructionRegions) -> [String] {
     var lines = ["", "private enum \(taskResultEnumName(forGraph: structName)): Sendable {"]
-    for binding in topologicalOrder where bindingIsAsync(binding) {
+    for binding in regions.group where bindingIsAsync(binding) {
         lines.append("    case \(propertyName(for: binding))(\(binding.boundTypeReference))")
     }
     lines.append("}")
     return lines
 }
 
-/// The building struct: one cell per binding, one `add` per binding, one `update` over the child-result
-/// marker.
+/// The building struct: the frontier as plain stored properties, a cell per scheduled binding, an `add`
+/// per scheduled binding, and one `update` over the child-result marker.
 ///
 /// Every `add` is `throws` whatever its binding's own effects are, because a sync binding's `add` cascades
 /// into dependents that may not be — and a uniform signature is what keeps the cascade a plain call rather
 /// than a per-edge effect calculation. None is `async`: an async binding's suspension moved into its child
 /// task, and the parent's only `await` is the drain loop's `next()`.
-func schedulerBuildingStructLines(structName: String, topologicalOrder: [DiscoveredBinding]) -> [String] {
-    let names = Set(topologicalOrder.map { propertyName(for: $0) })
-    // Direct dependents, keyed by the producer's property name — the cascade's adjacency. Built from the
-    // same local names the construction expressions reference, and kept in topological order so the
-    // emitted cascade is deterministic.
+func schedulerBuildingStructLines(structName: String, regions: ConstructionRegions) -> [String] {
+    let names = Set(regions.group.map { propertyName(for: $0) })
+    // Direct dependents *within the group*, keyed by the producer's property name — the cascade's
+    // adjacency. Built from the same local names the construction expressions reference, and kept in the
+    // group's order so the emitted cascade is deterministic. A frontier binding has no dependents to
+    // record: it is already resolved before the struct exists.
     var dependents: [String: [DiscoveredBinding]] = [:]
-    for binding in topologicalOrder {
+    for binding in regions.group {
         for local in Set(constructionDependencyLocals(of: binding)) where names.contains(local) {
             dependents[local, default: []].append(binding)
         }
@@ -280,17 +240,26 @@ func schedulerBuildingStructLines(structName: String, topologicalOrder: [Discove
     let groupType = "ThrowingTaskGroup<\(taskResultEnumName(forGraph: structName)), any Error>"
 
     var lines = ["", "private struct \(buildingStructName(forGraph: structName)): ~Copyable {"]
-    for binding in topologicalOrder {
+    // The seam, inbound. A frontier value is already constructed, so it is a `let`, not a cell: a cell
+    // would add a state transition that can never fail and a `value()` that can never return `nil`. The
+    // property name is the binding's own, so the construction expressions inside the methods below resolve
+    // it exactly as they would a bootstrap local.
+    for binding in regions.frontier {
+        lines.append("    let \(propertyName(for: binding)): \(binding.boundTypeReference)")
+    }
+    if !regions.frontier.isEmpty { lines.append("") }
+    for binding in regions.group {
         lines.append(
             "    var \(stateCellName(for: binding)): _WireBindingState<\(binding.boundTypeReference)> = .unmarked"
         )
     }
-    for binding in topologicalOrder {
+    for binding in regions.group {
         lines.append("")
         lines.append(
             contentsOf: schedulerAddMethodLines(
                 for: binding,
                 in: names,
+                frontier: Set(regions.frontier.map { propertyName(for: $0) }),
                 dependents: dependents,
                 groupType: groupType
             )
@@ -300,7 +269,7 @@ func schedulerBuildingStructLines(structName: String, topologicalOrder: [Discove
     lines.append(
         contentsOf: schedulerUpdateMethodLines(
             structName: structName,
-            topologicalOrder: topologicalOrder,
+            group: regions.group,
             dependents: dependents,
             groupType: groupType
         )
@@ -314,11 +283,14 @@ func schedulerBuildingStructLines(structName: String, topologicalOrder: [Discove
 ///
 /// The dependency check comes **before** the pending transition, deliberately. A dependent that is not yet
 /// ready must leave itself unmarked so that whichever dependency resolves last can still fire it; claiming
-/// the cell first would strand it. A scheduled binding does not cascade from here — its value does not
-/// exist yet; `_wireUpdate` cascades when the child returns.
+/// the cell first would strand it. Only *group* dependencies are checked — a frontier one is a stored
+/// property that was constructed before the struct existed, so there is nothing to wait for. A scheduled
+/// binding does not cascade from here either: its value does not exist yet, and `_wireUpdate` cascades
+/// when the child returns.
 private func schedulerAddMethodLines(
     for binding: DiscoveredBinding,
     in names: Set<String>,
+    frontier: Set<String>,
     dependents: [String: [DiscoveredBinding]],
     groupType: String
 ) -> [String] {
@@ -336,6 +308,14 @@ private func schedulerAddMethodLines(
         lines.append("        guard \(guards.joined(separator: ", ")) else { return }")
     }
     lines.append("        guard \(stateCellName(for: binding)).asPending() else { return }")
+
+    // A frontier value is a stored property, and naming one inside `addTask`'s escaping closure would
+    // capture `self` — which is `inout` here, so the compiler refuses it. Copy it to a local first, which
+    // is also what the closure should capture: the property is a `let` that nothing mutates. Bound after
+    // the guards so the early-return paths do no work.
+    for local in orderedUnique(constructionDependencyLocals(of: binding).filter { frontier.contains($0) }) {
+        lines.append("        let \(local) = self.\(local)")
+    }
 
     let construction = constructionExpression(for: binding)
     // A specialised generic `@Provides func` cannot be called with explicit type arguments, so its
@@ -370,14 +350,14 @@ private func schedulerAddMethodLines(
     return lines
 }
 
-/// The parent's half of the boundary: apply one child's result to its cell and fire its dependents.
+/// The parent's half of the task boundary: apply one child's result to its cell and fire its dependents.
 ///
 /// This is where the cascade decision runs for a scheduled binding, rather than inside the child that
 /// produced it. The hop costs nothing — the parent is suspended on the iterator anyway — and it is what
 /// keeps all cell mutation on one frame, which is why no cell needs a lock.
 private func schedulerUpdateMethodLines(
     structName: String,
-    topologicalOrder: [DiscoveredBinding],
+    group: [DiscoveredBinding],
     dependents: [String: [DiscoveredBinding]],
     groupType: String
 ) -> [String] {
@@ -388,7 +368,7 @@ private func schedulerUpdateMethodLines(
             + ") throws {",
         "        switch \(resultParameterName) {",
     ]
-    for binding in topologicalOrder where bindingIsAsync(binding) {
+    for binding in group where bindingIsAsync(binding) {
         let local = propertyName(for: binding)
         lines.append("        case .\(local)(let _wireValue):")
         lines.append("            \(stateCellName(for: binding)).asResolved(_wireValue)")
@@ -411,24 +391,30 @@ private func cascadeLines(
     }
 }
 
-/// The scheduled bootstrap body: open the group, start every source binding, and drain.
+/// Opening the group: hand the building struct its frontier values, start every group binding that is
+/// ready, and drain.
 ///
-/// Driving from the sources rather than calling every `add` in topological order is what makes the
-/// cascade load-bearing instead of decorative — under the linear order each `add` would already find its
-/// dependencies resolved and the cascade would be dead code. The loop is `while let … = try await
+/// Driving from the ready bindings rather than calling every `add` in order is what makes the cascade
+/// load-bearing instead of decorative — walked in the group's own order, each `add` would already find its
+/// dependencies resolved and the cascade would be dead code. "Ready" means no *group* dependency: a
+/// frontier one is a stored property that is already resolved. The loop is `while let … = try await
 /// next()` rather than `for try await … in`, because the body needs the group `inout` and iterating it
 /// while mutating it is an overlapping access.
 ///
-/// The caller appends the memberwise init and `schedulerBootstrapClosingLines` after this.
-func schedulerBootstrapBodyLines(structName: String, topologicalOrder: [DiscoveredBinding]) -> [String] {
-    let names = Set(topologicalOrder.map { propertyName(for: $0) })
+/// The caller appends the seam, the suffix and the memberwise init after this, then
+/// `schedulerBootstrapClosingLines`.
+func schedulerBootstrapOpeningLines(structName: String, regions: ConstructionRegions) -> [String] {
+    let names = Set(regions.group.map { propertyName(for: $0) })
+    let arguments = regions.frontier
+        .map { "\(propertyName(for: $0)): \(propertyName(for: $0))" }
+        .joined(separator: ", ")
     var lines = [
         "    return try await withThrowingTaskGroup("
             + "of: \(taskResultEnumName(forGraph: structName)).self"
             + ") { \(groupParameterName) in",
-        "        var building = \(buildingStructName(forGraph: structName))()",
+        "        var building = \(buildingStructName(forGraph: structName))(\(arguments))",
     ]
-    for binding in topologicalOrder
+    for binding in regions.group
     where constructionDependencyLocals(of: binding).allSatisfy({ !names.contains($0) }) {
         lines.append("        try building.\(stateAddName(for: binding))(&\(groupParameterName))")
     }
@@ -438,13 +424,27 @@ func schedulerBootstrapBodyLines(structName: String, topologicalOrder: [Discover
     return lines
 }
 
-/// Closes the group closure the body above opened. Separate because the memberwise init between them is
-/// patched in only once the whole file exists — M7c.1's deferred storage decision.
+/// The seam, outbound: every scheduled binding becomes a local again.
+///
+/// This is what keeps M7c.4 small. After these lines the suffix chain, the member-injection block, the
+/// captured teardown closure and the memberwise init are all standing on locals, which is the ground every
+/// one of them was written against — so none of them has to know a scheduler exists.
+func schedulerSeamLines(regions: ConstructionRegions) -> [String] {
+    regions.group.map { "        let \(propertyName(for: $0)) = building.\(stateCellName(for: $0)).take()" }
+}
+
+/// Closes the group closure the opening above began.
 func schedulerBootstrapClosingLines() -> [String] { ["    }"] }
 
-/// The indent the patched memberwise-init line takes in the scheduled form, which sits one level deeper
-/// than the linear chain's because it is inside the group closure.
+/// The indent everything inside the group closure takes, which is one level deeper than the linear chain's
+/// because the whole tail of the bootstrap moved inside it.
 let schedulerReturnIndent = "        "
+
+/// Re-indent lines an existing emitter produced for the bootstrap frame so they can sit inside the group
+/// closure. Blank lines stay blank, so the emitted body keeps its paragraphing.
+func indentedForGroupBody(_ lines: [String]) -> [String] {
+    lines.map { $0.isEmpty ? $0 : "    " + $0 }
+}
 
 /// Order-preserving dedup — a binding that names the same dependency twice guards it once.
 private func orderedUnique(_ values: [String]) -> [String] {
