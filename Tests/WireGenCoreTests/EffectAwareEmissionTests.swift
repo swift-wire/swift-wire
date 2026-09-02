@@ -7,6 +7,11 @@ import Testing
 /// call sites when bindings carry the matching effect flags.
 /// Lives in its own suite (rather than appended to `CodeEmissionTests`)
 /// so the gallery struct's body stays under the lint threshold.
+///
+/// M7c.2 — a graph containing an async binding is emitted through the construction state struct, so its
+/// construction site is `_wireState_x.asResolved(<expr>)` rather than `let x = <expr>`. The effect prefix
+/// this suite is about is unchanged; only where it lands moved. A wholly-sync graph keeps the linear
+/// chain, which is why the sync and sync-throwing cases below still assert the `let` form.
 @Suite("EffectAwareEmission")
 struct EffectAwareEmissionTests {
     // MARK: - Helpers
@@ -99,7 +104,7 @@ struct EffectAwareEmissionTests {
                 providerFunction("makeFoo", boundType: "Foo", isAsync: true)
             ]
         )
-        #expect(output.contains("let foo = await makeFoo()"))
+        #expect(output.contains("_wireState_foo.asResolved(await makeFoo())"))
     }
 
     @Test func throwsFunctionProviderEmitsTryPrefix() {
@@ -124,7 +129,7 @@ struct EffectAwareEmissionTests {
                 )
             ]
         )
-        #expect(output.contains("let baz = try await makeBaz()"))
+        #expect(output.contains("_wireState_baz.asResolved(try await makeBaz())"))
     }
 
     @Test func syncFunctionProviderEmitsNoPrefix() {
@@ -158,7 +163,7 @@ struct EffectAwareEmissionTests {
                 )
             ]
         )
-        #expect(output.contains("let foo = try await fetchedFoo"))
+        #expect(output.contains("_wireState_foo.asResolved(try await fetchedFoo)"))
     }
 
     // MARK: - User-written `@Inject init` effects
@@ -172,7 +177,7 @@ struct EffectAwareEmissionTests {
                 singleton("AsyncService", initIsAsync: true)
             ]
         )
-        #expect(output.contains("let asyncService = await AsyncService()"))
+        #expect(output.contains("_wireState_asyncService.asResolved(await AsyncService())"))
     }
 
     @Test func asyncThrowsInitOnScopeBoundEmitsTryAwaitPrefix() {
@@ -182,7 +187,7 @@ struct EffectAwareEmissionTests {
                 singleton("DatabasePool", initIsAsync: true, initIsThrowing: true)
             ]
         )
-        #expect(output.contains("let databasePool = try await DatabasePool()"))
+        #expect(output.contains("_wireState_databasePool.asResolved(try await DatabasePool())"))
     }
 
     @Test func syncInitOnScopeBoundEmitsNoPrefix() {
@@ -227,8 +232,8 @@ struct EffectAwareEmissionTests {
                 ),
             ]
         )
-        #expect(output.contains("let logger = Logger()"))
-        #expect(output.contains("let databasePool = try await DatabasePool(logger: logger)"))
-        #expect(output.contains("let application = try await Application(pool: databasePool)"))
+        #expect(output.contains("_wireState_logger.asResolved(Logger())"))
+        #expect(output.contains("_wireState_databasePool.asResolved(try await DatabasePool(logger: logger))"))
+        #expect(output.contains("_wireState_application.asResolved(try await Application(pool: databasePool))"))
     }
 }

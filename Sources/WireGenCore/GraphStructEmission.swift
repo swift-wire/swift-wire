@@ -207,6 +207,17 @@ func appendStruct(
     file.lines.append(contentsOf: teardownMethodLines(torn))
     file.lines.append("}")
 
+    let scheduled = schedulerApplies(
+        to: topologicalOrder,
+        seedScopes: seedScopes,
+        existentialPromotions: existentialPromotions
+    )
+    if scheduled {
+        file.lines.append(
+            contentsOf: schedulerBuildingStructLines(structName: structName, topologicalOrder: topologicalOrder)
+        )
+    }
+
     // Free function at module scope — does the actual construction.
     // Module-scope context means bare `appName` / `logger` references
     // resolve cleanly to module-scope `@Provides` declarations,
@@ -223,6 +234,79 @@ func appendStruct(
         return
     }
 
+    // M7c.2 — a graph with an async binding and none of the constructs M7c.4 owns constructs through the
+    // state struct instead of the linear `let` chain. See `schedulerApplies`.
+    if scheduled {
+        appendScheduledConstruction(
+            structName: structName,
+            topologicalOrder: topologicalOrder,
+            roots: roots,
+            lift: lift,
+            propertyBlockIndex: propertyBlockIndex,
+            into: &file
+        )
+        return
+    }
+
+    appendLinearConstruction(
+        structName: structName,
+        topologicalOrder: topologicalOrder,
+        roots: roots,
+        lift: lift,
+        context: context,
+        propertyBlockIndex: propertyBlockIndex,
+        into: &file
+    )
+}
+
+/// The scheduled construction body (M7c.2): start every source binding and let the cascade reach the
+/// rest, then hand the memberwise init the cells to take from.
+private func appendScheduledConstruction(
+    structName: String,
+    topologicalOrder: [DiscoveredBinding],
+    roots: Set<BindingIdentity>,
+    lift: GraphLift,
+    propertyBlockIndex: Int,
+    into file: inout WireFileBuffer
+) {
+    file.lines.append(
+        contentsOf: schedulerBootstrapBodyLines(structName: structName, topologicalOrder: topologicalOrder)
+    )
+    let returnLineIndex = file.lines.count
+    file.lines.append(storagePlaceholder)
+    file.lines.append("}")
+    file.storagePatches.append(
+        GraphStoragePatch(
+            structName: structName,
+            parentLocal: wireGraphParameterInternalName(forType: structName),
+            topologicalOrder: topologicalOrder,
+            roots: roots,
+            liftedParameterForIdentity: lift.parameterForIdentity,
+            hasTeardown: false,
+            builderLocal: "building",
+            propertyBlockIndex: propertyBlockIndex,
+            returnLineIndex: returnLineIndex
+        )
+    )
+}
+
+/// The linear `let` chain — one construction line per binding in topological order, then the post-init
+/// member-injection block, then the captured teardown. Every graph took this shape before M7c.2, and a
+/// graph that does not qualify for the scheduler still does, byte for byte.
+private func appendLinearConstruction(
+    structName: String,
+    topologicalOrder: [DiscoveredBinding],
+    roots: Set<BindingIdentity>,
+    lift: GraphLift,
+    context: GraphEmissionContext,
+    propertyBlockIndex: Int,
+    into file: inout WireFileBuffer
+) {
+    let seedScopes = context.seedScopes(structName)
+    let existentialPromotions = context.existentialPromotions
+    // Recomputed rather than passed: it is one filter over the order this function already has, and
+    // threading it through would put the parameter list past what the linter allows.
+    let torn = topologicalOrder.reversed().filter { $0.teardown != nil }
     let aliases = bootstrapExistentialAliasPlan(existentialPromotions, constructedIn: topologicalOrder)
 
     // Construction body — bare local names. `let logger = logger`
@@ -294,6 +378,7 @@ func appendStruct(
             roots: roots,
             liftedParameterForIdentity: lift.parameterForIdentity,
             hasTeardown: !torn.isEmpty,
+            builderLocal: nil,
             propertyBlockIndex: propertyBlockIndex,
             returnLineIndex: returnLineIndex
         )
