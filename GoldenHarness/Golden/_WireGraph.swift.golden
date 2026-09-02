@@ -4368,6 +4368,100 @@ private func _wireBootstrapProdContainer() async throws -> _ProdContainerWireGra
     return _ProdContainerWireGraph(serviceHost: serviceHost)
 }
 
+internal struct _SchedulerContainerWireGraph: Introspectable, Teardownable {
+    @available(*, unavailable, message: "'alphaProbe' is constructed by the graph but not a direct property of it. To read it as 'graph.alphaProbe', mark its binding at Tests/IntegrationTests/SchedulerContainerExample.swift:80 'allowUnused: true'.") internal var alphaProbe: SchedulerContainer.AlphaProbe { fatalError() }
+    @available(*, unavailable, message: "'betaProbe' is constructed by the graph but not a direct property of it. To read it as 'graph.betaProbe', mark its binding at Tests/IntegrationTests/SchedulerContainerExample.swift:85 'allowUnused: true'.") internal var betaProbe: SchedulerContainer.BetaProbe { fatalError() }
+    @available(*, unavailable, message: "'anySchedulerProbeKeyedSchedulerContainerProbes' is constructed by the graph but not a direct property of it. To read it as 'graph.anySchedulerProbeKeyedSchedulerContainerProbes', mark its binding at Tests/IntegrationTests/SchedulerContainerExample.swift:33 'allowUnused: true'.") internal var anySchedulerProbeKeyedSchedulerContainerProbes: [any SchedulerProbe] { fatalError() }
+    let probeHost: SchedulerContainer.ProbeHost
+    let schedulerConfig: SchedulerContainer.SchedulerConfig
+    let schedulerCounter: SchedulerContainer.SchedulerCounter
+    let schedulerToken: SchedulerToken
+    let schedulerService: SchedulerContainer.SchedulerService
+
+    func introspect() -> WiringModel {
+        WiringModel(bindings: [
+            BindingInfo(type: "AlphaProbe", key: nil, kind: .singleton, scope: nil, dependencies: [], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/SchedulerContainerExample.swift", line: 80)),
+            BindingInfo(type: "BetaProbe", key: nil, kind: .singleton, scope: nil, dependencies: [], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/SchedulerContainerExample.swift", line: 85)),
+            BindingInfo(type: "[any SchedulerProbe]", key: "SchedulerContainer.probes", kind: .aggregate, scope: nil, dependencies: [DependencyEdge(type: "AlphaProbe", key: nil), DependencyEdge(type: "BetaProbe", key: nil)], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/SchedulerContainerExample.swift", line: 33)),
+            BindingInfo(type: "ProbeHost", key: nil, kind: .singleton, scope: nil, dependencies: [DependencyEdge(type: "[any SchedulerProbe]", key: "SchedulerContainer.probes")], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/SchedulerContainerExample.swift", line: 91)),
+            BindingInfo(type: "SchedulerConfig", key: nil, kind: .singleton, scope: nil, dependencies: [], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/SchedulerContainerExample.swift", line: 55)),
+            BindingInfo(type: "SchedulerCounter", key: nil, kind: .singleton, scope: nil, dependencies: [], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/SchedulerContainerExample.swift", line: 44)),
+            BindingInfo(type: "SchedulerToken", key: nil, kind: .provider, scope: nil, dependencies: [], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/SchedulerContainerExample.swift", line: 37)),
+            BindingInfo(type: "SchedulerService", key: nil, kind: .singleton, scope: nil, dependencies: [DependencyEdge(type: "SchedulerToken", key: nil), DependencyEdge(type: "SchedulerCounter", key: nil), DependencyEdge(type: "SchedulerConfig", key: nil)], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/SchedulerContainerExample.swift", line: 65)),
+        ])
+    }
+}
+
+private struct _SchedulerContainerWireBuilding: ~Copyable {
+    var _wireState_alphaProbe: _WireBindingState<SchedulerContainer.AlphaProbe> = .unmarked
+    var _wireState_betaProbe: _WireBindingState<SchedulerContainer.BetaProbe> = .unmarked
+    var _wireState_anySchedulerProbeKeyedSchedulerContainerProbes: _WireBindingState<[any SchedulerProbe]> = .unmarked
+    var _wireState_probeHost: _WireBindingState<SchedulerContainer.ProbeHost> = .unmarked
+    var _wireState_schedulerConfig: _WireBindingState<SchedulerContainer.SchedulerConfig> = .unmarked
+    var _wireState_schedulerCounter: _WireBindingState<SchedulerContainer.SchedulerCounter> = .unmarked
+    var _wireState_schedulerToken: _WireBindingState<SchedulerToken> = .unmarked
+    var _wireState_schedulerService: _WireBindingState<SchedulerContainer.SchedulerService> = .unmarked
+
+    mutating func _wireAdd_alphaProbe() async throws {
+        guard _wireState_alphaProbe.asPending() else { return }
+        _wireState_alphaProbe.asResolved(SchedulerContainer.AlphaProbe())
+        try await _wireAdd_anySchedulerProbeKeyedSchedulerContainerProbes()
+    }
+
+    mutating func _wireAdd_betaProbe() async throws {
+        guard _wireState_betaProbe.asPending() else { return }
+        _wireState_betaProbe.asResolved(SchedulerContainer.BetaProbe())
+        try await _wireAdd_anySchedulerProbeKeyedSchedulerContainerProbes()
+    }
+
+    mutating func _wireAdd_anySchedulerProbeKeyedSchedulerContainerProbes() async throws {
+        guard let alphaProbe = _wireState_alphaProbe.value(), let betaProbe = _wireState_betaProbe.value() else { return }
+        guard _wireState_anySchedulerProbeKeyedSchedulerContainerProbes.asPending() else { return }
+        _wireState_anySchedulerProbeKeyedSchedulerContainerProbes.asResolved([alphaProbe, betaProbe] as [any SchedulerProbe])
+        try await _wireAdd_probeHost()
+    }
+
+    mutating func _wireAdd_probeHost() async throws {
+        guard let anySchedulerProbeKeyedSchedulerContainerProbes = _wireState_anySchedulerProbeKeyedSchedulerContainerProbes.value() else { return }
+        guard _wireState_probeHost.asPending() else { return }
+        _wireState_probeHost.asResolved(SchedulerContainer.ProbeHost(probes: anySchedulerProbeKeyedSchedulerContainerProbes))
+    }
+
+    mutating func _wireAdd_schedulerConfig() async throws {
+        guard _wireState_schedulerConfig.asPending() else { return }
+        _wireState_schedulerConfig.asResolved(try await SchedulerContainer.SchedulerConfig())
+        try await _wireAdd_schedulerService()
+    }
+
+    mutating func _wireAdd_schedulerCounter() async throws {
+        guard _wireState_schedulerCounter.asPending() else { return }
+        _wireState_schedulerCounter.asResolved(SchedulerContainer.SchedulerCounter())
+        try await _wireAdd_schedulerService()
+    }
+
+    mutating func _wireAdd_schedulerToken() async throws {
+        guard _wireState_schedulerToken.asPending() else { return }
+        _wireState_schedulerToken.asResolved(try await SchedulerContainer.makeSchedulerToken())
+        try await _wireAdd_schedulerService()
+    }
+
+    mutating func _wireAdd_schedulerService() async throws {
+        guard let schedulerToken = _wireState_schedulerToken.value(), let schedulerCounter = _wireState_schedulerCounter.value(), let schedulerConfig = _wireState_schedulerConfig.value() else { return }
+        guard _wireState_schedulerService.asPending() else { return }
+        _wireState_schedulerService.asResolved(SchedulerContainer.SchedulerService(token: schedulerToken, counter: schedulerCounter, config: schedulerConfig))
+    }
+}
+
+private func _wireBootstrapSchedulerContainer() async throws -> _SchedulerContainerWireGraph {
+    var building = _SchedulerContainerWireBuilding()
+    try await building._wireAdd_alphaProbe()
+    try await building._wireAdd_betaProbe()
+    try await building._wireAdd_schedulerConfig()
+    try await building._wireAdd_schedulerCounter()
+    try await building._wireAdd_schedulerToken()
+    return _SchedulerContainerWireGraph(probeHost: building._wireState_probeHost.take(), schedulerConfig: building._wireState_schedulerConfig.take(), schedulerCounter: building._wireState_schedulerCounter.take(), schedulerToken: building._wireState_schedulerToken.take(), schedulerService: building._wireState_schedulerService.take())
+}
+
 internal struct _SubjectDoublesFixture_bindBothWireGraph<T0: AggregateSearchBackend, T1: GenAppBackend, T2: GenBackend, T3: GenProxyRepository, T4: GenSomethingElse, T5: Greeting, T6: TeardownResource>: Introspectable, Teardownable {
     @available(*, unavailable, message: "'anyAccountRepository' is constructed by the graph but not a direct property of it. To read it as 'graph.anyAccountRepository', mark its binding at Tests/IntegrationTests/ScopableCascadeExample.swift:47 'allowUnused: true'.") internal var anyAccountRepository: any AccountRepository { fatalError() }
     let accountController: AccountController
@@ -6347,6 +6441,9 @@ internal enum Wire {
     }
     static func bootstrapProdContainer() async throws -> _ProdContainerWireGraph {
         try await _wireBootstrapProdContainer()
+    }
+    static func bootstrapSchedulerContainer() async throws -> _SchedulerContainerWireGraph {
+        try await _wireBootstrapSchedulerContainer()
     }
     static func bootstrapSubjectDoublesFixture_bindBoth() async throws -> _SubjectDoublesFixture_bindBothWireGraph<some AggregateSearchBackend, some GenAppBackend, some GenBackend, some GenProxyRepository, some GenSomethingElse, some Greeting, some TeardownResource> {
         try await _wireBootstrapSubjectDoublesFixture_bindBoth()

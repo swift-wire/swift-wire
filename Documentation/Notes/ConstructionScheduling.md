@@ -1,8 +1,9 @@
 # Construction scheduling — design note (M7c)
 
 > **Status:** the implementation design for M7c, dynamic construction scheduling. **M7c.1 — narrow
-> retention — shipped 2026-09**; its outcome is recorded under its gate in *§ Suggested sequencing*, and
-> the two pre-existing bugs it surfaced are noted there too. M7c.2 onward keep their trigger. It
+> retention — and M7c.2 — the state struct, sequential — shipped 2026-09**; their outcomes are recorded
+> under their gates in *§ Suggested sequencing*, with the pre-existing bugs and the toolchain finding each
+> surfaced. M7c.3 onward keep their trigger. It
 > **supersedes the
 > `AtomicState<T>`-cell sketch** in [EffectAwareResolution.md](EffectAwareResolution.md) *§ Strict
 > per-level vs dynamic ready-as-deps-resolve*; that note stays as the conceptual framing (the levels
@@ -374,6 +375,32 @@ seam first. **Every gate compiles the generated output**, per the `-typecheck`-i
   isolates every noncopyable spelling and the three read forms before any concurrency is involved.
   **Gate:** a fixture graph over all four binding categories constructs correctly; `GoldenHarness/` output
   is byte-identical for graphs with no async binding, because those keep the linear chain.
+
+  **Gate: met, and exceeded on the byte-identical half — *every* pre-existing graph is unchanged, not only
+  the sync ones.** `Sources/WireGenCore/ConstructionSchedulingEmission.swift` carries the per-graph
+  trigger, the building struct and the driver, over `Wire._WireBindingState`; the golden grows by 97 lines
+  with **zero deletions**. The full suite compiles and runs on both the 6.3.3 floor and the 6.4 snapshot,
+  which is the gate that matters here: every spelling this shape avoids passes `-typecheck`.
+
+  Three findings, the first of which changed the plan:
+
+  - **The staged population is empty.** This sequencing assumes M7c.2 converts async graphs while M7c.4
+    later adds the interacting constructs — but slicing every bootstrap body in the golden shows all 13
+    async-containing graphs *also* carry builder folds, member injections and existential aliases, and
+    **no graph is async-and-clean**. So the trigger is `async AND none of the constructs M7c.4 owns`
+    (builder folds, scope-entry thunks, existential promotions, member injections, `@Teardown`, opaque
+    lifts), and the corpus gained `SchedulerContainerExample.swift` — a `@Container`, because the trigger
+    is per graph — so a real, compiled graph takes the new path instead of the step proving nothing.
+    Every exclusion is one clause of one predicate, so M7c.4 relaxes it by deleting clauses.
+  - **The cells carry a `_wire` prefix**, not this note's bare `poolState`. The `add` methods reference
+    module-scope declarations by bare name, and Swift checks the enclosing type's members before module
+    scope — the same shadow that put `_wireBootstrap` at module scope rather than on `_WireGraph`. A cell
+    named `appNameState` would still collide with a user binding whose property name is `appNameState`; a
+    `_wire`-prefixed one cannot.
+  - **`finalise()` is not emitted.** The memberwise init takes from the cells inline
+    (`_WireGraph(pool: building._wireState_pool.take(), …)`). *What* is stored is M7c.1's deferred
+    decision, resolved only once the whole file exists, so a `finalise()` body would have needed a third
+    patch point to stay in step with it.
 - **M7c.3 — the group.** Async bindings move into `group.addTask`, the parent drains and cascades.
   **Gate:** a fixture with a fast and a slow independent async binding plus a dependent of the fast one
   shows the dependent starting before the slow one finishes; `-enforce-exclusivity=checked` clean.
@@ -467,6 +494,13 @@ accepting the rewrite is a reasonable call at that point.
 - [M7_PLAN.md](../M7_PLAN.md) — the milestone's build plan; M7b's shipped reachability is what makes the
   root set the right retention target.
 - `Sources/WireGenCore/CodeEmission.swift` — `appendStruct`'s construction body, the loop this replaces.
+- `Sources/Wire/BindingState.swift` — **the cell, shipped with M7c.2.** Library code rather than emitted:
+  generated code already names Wire's public types, and a type whose failure modes pass `-typecheck` needs
+  somewhere it can be tested directly (`Tests/WireTests/BindingStateTests.swift`).
+- `Sources/WireGenCore/ConstructionSchedulingEmission.swift` — **M7c.2, shipped.** The per-graph trigger,
+  the building struct and the driver; `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` gates the
+  trigger and the cascade, and `Tests/IntegrationTests/SchedulerContainerExample.swift` is the graph that
+  actually takes the path.
 - `Sources/WireGenCore/Retention.swift` — **M7c.1, shipped.** The retained set, the read scan and the
   deferred stored-property/memberwise-init resolution; `Tests/WireGenCoreTests/RetentionTests.swift` is
   its gate.

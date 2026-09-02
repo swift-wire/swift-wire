@@ -165,6 +165,10 @@ package struct GraphStoragePatch {
     package let roots: Set<BindingIdentity>
     package let liftedParameterForIdentity: [String: String]
     package let hasTeardown: Bool
+    /// M7c.2 — the bootstrap's builder local when this graph took the scheduled form, so the memberwise
+    /// init takes each stored binding out of its cell (`building._wireState_pool.take()`) instead of
+    /// naming a `let` local the scheduled body never bound. `nil` for the linear chain.
+    package let builderLocal: String?
     package let propertyBlockIndex: Int
     package let returnLineIndex: Int
 }
@@ -223,7 +227,13 @@ package func resolveStoragePatches(_ patches: [GraphStoragePatch], in lines: ino
         lines[patch.propertyBlockIndex] =
             properties.isEmpty ? storagePlaceholder : properties.joined(separator: "\n")
 
-        var returnArgs = storedNames.map { "\($0): \($0)" }.joined(separator: ", ")
+        var returnArgs =
+            storedNames
+            .map { name in
+                guard let builder = patch.builderLocal else { return "\(name): \(name)" }
+                return "\(name): \(builder)._wireState_\(name).take()"
+            }
+            .joined(separator: ", ")
         if patch.hasTeardown {
             returnArgs += returnArgs.isEmpty ? "_wireTeardown: _wireTeardown" : ", _wireTeardown: _wireTeardown"
         }
