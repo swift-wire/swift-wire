@@ -3,7 +3,9 @@
 > **Status:** the implementation design for M7c, dynamic construction scheduling. **M7c.1 — narrow
 > retention — M7c.2 — the state struct, sequential — and M7c.3 — the task group — shipped 2026-09**; their
 > outcomes are recorded under their gates in *§ Suggested sequencing*, with the pre-existing bugs and the
-> toolchain findings each surfaced. M7c.4 onward keep their trigger. It
+> toolchain findings each surfaced. **M7c.4 was rewritten before it started** — § *The scheduled region*
+> settles how much of one graph the group spans, and the answer takes that step from five emitter
+> translations to one change of scope. M7c.4 onward keep their trigger. It
 > **supersedes the
 > `AtomicState<T>`-cell sketch** in [EffectAwareResolution.md](EffectAwareResolution.md) *§ Strict
 > per-level vs dynamic ready-as-deps-resolve*; that note stays as the conceptual framing (the levels
@@ -313,6 +315,121 @@ One ordering detail: `withThrowingTaskGroup`'s own `catch` does `cancelAll()` th
 would close something a sibling task is still using, the generated code must do its own `cancelAll()` and
 drain first rather than relying on the enclosing machinery.
 
+## The scheduled region — how much of one graph the group spans
+
+> **Settled 2026-09, before M7c.4, and it changes what M7c.4 is.** M7c.3's trigger decides *whether* a
+> graph is scheduled. It says nothing about *how much of it* is, and the answer it inherited — all of it —
+> is what made M7c.4 look like five emitter rewrites. It is not.
+
+M7c.3 argued that a group only pays where two async bindings can overlap, and narrowed the trigger on
+exactly that ground. The same argument runs one level down and was never applied there: inside a
+scheduled graph, a binding that cannot overlap with anything gains nothing from a cell either. The
+corpus says how much that costs. Surveyed over all twenty graphs, with the scheduled region taken as the
+async bindings plus everything transitively downstream of them:
+
+| graphs | bindings | async | region | frontier |
+|---|---|---|---|---|
+| `_WireGraph` and 11 `*Fixture_bind*` variants | 109–122 | 3 | **4** | **0** |
+| `SchedulerContainer`, `ParallelScheduler` | 4–8 | 2 | 3 | 1 |
+| 4 container graphs | 3–4 | 0 | 0 | — |
+
+**Four bindings out of a hundred and ten.** The async bindings in the corpus are near-leaves, and the
+*frontier* — prefix bindings a scheduled binding reads across the seam — is **zero**: nothing crosses at
+all. The survey seeds from *every* async binding rather than from Overlap alone and does not trim the
+serial suffix, so four is an upper bound on the group region under the rules below, not an estimate of
+it. Against a machinery cost measured on the two scheduled graphs at ≈46 lines fixed per graph plus ≈6.75
+per scheduled binding, converting whole graphs costs those twelve about **790 lines each**; converting the
+region costs about **73**. That is the whole of the ~9,000-line objection to M7c.4, and it is an artefact
+of the scope, not of the design.
+
+### Three regions, from the dependency order
+
+The split is prefix / group / suffix, and both boundaries are computed from the DAG — there is no timing
+model in it. Let **Overlap** be the async bindings that have at least one *independent* async partner,
+which is the set `hasIndependentAsyncPair` already walks for the trigger.
+
+- **Prefix** — every binding with no Overlap ancestor that is not itself in Overlap. Downward-closed (an
+  ancestor of a prefix binding is a prefix binding), so it is a valid topological head and stays today's
+  linear `let` chain. **It may contain async bindings**: a source everything else waits on is serial by
+  definition, and putting it in a group would buy a child task the parent immediately blocks on.
+- **Suffix** — every binding that transitively depends on *all* of Overlap. Upward-closed, and strictly
+  serial: nothing is still outstanding by the time one of these can start. Also today's linear chain, run
+  after the drain.
+- **Group** — the rest. Overlap, plus the descendants that can begin while some other branch is still in
+  flight, which is exactly the population the cascade exists for.
+
+The three partition the graph, and because the prefix is downward-closed and the suffix upward-closed the
+emitted body stays one shape: **chain → group → take each cell into a local → chain**. After the drain
+every value is a local again, which is the same ground the linear chain has always stood on.
+
+**One group, not several.** The middle can in principle contain a serial choke point with parallel phases
+either side, and splitting there would shrink the cell count further. It is not worth it: a choke costs a
+single group nothing (the group simply has one task in flight at that moment), while a second group costs
+another frame, another marker enum, and cells that have to survive across both regardless.
+
+### What this does to M7c.4
+
+The constructs M7c.4 owns were surveyed the same way — how many instances fall *inside* the region rather
+than anywhere in the graph:
+
+| construct | in region / in graph, per large graph |
+|---|---|
+| builder aggregates | 0 / 3 |
+| scope-entry thunks | 0 / 9 (default graph only) |
+| existential promotions | 0 / 2 |
+| member injections | 0 / 5 |
+| `@Teardown` | 0 / 4 |
+| opaque (`some P`) lifts | 0 / 6–7 |
+
+**Every one of them is zero on this corpus.** So the exclusion predicate does not need five new emitters
+to unblock these twelve graphs; it needs one change of scope — from "this construct appears in the graph"
+to "this construct appears in the *group region*" — after which all twelve qualify with no new emission at
+all.
+
+That is a claim about *what the corpus is asking for*, and nothing more. It is not a claim that a
+construct cannot land in the region: an aggregate whose contributors are async is downstream of them by
+definition, and any of the six can be reached from an async binding by an edge someone adds tomorrow. So
+the translations are not cancelled; they become **demand-driven**, and the question that matters is what
+each one costs *when* it is demanded. Probed rather than argued, since two of the six turn out to be much
+cheaper than the plan assumed and one much dearer:
+
+| construct in the region | what it needs | status |
+|---|---|---|
+| **collected / mapped aggregate** | nothing — it is a single expression, and `asResolved` takes it | **already works**; the clause only ever excluded `.builder` |
+| **builder aggregate** | the `@resultBuilder` local function nests *inside* `addX`, over the locals the guard already bound, then `asResolved(_wireFoldX())` | **verified compiling and running on both toolchains**; ~10 lines of emitter |
+| **`@Teardown`** | nothing — the closure is built at the end of the bootstrap over each binding's local, and after the seam every binding is a local | clause is probably deletable outright, not merely region-scoped |
+| **member injection** | nothing, for the same reason, and it *cannot* be region-scoped anyway (below) | same |
+| **existential promotion** | the shared `any P` alias needs a definition site: either its own cell or an inline coercion at each consumer | a real translation, unprobed |
+| **scope-entry thunk** | an *escaping* closure whose captures must be taken out of cells before it is formed — and whose capture set is `.scopeCapture` dependencies, which `constructionDependencyLocals` excludes, so the readiness guard does not cover them | the hard one |
+| **opaque (`some P`) lift** | the lifted generic parameter mirrored onto the building struct and inferred through both it and the bootstrap | the other hard one |
+
+So your example — an aggregate with async contributors — is the case most likely to arise in real code and
+it is the *cheapest* of the set, not a counterexample. The two that stay expensive, scope-entry thunks and
+opaque lifts, are the two M7c.3's plan already called the highest-risk seams.
+
+Member injection is worth stating separately, because it constrains the split rather than being
+constrained by it. **It is a post-construction block by design and cannot be region-scoped.** Its
+parameters are deliberately *not* graph edges (`Graph.swift`: "post-init delivery, so excluded from graph
+edges. Cycle through these is legal") — which is the whole point of `@Inject weak var`. So an injection
+can read across regions in either direction and must stay after everything is constructed, which is where
+it already is. Plainly: the prefix is downward-closed *under construction edges*, and injection edges are
+not construction edges.
+
+### The cost of the region change, which is not zero
+
+Narrowing the predicate to the region makes the exclusion **shape-sensitive**. Today "this graph has a
+builder fold" is a property of code someone wrote, and is stable. After the change it becomes "an async
+binding happens to reach a builder fold", which an added edge can flip either way, silently — the graph
+simply keeps the linear chain and nobody is told why. The silence itself is not new (an excluded graph is
+silently unscheduled today), but what determines it moves from a declaration to a topology, and topology
+is the thing a developer changes without meaning to.
+
+No diagnostic is proposed: a "this graph could have been scheduled" note is exactly the never-quiescing
+build warning M7c.1 already rejected once. The place this belongs is the **`_WireGraph.json` build-time
+dump** in the ROADMAP's *Pre-1.0 polish*, which already exists to answer "what did Wire decide about my
+graph" and which M7b already gave the pruned set to say. It is recorded here so the connection is made
+when that lands rather than rediscovered.
+
 ## What it costs
 
 Cascade decisions run on the parent's drain loop instead of firing inside the child that resolved the
@@ -321,11 +438,13 @@ construct on the parent, so two *expensive sync* bindings downstream of two diff
 serially rather than concurrently in their child tasks. Wire has no cost model to know when that matters,
 and the trade buys non-Sendable and noncopyable support, so it is the right one.
 
-Generated volume goes up: a cell, an `addX` and an `update` arm per binding, against one `let` today,
-plus a marker case and a `Sendable` assertion for each binding that crosses the task boundary. It is flat
-and mechanical, and it is the same shape for all four binding categories. It is also paid only by a graph
-the scheduler applies to: on the integration corpus that is two `@Container`s, and the narrowed trigger is
-what keeps it that way.
+Generated volume goes up: a cell, an `addX` and an `update` arm per *scheduled* binding, against one `let`
+today, plus a marker case and a `Sendable` assertion for each binding that crosses the task boundary. It is
+flat and mechanical, and it is the same shape for all four binding categories. Two things bound it, and
+they are the same argument applied at two scales — § *The scheduled region* carries both. Between graphs:
+only a graph with two async bindings that can overlap is scheduled at all, which on the integration corpus
+is two `@Container`s. Within a graph: only the region that can overlap is scheduled, which on the corpus'
+large graphs is four bindings out of a hundred and ten.
 
 ## Suggested sequencing
 
@@ -469,9 +588,25 @@ seam first. **Every gate compiles the generated output**, per the `-typecheck`-i
     repository's own settings rather than as a bare `swiftc` invocation, and the first round of probes
     that was not had to be thrown away. This generalises *§ Spellings that are load-bearing*: for
     anything in this milestone, the compile has to reach SIL.
-- **M7c.4 — the interacting constructs.** Builder folds, scope-entry thunks, existential-promotion
-  aliases, member injections and weak-cycle post-construct, translated into the `addX` form. **Gate:** the
-  integration corpus, which already exercises all five.
+- **M7c.4 — the scheduled region, and the exclusions that survive it.** *Rewritten 2026-09 against the
+  survey in § The scheduled region; what it used to say is kept below, because the reason it was wrong is
+  the reason this step is small.*
+
+  Split each scheduled graph into prefix / group / suffix, emit the two serial regions as today's linear
+  chain, and narrow the exclusion predicate from "this construct appears in the graph" to "this construct
+  appears in the group region". **Gate:** the integration corpus — all twelve large graphs take the
+  scheduled form, and the golden grows by the machinery for four bindings each rather than for a hundred
+  and ten.
+
+  It used to read: *"builder folds, scope-entry thunks, existential-promotion aliases, member injections
+  and weak-cycle post-construct, translated into the `addX` form. Gate: the integration corpus, which
+  already exercises all five."* Two things were wrong with it. Its gate was **empty for four steps out of
+  five** — every large graph is blocked by five clauses at once, so deleting one admits nothing and the
+  fifth flips eleven graphs in one commit; the same empty-population trap M7c.2 hit. And the five
+  translations are not what the corpus is asking for: **every instance of all six constructs sits in the
+  prefix**, so the region change admits all twelve with no new emission. The translations stay written
+  down as what a graph would have to look like to need them, and get written when one does — each behind
+  its own fixture, since the corpus gate will still be empty for them.
 - **M7c.5 — init-failure partial teardown.** The `do`/`catch`, the resolved-set walk, the explicit
   `cancelAll()`-and-drain. **Gate:** a fixture with a throwing init downstream of a constructed
   `@Teardown` binding asserts the earlier action fired — the fixture [TeardownDesign.md](TeardownDesign.md)
