@@ -897,6 +897,59 @@ internal struct _WireGraph<T0: AggregateSearchBackend, T1: GenAppBackend, T2: Ge
     }
 }
 
+// Every binding this graph builds in a child task, and every dependency such a binding captures,
+// must be Sendable — `ThrowingTaskGroup`'s result and `addTask`'s closure both require it. These
+// assertions exist so that requirement is reported at the binding rather than inside the
+// generated scheduler below. Never called.
+private func _wireSendableChecks_WireGraph() {
+    func _check<T: Sendable>(_: T.Type) {}
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncBootstrappedDependency.swift", line: 13)
+    _check((AsyncToken).self)
+    #sourceLocation()
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncComputedProperty.swift", line: 15)
+    _check((AsyncMessage).self)
+    #sourceLocation()
+}
+
+private enum _WireTaskResult: Sendable {
+    case asyncToken(AsyncToken)
+    case asyncMessage(AsyncMessage)
+}
+
+private struct _WireBuilding: ~Copyable {
+    var _wireState_asyncToken: _WireBindingState<AsyncToken> = .unmarked
+    var _wireState_asyncMessage: _WireBindingState<AsyncMessage> = .unmarked
+    var _wireState_asyncTokenConsumer: _WireBindingState<AsyncTokenConsumer> = .unmarked
+
+    mutating func _wireAdd_asyncToken(_ _wireGroup: inout ThrowingTaskGroup<_WireTaskResult, any Error>) throws {
+        guard _wireState_asyncToken.asPending() else { return }
+        _wireGroup.addTask { .asyncToken(try await makeAsyncToken()) }
+    }
+
+    mutating func _wireAdd_asyncMessage(_ _wireGroup: inout ThrowingTaskGroup<_WireTaskResult, any Error>) throws {
+        guard _wireState_asyncMessage.asPending() else { return }
+        _wireGroup.addTask { .asyncMessage(try await AsyncFactories.asyncMessage) }
+    }
+
+    mutating func _wireAdd_asyncTokenConsumer(_ _wireGroup: inout ThrowingTaskGroup<_WireTaskResult, any Error>) throws {
+        guard let asyncToken = _wireState_asyncToken.value() else { return }
+        guard _wireState_asyncTokenConsumer.asPending() else { return }
+        _wireState_asyncTokenConsumer.asResolved(AsyncTokenConsumer(token: asyncToken))
+    }
+
+    mutating func _wireUpdate(_ _wireResult: _WireTaskResult, _ _wireGroup: inout ThrowingTaskGroup<_WireTaskResult, any Error>) throws {
+        switch _wireResult {
+        case .asyncToken(let _wireValue):
+            _wireState_asyncToken.asResolved(_wireValue)
+            try _wireAdd_asyncTokenConsumer(&_wireGroup)
+        case .asyncMessage(let _wireValue):
+            _wireState_asyncMessage.asResolved(_wireValue)
+        }
+    }
+}
+
 private func _wireBootstrap() async throws -> _WireGraph<some AggregateSearchBackend, some GenAppBackend, some GenBackend, some GenProxyRepository, some GenSomethingElse, some Greeting, some TeardownResource> {
     let anyAccountRepository = AccountRepositoryModule.repository()
     let accountController = AccountController(repository: anyAccountRepository)
@@ -931,10 +984,6 @@ private func _wireBootstrap() async throws -> _WireGraph<some AggregateSearchBac
     let anyAppScopedRepository = AppScopedRepositoryModule.repository()
     let appScopedLog = AppScopedLog()
     let appScopedController = AppScopedController(repository: anyAppScopedRepository, log: appScopedLog)
-    let asyncToken = try await makeAsyncToken()
-    let asyncMessage = try await AsyncFactories.asyncMessage
-    let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
-    let asyncTokenConsumer = AsyncTokenConsumer(token: asyncToken)
     let authMiddleware = AuthMiddleware()
     let buildNumber = BuildInfo.buildNumber
     let banner = makeBanner(appName: appName, buildNumber: buildNumber)
@@ -1116,37 +1165,49 @@ private func _wireBootstrap() async throws -> _WireGraph<some AggregateSearchBac
         return _WireScopeEntry_SubjectPlainController(_wireSubject: subjectPlainController, _wireScopeTeardown: _wireScopeTeardown)
     }
     let _WireRouteContributor_SubjectPlainController = _WireRouteContributor_SubjectPlainController(_wireEnterScope: sendableSubjectSeedasyncthrows_WireScopeEntry_SubjectPlainController)
-    view.coordinator = coordinator
-    spoke.hub = hub
-    noteBoard.receive(message: noteMessage)
-    await tickCounter.bump(by: tickIncrement)
-    await toolbelt._wireSetWorkshop(workshop)
-    let _wireTeardown: @Sendable () async -> [any Error] = {
-        var errors: [any Error] = []
-        do {
-            try await someTeardownResource.close()
-        } catch {
-            errors.append(error)
+    return try await withThrowingTaskGroup(of: _WireTaskResult.self) { _wireGroup in
+        var building = _WireBuilding()
+        try building._wireAdd_asyncToken(&_wireGroup)
+        try building._wireAdd_asyncMessage(&_wireGroup)
+        while let _wireResult = try await _wireGroup.next() {
+            try building._wireUpdate(_wireResult, &_wireGroup)
         }
-        do {
-            try await teardownConsumer.teardown()
-        } catch {
-            errors.append(error)
+        let asyncToken = building._wireState_asyncToken.take()
+        let asyncMessage = building._wireState_asyncMessage.take()
+        let asyncTokenConsumer = building._wireState_asyncTokenConsumer.take()
+        let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
+        view.coordinator = coordinator
+        spoke.hub = hub
+        noteBoard.receive(message: noteMessage)
+        await tickCounter.bump(by: tickIncrement)
+        await toolbelt._wireSetWorkshop(workshop)
+        let _wireTeardown: @Sendable () async -> [any Error] = {
+            var errors: [any Error] = []
+            do {
+                try await someTeardownResource.close()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownConsumer.teardown()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
+                try await action(teardownHTTPClient)
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownDatabasePool.teardown()
+            } catch {
+                errors.append(error)
+            }
+            return errors
         }
-        do {
-            let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
-            try await action(teardownHTTPClient)
-        } catch {
-            errors.append(error)
-        }
-        do {
-            try await teardownDatabasePool.teardown()
-        } catch {
-            errors.append(error)
-        }
-        return errors
+        return _WireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_alphaOfSomeAggregateSearchBackend: _WireAggregateContributor_alphaOfSomeAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_BorrowRouteController: _WireRouteContributor_BorrowRouteController, _WireRouteContributor_FactoryProxyRouteController: _WireRouteContributor_FactoryProxyRouteController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _WireRouteContributor_GenPartialRouteControllerOfSomeGenProxyRepositoryAndSomeGenSomethingElse: _WireRouteContributor_GenPartialRouteControllerOfSomeGenProxyRepositoryAndSomeGenSomethingElse, _WireRouteContributor_GenProxyRouteControllerOfSomeGenProxyRepository: _WireRouteContributor_GenProxyRouteControllerOfSomeGenProxyRepository, _WireRouteContributor_ProxyRouteController: _WireRouteContributor_ProxyRouteController, _WireRouteContributor_SubjectAlphaController: _WireRouteContributor_SubjectAlphaController, _WireRouteContributor_SubjectBetaController: _WireRouteContributor_SubjectBetaController, _WireRouteContributor_SubjectPlainController: _WireRouteContributor_SubjectPlainController, _wireTeardown: _wireTeardown)
     }
-    return _WireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_alphaOfSomeAggregateSearchBackend: _WireAggregateContributor_alphaOfSomeAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_BorrowRouteController: _WireRouteContributor_BorrowRouteController, _WireRouteContributor_FactoryProxyRouteController: _WireRouteContributor_FactoryProxyRouteController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _WireRouteContributor_GenPartialRouteControllerOfSomeGenProxyRepositoryAndSomeGenSomethingElse: _WireRouteContributor_GenPartialRouteControllerOfSomeGenProxyRepositoryAndSomeGenSomethingElse, _WireRouteContributor_GenProxyRouteControllerOfSomeGenProxyRepository: _WireRouteContributor_GenProxyRouteControllerOfSomeGenProxyRepository, _WireRouteContributor_ProxyRouteController: _WireRouteContributor_ProxyRouteController, _WireRouteContributor_SubjectAlphaController: _WireRouteContributor_SubjectAlphaController, _WireRouteContributor_SubjectBetaController: _WireRouteContributor_SubjectBetaController, _WireRouteContributor_SubjectPlainController: _WireRouteContributor_SubjectPlainController, _wireTeardown: _wireTeardown)
 }
 
 internal struct _AppScopedFixture_bindMockWireGraph<T0: AggregateSearchBackend, T1: GenAppBackend, T2: GenBackend, T3: GenProxyRepository, T4: GenSomethingElse, T5: Greeting, T6: TeardownResource>: Introspectable, Teardownable {
@@ -1380,6 +1441,59 @@ internal struct _AppScopedFixture_bindMockWireGraph<T0: AggregateSearchBackend, 
     }
 }
 
+// Every binding this graph builds in a child task, and every dependency such a binding captures,
+// must be Sendable — `ThrowingTaskGroup`'s result and `addTask`'s closure both require it. These
+// assertions exist so that requirement is reported at the binding rather than inside the
+// generated scheduler below. Never called.
+private func _wireSendableChecks_AppScopedFixture_bindMockWireGraph() {
+    func _check<T: Sendable>(_: T.Type) {}
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncBootstrappedDependency.swift", line: 13)
+    _check((AsyncToken).self)
+    #sourceLocation()
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncComputedProperty.swift", line: 15)
+    _check((AsyncMessage).self)
+    #sourceLocation()
+}
+
+private enum _AppScopedFixture_bindMockWireTaskResult: Sendable {
+    case asyncToken(AsyncToken)
+    case asyncMessage(AsyncMessage)
+}
+
+private struct _AppScopedFixture_bindMockWireBuilding: ~Copyable {
+    var _wireState_asyncToken: _WireBindingState<AsyncToken> = .unmarked
+    var _wireState_asyncMessage: _WireBindingState<AsyncMessage> = .unmarked
+    var _wireState_asyncTokenConsumer: _WireBindingState<AsyncTokenConsumer> = .unmarked
+
+    mutating func _wireAdd_asyncToken(_ _wireGroup: inout ThrowingTaskGroup<_AppScopedFixture_bindMockWireTaskResult, any Error>) throws {
+        guard _wireState_asyncToken.asPending() else { return }
+        _wireGroup.addTask { .asyncToken(try await makeAsyncToken()) }
+    }
+
+    mutating func _wireAdd_asyncMessage(_ _wireGroup: inout ThrowingTaskGroup<_AppScopedFixture_bindMockWireTaskResult, any Error>) throws {
+        guard _wireState_asyncMessage.asPending() else { return }
+        _wireGroup.addTask { .asyncMessage(try await AsyncFactories.asyncMessage) }
+    }
+
+    mutating func _wireAdd_asyncTokenConsumer(_ _wireGroup: inout ThrowingTaskGroup<_AppScopedFixture_bindMockWireTaskResult, any Error>) throws {
+        guard let asyncToken = _wireState_asyncToken.value() else { return }
+        guard _wireState_asyncTokenConsumer.asPending() else { return }
+        _wireState_asyncTokenConsumer.asResolved(AsyncTokenConsumer(token: asyncToken))
+    }
+
+    mutating func _wireUpdate(_ _wireResult: _AppScopedFixture_bindMockWireTaskResult, _ _wireGroup: inout ThrowingTaskGroup<_AppScopedFixture_bindMockWireTaskResult, any Error>) throws {
+        switch _wireResult {
+        case .asyncToken(let _wireValue):
+            _wireState_asyncToken.asResolved(_wireValue)
+            try _wireAdd_asyncTokenConsumer(&_wireGroup)
+        case .asyncMessage(let _wireValue):
+            _wireState_asyncMessage.asResolved(_wireValue)
+        }
+    }
+}
+
 private func _wireBootstrapAppScopedFixture_bindMock() async throws -> _AppScopedFixture_bindMockWireGraph<some AggregateSearchBackend, some GenAppBackend, some GenBackend, some GenProxyRepository, some GenSomethingElse, some Greeting, some TeardownResource> {
     let anyAccountRepository = AccountRepositoryModule.repository()
     let accountController = AccountController(repository: anyAccountRepository)
@@ -1400,10 +1514,6 @@ private func _wireBootstrapAppScopedFixture_bindMock() async throws -> _AppScope
     let appNameKeyedAppNameAlternate = alternateAppName
     let appNameKeyedAppNameBoundViaInit = boundViaInitAppName
     let appScopedLog = AppScopedLog()
-    let asyncToken = try await makeAsyncToken()
-    let asyncMessage = try await AsyncFactories.asyncMessage
-    let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
-    let asyncTokenConsumer = AsyncTokenConsumer(token: asyncToken)
     let authMiddleware = AuthMiddleware()
     let buildNumber = BuildInfo.buildNumber
     let banner = makeBanner(appName: appName, buildNumber: buildNumber)
@@ -1506,37 +1616,49 @@ private func _wireBootstrapAppScopedFixture_bindMock() async throws -> _AppScope
     let _WireFactory_FactoryProxyKeys_probe = _WireFactory_FactoryProxyKeys_probe()
     let _WireFactory_GenAppKeys_auditOfSomeGenAppBackend = _WireFactory_GenAppKeys_audit(backend: someGenAppBackend)
     let _WireRouteContributor_GenAppControllerOfSomeGenAppBackend = _WireRouteContributor_GenAppController(genAppControllerOfSomeGenAppBackend, _wireFactory_GenAppKeys_audit: _WireFactory_GenAppKeys_auditOfSomeGenAppBackend)
-    view.coordinator = coordinator
-    spoke.hub = hub
-    noteBoard.receive(message: noteMessage)
-    await tickCounter.bump(by: tickIncrement)
-    await toolbelt._wireSetWorkshop(workshop)
-    let _wireTeardown: @Sendable () async -> [any Error] = {
-        var errors: [any Error] = []
-        do {
-            try await someTeardownResource.close()
-        } catch {
-            errors.append(error)
+    return try await withThrowingTaskGroup(of: _AppScopedFixture_bindMockWireTaskResult.self) { _wireGroup in
+        var building = _AppScopedFixture_bindMockWireBuilding()
+        try building._wireAdd_asyncToken(&_wireGroup)
+        try building._wireAdd_asyncMessage(&_wireGroup)
+        while let _wireResult = try await _wireGroup.next() {
+            try building._wireUpdate(_wireResult, &_wireGroup)
         }
-        do {
-            try await teardownConsumer.teardown()
-        } catch {
-            errors.append(error)
+        let asyncToken = building._wireState_asyncToken.take()
+        let asyncMessage = building._wireState_asyncMessage.take()
+        let asyncTokenConsumer = building._wireState_asyncTokenConsumer.take()
+        let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
+        view.coordinator = coordinator
+        spoke.hub = hub
+        noteBoard.receive(message: noteMessage)
+        await tickCounter.bump(by: tickIncrement)
+        await toolbelt._wireSetWorkshop(workshop)
+        let _wireTeardown: @Sendable () async -> [any Error] = {
+            var errors: [any Error] = []
+            do {
+                try await someTeardownResource.close()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownConsumer.teardown()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
+                try await action(teardownHTTPClient)
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownDatabasePool.teardown()
+            } catch {
+                errors.append(error)
+            }
+            return errors
         }
-        do {
-            let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
-            try await action(teardownHTTPClient)
-        } catch {
-            errors.append(error)
-        }
-        do {
-            try await teardownDatabasePool.teardown()
-        } catch {
-            errors.append(error)
-        }
-        return errors
+        return _AppScopedFixture_bindMockWireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _wireTeardown: _wireTeardown)
     }
-    return _AppScopedFixture_bindMockWireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _wireTeardown: _wireTeardown)
 }
 
 internal struct _BorrowFixture_bindMockWireGraph<T0: AggregateSearchBackend, T1: GenAppBackend, T2: GenBackend, T3: GenProxyRepository, T4: GenSomethingElse, T5: Greeting, T6: TeardownResource>: Introspectable, Teardownable {
@@ -1776,6 +1898,59 @@ internal struct _BorrowFixture_bindMockWireGraph<T0: AggregateSearchBackend, T1:
     }
 }
 
+// Every binding this graph builds in a child task, and every dependency such a binding captures,
+// must be Sendable — `ThrowingTaskGroup`'s result and `addTask`'s closure both require it. These
+// assertions exist so that requirement is reported at the binding rather than inside the
+// generated scheduler below. Never called.
+private func _wireSendableChecks_BorrowFixture_bindMockWireGraph() {
+    func _check<T: Sendable>(_: T.Type) {}
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncBootstrappedDependency.swift", line: 13)
+    _check((AsyncToken).self)
+    #sourceLocation()
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncComputedProperty.swift", line: 15)
+    _check((AsyncMessage).self)
+    #sourceLocation()
+}
+
+private enum _BorrowFixture_bindMockWireTaskResult: Sendable {
+    case asyncToken(AsyncToken)
+    case asyncMessage(AsyncMessage)
+}
+
+private struct _BorrowFixture_bindMockWireBuilding: ~Copyable {
+    var _wireState_asyncToken: _WireBindingState<AsyncToken> = .unmarked
+    var _wireState_asyncMessage: _WireBindingState<AsyncMessage> = .unmarked
+    var _wireState_asyncTokenConsumer: _WireBindingState<AsyncTokenConsumer> = .unmarked
+
+    mutating func _wireAdd_asyncToken(_ _wireGroup: inout ThrowingTaskGroup<_BorrowFixture_bindMockWireTaskResult, any Error>) throws {
+        guard _wireState_asyncToken.asPending() else { return }
+        _wireGroup.addTask { .asyncToken(try await makeAsyncToken()) }
+    }
+
+    mutating func _wireAdd_asyncMessage(_ _wireGroup: inout ThrowingTaskGroup<_BorrowFixture_bindMockWireTaskResult, any Error>) throws {
+        guard _wireState_asyncMessage.asPending() else { return }
+        _wireGroup.addTask { .asyncMessage(try await AsyncFactories.asyncMessage) }
+    }
+
+    mutating func _wireAdd_asyncTokenConsumer(_ _wireGroup: inout ThrowingTaskGroup<_BorrowFixture_bindMockWireTaskResult, any Error>) throws {
+        guard let asyncToken = _wireState_asyncToken.value() else { return }
+        guard _wireState_asyncTokenConsumer.asPending() else { return }
+        _wireState_asyncTokenConsumer.asResolved(AsyncTokenConsumer(token: asyncToken))
+    }
+
+    mutating func _wireUpdate(_ _wireResult: _BorrowFixture_bindMockWireTaskResult, _ _wireGroup: inout ThrowingTaskGroup<_BorrowFixture_bindMockWireTaskResult, any Error>) throws {
+        switch _wireResult {
+        case .asyncToken(let _wireValue):
+            _wireState_asyncToken.asResolved(_wireValue)
+            try _wireAdd_asyncTokenConsumer(&_wireGroup)
+        case .asyncMessage(let _wireValue):
+            _wireState_asyncMessage.asResolved(_wireValue)
+        }
+    }
+}
+
 private func _wireBootstrapBorrowFixture_bindMock() async throws -> _BorrowFixture_bindMockWireGraph<some AggregateSearchBackend, some GenAppBackend, some GenBackend, some GenProxyRepository, some GenSomethingElse, some Greeting, some TeardownResource> {
     let anyAccountRepository = AccountRepositoryModule.repository()
     let accountController = AccountController(repository: anyAccountRepository)
@@ -1798,10 +1973,6 @@ private func _wireBootstrapBorrowFixture_bindMock() async throws -> _BorrowFixtu
     let anyAppScopedRepository = AppScopedRepositoryModule.repository()
     let appScopedLog = AppScopedLog()
     let appScopedController = AppScopedController(repository: anyAppScopedRepository, log: appScopedLog)
-    let asyncToken = try await makeAsyncToken()
-    let asyncMessage = try await AsyncFactories.asyncMessage
-    let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
-    let asyncTokenConsumer = AsyncTokenConsumer(token: asyncToken)
     let authMiddleware = AuthMiddleware()
     let buildNumber = BuildInfo.buildNumber
     let banner = makeBanner(appName: appName, buildNumber: buildNumber)
@@ -1905,37 +2076,49 @@ private func _wireBootstrapBorrowFixture_bindMock() async throws -> _BorrowFixtu
     let _WireFactory_GenAppKeys_auditOfSomeGenAppBackend = _WireFactory_GenAppKeys_audit(backend: someGenAppBackend)
     let _WireRouteContributor_AppScopedController = _WireRouteContributor_AppScopedController(appScopedController, _wireFactory_AppScopedKeys_audit: _WireFactory_AppScopedKeys_audit)
     let _WireRouteContributor_GenAppControllerOfSomeGenAppBackend = _WireRouteContributor_GenAppController(genAppControllerOfSomeGenAppBackend, _wireFactory_GenAppKeys_audit: _WireFactory_GenAppKeys_auditOfSomeGenAppBackend)
-    view.coordinator = coordinator
-    spoke.hub = hub
-    noteBoard.receive(message: noteMessage)
-    await tickCounter.bump(by: tickIncrement)
-    await toolbelt._wireSetWorkshop(workshop)
-    let _wireTeardown: @Sendable () async -> [any Error] = {
-        var errors: [any Error] = []
-        do {
-            try await someTeardownResource.close()
-        } catch {
-            errors.append(error)
+    return try await withThrowingTaskGroup(of: _BorrowFixture_bindMockWireTaskResult.self) { _wireGroup in
+        var building = _BorrowFixture_bindMockWireBuilding()
+        try building._wireAdd_asyncToken(&_wireGroup)
+        try building._wireAdd_asyncMessage(&_wireGroup)
+        while let _wireResult = try await _wireGroup.next() {
+            try building._wireUpdate(_wireResult, &_wireGroup)
         }
-        do {
-            try await teardownConsumer.teardown()
-        } catch {
-            errors.append(error)
+        let asyncToken = building._wireState_asyncToken.take()
+        let asyncMessage = building._wireState_asyncMessage.take()
+        let asyncTokenConsumer = building._wireState_asyncTokenConsumer.take()
+        let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
+        view.coordinator = coordinator
+        spoke.hub = hub
+        noteBoard.receive(message: noteMessage)
+        await tickCounter.bump(by: tickIncrement)
+        await toolbelt._wireSetWorkshop(workshop)
+        let _wireTeardown: @Sendable () async -> [any Error] = {
+            var errors: [any Error] = []
+            do {
+                try await someTeardownResource.close()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownConsumer.teardown()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
+                try await action(teardownHTTPClient)
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownDatabasePool.teardown()
+            } catch {
+                errors.append(error)
+            }
+            return errors
         }
-        do {
-            let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
-            try await action(teardownHTTPClient)
-        } catch {
-            errors.append(error)
-        }
-        do {
-            try await teardownDatabasePool.teardown()
-        } catch {
-            errors.append(error)
-        }
-        return errors
+        return _BorrowFixture_bindMockWireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _wireTeardown: _wireTeardown)
     }
-    return _BorrowFixture_bindMockWireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _wireTeardown: _wireTeardown)
 }
 
 internal struct _ComposeFixture_bindMockWireGraph<T0: AggregateSearchBackend, T1: GenAppBackend, T2: GenBackend, T3: GenProxyRepository, T4: GenSomethingElse, T5: Greeting, T6: TeardownResource>: Introspectable, Teardownable {
@@ -2175,6 +2358,59 @@ internal struct _ComposeFixture_bindMockWireGraph<T0: AggregateSearchBackend, T1
     }
 }
 
+// Every binding this graph builds in a child task, and every dependency such a binding captures,
+// must be Sendable — `ThrowingTaskGroup`'s result and `addTask`'s closure both require it. These
+// assertions exist so that requirement is reported at the binding rather than inside the
+// generated scheduler below. Never called.
+private func _wireSendableChecks_ComposeFixture_bindMockWireGraph() {
+    func _check<T: Sendable>(_: T.Type) {}
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncBootstrappedDependency.swift", line: 13)
+    _check((AsyncToken).self)
+    #sourceLocation()
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncComputedProperty.swift", line: 15)
+    _check((AsyncMessage).self)
+    #sourceLocation()
+}
+
+private enum _ComposeFixture_bindMockWireTaskResult: Sendable {
+    case asyncToken(AsyncToken)
+    case asyncMessage(AsyncMessage)
+}
+
+private struct _ComposeFixture_bindMockWireBuilding: ~Copyable {
+    var _wireState_asyncToken: _WireBindingState<AsyncToken> = .unmarked
+    var _wireState_asyncMessage: _WireBindingState<AsyncMessage> = .unmarked
+    var _wireState_asyncTokenConsumer: _WireBindingState<AsyncTokenConsumer> = .unmarked
+
+    mutating func _wireAdd_asyncToken(_ _wireGroup: inout ThrowingTaskGroup<_ComposeFixture_bindMockWireTaskResult, any Error>) throws {
+        guard _wireState_asyncToken.asPending() else { return }
+        _wireGroup.addTask { .asyncToken(try await makeAsyncToken()) }
+    }
+
+    mutating func _wireAdd_asyncMessage(_ _wireGroup: inout ThrowingTaskGroup<_ComposeFixture_bindMockWireTaskResult, any Error>) throws {
+        guard _wireState_asyncMessage.asPending() else { return }
+        _wireGroup.addTask { .asyncMessage(try await AsyncFactories.asyncMessage) }
+    }
+
+    mutating func _wireAdd_asyncTokenConsumer(_ _wireGroup: inout ThrowingTaskGroup<_ComposeFixture_bindMockWireTaskResult, any Error>) throws {
+        guard let asyncToken = _wireState_asyncToken.value() else { return }
+        guard _wireState_asyncTokenConsumer.asPending() else { return }
+        _wireState_asyncTokenConsumer.asResolved(AsyncTokenConsumer(token: asyncToken))
+    }
+
+    mutating func _wireUpdate(_ _wireResult: _ComposeFixture_bindMockWireTaskResult, _ _wireGroup: inout ThrowingTaskGroup<_ComposeFixture_bindMockWireTaskResult, any Error>) throws {
+        switch _wireResult {
+        case .asyncToken(let _wireValue):
+            _wireState_asyncToken.asResolved(_wireValue)
+            try _wireAdd_asyncTokenConsumer(&_wireGroup)
+        case .asyncMessage(let _wireValue):
+            _wireState_asyncMessage.asResolved(_wireValue)
+        }
+    }
+}
+
 private func _wireBootstrapComposeFixture_bindMock() async throws -> _ComposeFixture_bindMockWireGraph<some AggregateSearchBackend, some GenAppBackend, some GenBackend, some GenProxyRepository, some GenSomethingElse, some Greeting, some TeardownResource> {
     let anyAccountRepository = AccountRepositoryModule.repository()
     let accountController = AccountController(repository: anyAccountRepository)
@@ -2197,10 +2433,6 @@ private func _wireBootstrapComposeFixture_bindMock() async throws -> _ComposeFix
     let anyAppScopedRepository = AppScopedRepositoryModule.repository()
     let appScopedLog = AppScopedLog()
     let appScopedController = AppScopedController(repository: anyAppScopedRepository, log: appScopedLog)
-    let asyncToken = try await makeAsyncToken()
-    let asyncMessage = try await AsyncFactories.asyncMessage
-    let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
-    let asyncTokenConsumer = AsyncTokenConsumer(token: asyncToken)
     let authMiddleware = AuthMiddleware()
     let buildNumber = BuildInfo.buildNumber
     let banner = makeBanner(appName: appName, buildNumber: buildNumber)
@@ -2304,37 +2536,49 @@ private func _wireBootstrapComposeFixture_bindMock() async throws -> _ComposeFix
     let _WireFactory_GenAppKeys_auditOfSomeGenAppBackend = _WireFactory_GenAppKeys_audit(backend: someGenAppBackend)
     let _WireRouteContributor_AppScopedController = _WireRouteContributor_AppScopedController(appScopedController, _wireFactory_AppScopedKeys_audit: _WireFactory_AppScopedKeys_audit)
     let _WireRouteContributor_GenAppControllerOfSomeGenAppBackend = _WireRouteContributor_GenAppController(genAppControllerOfSomeGenAppBackend, _wireFactory_GenAppKeys_audit: _WireFactory_GenAppKeys_auditOfSomeGenAppBackend)
-    view.coordinator = coordinator
-    spoke.hub = hub
-    noteBoard.receive(message: noteMessage)
-    await tickCounter.bump(by: tickIncrement)
-    await toolbelt._wireSetWorkshop(workshop)
-    let _wireTeardown: @Sendable () async -> [any Error] = {
-        var errors: [any Error] = []
-        do {
-            try await someTeardownResource.close()
-        } catch {
-            errors.append(error)
+    return try await withThrowingTaskGroup(of: _ComposeFixture_bindMockWireTaskResult.self) { _wireGroup in
+        var building = _ComposeFixture_bindMockWireBuilding()
+        try building._wireAdd_asyncToken(&_wireGroup)
+        try building._wireAdd_asyncMessage(&_wireGroup)
+        while let _wireResult = try await _wireGroup.next() {
+            try building._wireUpdate(_wireResult, &_wireGroup)
         }
-        do {
-            try await teardownConsumer.teardown()
-        } catch {
-            errors.append(error)
+        let asyncToken = building._wireState_asyncToken.take()
+        let asyncMessage = building._wireState_asyncMessage.take()
+        let asyncTokenConsumer = building._wireState_asyncTokenConsumer.take()
+        let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
+        view.coordinator = coordinator
+        spoke.hub = hub
+        noteBoard.receive(message: noteMessage)
+        await tickCounter.bump(by: tickIncrement)
+        await toolbelt._wireSetWorkshop(workshop)
+        let _wireTeardown: @Sendable () async -> [any Error] = {
+            var errors: [any Error] = []
+            do {
+                try await someTeardownResource.close()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownConsumer.teardown()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
+                try await action(teardownHTTPClient)
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownDatabasePool.teardown()
+            } catch {
+                errors.append(error)
+            }
+            return errors
         }
-        do {
-            let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
-            try await action(teardownHTTPClient)
-        } catch {
-            errors.append(error)
-        }
-        do {
-            try await teardownDatabasePool.teardown()
-        } catch {
-            errors.append(error)
-        }
-        return errors
+        return _ComposeFixture_bindMockWireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _wireTeardown: _wireTeardown)
     }
-    return _ComposeFixture_bindMockWireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _wireTeardown: _wireTeardown)
 }
 
 internal struct _EagerFixture_bindMockWireGraph<T0: AggregateSearchBackend, T1: GenAppBackend, T2: GenBackend, T3: GenProxyRepository, T4: GenSomethingElse, T5: Greeting, T6: TeardownResource>: Introspectable, Teardownable {
@@ -2574,6 +2818,59 @@ internal struct _EagerFixture_bindMockWireGraph<T0: AggregateSearchBackend, T1: 
     }
 }
 
+// Every binding this graph builds in a child task, and every dependency such a binding captures,
+// must be Sendable — `ThrowingTaskGroup`'s result and `addTask`'s closure both require it. These
+// assertions exist so that requirement is reported at the binding rather than inside the
+// generated scheduler below. Never called.
+private func _wireSendableChecks_EagerFixture_bindMockWireGraph() {
+    func _check<T: Sendable>(_: T.Type) {}
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncBootstrappedDependency.swift", line: 13)
+    _check((AsyncToken).self)
+    #sourceLocation()
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncComputedProperty.swift", line: 15)
+    _check((AsyncMessage).self)
+    #sourceLocation()
+}
+
+private enum _EagerFixture_bindMockWireTaskResult: Sendable {
+    case asyncToken(AsyncToken)
+    case asyncMessage(AsyncMessage)
+}
+
+private struct _EagerFixture_bindMockWireBuilding: ~Copyable {
+    var _wireState_asyncToken: _WireBindingState<AsyncToken> = .unmarked
+    var _wireState_asyncMessage: _WireBindingState<AsyncMessage> = .unmarked
+    var _wireState_asyncTokenConsumer: _WireBindingState<AsyncTokenConsumer> = .unmarked
+
+    mutating func _wireAdd_asyncToken(_ _wireGroup: inout ThrowingTaskGroup<_EagerFixture_bindMockWireTaskResult, any Error>) throws {
+        guard _wireState_asyncToken.asPending() else { return }
+        _wireGroup.addTask { .asyncToken(try await makeAsyncToken()) }
+    }
+
+    mutating func _wireAdd_asyncMessage(_ _wireGroup: inout ThrowingTaskGroup<_EagerFixture_bindMockWireTaskResult, any Error>) throws {
+        guard _wireState_asyncMessage.asPending() else { return }
+        _wireGroup.addTask { .asyncMessage(try await AsyncFactories.asyncMessage) }
+    }
+
+    mutating func _wireAdd_asyncTokenConsumer(_ _wireGroup: inout ThrowingTaskGroup<_EagerFixture_bindMockWireTaskResult, any Error>) throws {
+        guard let asyncToken = _wireState_asyncToken.value() else { return }
+        guard _wireState_asyncTokenConsumer.asPending() else { return }
+        _wireState_asyncTokenConsumer.asResolved(AsyncTokenConsumer(token: asyncToken))
+    }
+
+    mutating func _wireUpdate(_ _wireResult: _EagerFixture_bindMockWireTaskResult, _ _wireGroup: inout ThrowingTaskGroup<_EagerFixture_bindMockWireTaskResult, any Error>) throws {
+        switch _wireResult {
+        case .asyncToken(let _wireValue):
+            _wireState_asyncToken.asResolved(_wireValue)
+            try _wireAdd_asyncTokenConsumer(&_wireGroup)
+        case .asyncMessage(let _wireValue):
+            _wireState_asyncMessage.asResolved(_wireValue)
+        }
+    }
+}
+
 private func _wireBootstrapEagerFixture_bindMock() async throws -> _EagerFixture_bindMockWireGraph<some AggregateSearchBackend, some GenAppBackend, some GenBackend, some GenProxyRepository, some GenSomethingElse, some Greeting, some TeardownResource> {
     let anyAccountRepository = AccountRepositoryModule.repository()
     let accountController = AccountController(repository: anyAccountRepository)
@@ -2596,10 +2893,6 @@ private func _wireBootstrapEagerFixture_bindMock() async throws -> _EagerFixture
     let anyAppScopedRepository = AppScopedRepositoryModule.repository()
     let appScopedLog = AppScopedLog()
     let appScopedController = AppScopedController(repository: anyAppScopedRepository, log: appScopedLog)
-    let asyncToken = try await makeAsyncToken()
-    let asyncMessage = try await AsyncFactories.asyncMessage
-    let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
-    let asyncTokenConsumer = AsyncTokenConsumer(token: asyncToken)
     let authMiddleware = AuthMiddleware()
     let buildNumber = BuildInfo.buildNumber
     let banner = makeBanner(appName: appName, buildNumber: buildNumber)
@@ -2703,37 +2996,49 @@ private func _wireBootstrapEagerFixture_bindMock() async throws -> _EagerFixture
     let _WireFactory_GenAppKeys_auditOfSomeGenAppBackend = _WireFactory_GenAppKeys_audit(backend: someGenAppBackend)
     let _WireRouteContributor_AppScopedController = _WireRouteContributor_AppScopedController(appScopedController, _wireFactory_AppScopedKeys_audit: _WireFactory_AppScopedKeys_audit)
     let _WireRouteContributor_GenAppControllerOfSomeGenAppBackend = _WireRouteContributor_GenAppController(genAppControllerOfSomeGenAppBackend, _wireFactory_GenAppKeys_audit: _WireFactory_GenAppKeys_auditOfSomeGenAppBackend)
-    view.coordinator = coordinator
-    spoke.hub = hub
-    noteBoard.receive(message: noteMessage)
-    await tickCounter.bump(by: tickIncrement)
-    await toolbelt._wireSetWorkshop(workshop)
-    let _wireTeardown: @Sendable () async -> [any Error] = {
-        var errors: [any Error] = []
-        do {
-            try await someTeardownResource.close()
-        } catch {
-            errors.append(error)
+    return try await withThrowingTaskGroup(of: _EagerFixture_bindMockWireTaskResult.self) { _wireGroup in
+        var building = _EagerFixture_bindMockWireBuilding()
+        try building._wireAdd_asyncToken(&_wireGroup)
+        try building._wireAdd_asyncMessage(&_wireGroup)
+        while let _wireResult = try await _wireGroup.next() {
+            try building._wireUpdate(_wireResult, &_wireGroup)
         }
-        do {
-            try await teardownConsumer.teardown()
-        } catch {
-            errors.append(error)
+        let asyncToken = building._wireState_asyncToken.take()
+        let asyncMessage = building._wireState_asyncMessage.take()
+        let asyncTokenConsumer = building._wireState_asyncTokenConsumer.take()
+        let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
+        view.coordinator = coordinator
+        spoke.hub = hub
+        noteBoard.receive(message: noteMessage)
+        await tickCounter.bump(by: tickIncrement)
+        await toolbelt._wireSetWorkshop(workshop)
+        let _wireTeardown: @Sendable () async -> [any Error] = {
+            var errors: [any Error] = []
+            do {
+                try await someTeardownResource.close()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownConsumer.teardown()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
+                try await action(teardownHTTPClient)
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownDatabasePool.teardown()
+            } catch {
+                errors.append(error)
+            }
+            return errors
         }
-        do {
-            let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
-            try await action(teardownHTTPClient)
-        } catch {
-            errors.append(error)
-        }
-        do {
-            try await teardownDatabasePool.teardown()
-        } catch {
-            errors.append(error)
-        }
-        return errors
+        return _EagerFixture_bindMockWireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _wireTeardown: _wireTeardown)
     }
-    return _EagerFixture_bindMockWireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _wireTeardown: _wireTeardown)
 }
 
 internal struct _FactoryProxyFixture_bindMockWireGraph<T0: AggregateSearchBackend, T1: GenAppBackend, T2: GenBackend, T3: GenProxyRepository, T4: GenSomethingElse, T5: Greeting, T6: TeardownResource>: Introspectable, Teardownable {
@@ -2973,6 +3278,59 @@ internal struct _FactoryProxyFixture_bindMockWireGraph<T0: AggregateSearchBacken
     }
 }
 
+// Every binding this graph builds in a child task, and every dependency such a binding captures,
+// must be Sendable — `ThrowingTaskGroup`'s result and `addTask`'s closure both require it. These
+// assertions exist so that requirement is reported at the binding rather than inside the
+// generated scheduler below. Never called.
+private func _wireSendableChecks_FactoryProxyFixture_bindMockWireGraph() {
+    func _check<T: Sendable>(_: T.Type) {}
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncBootstrappedDependency.swift", line: 13)
+    _check((AsyncToken).self)
+    #sourceLocation()
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncComputedProperty.swift", line: 15)
+    _check((AsyncMessage).self)
+    #sourceLocation()
+}
+
+private enum _FactoryProxyFixture_bindMockWireTaskResult: Sendable {
+    case asyncToken(AsyncToken)
+    case asyncMessage(AsyncMessage)
+}
+
+private struct _FactoryProxyFixture_bindMockWireBuilding: ~Copyable {
+    var _wireState_asyncToken: _WireBindingState<AsyncToken> = .unmarked
+    var _wireState_asyncMessage: _WireBindingState<AsyncMessage> = .unmarked
+    var _wireState_asyncTokenConsumer: _WireBindingState<AsyncTokenConsumer> = .unmarked
+
+    mutating func _wireAdd_asyncToken(_ _wireGroup: inout ThrowingTaskGroup<_FactoryProxyFixture_bindMockWireTaskResult, any Error>) throws {
+        guard _wireState_asyncToken.asPending() else { return }
+        _wireGroup.addTask { .asyncToken(try await makeAsyncToken()) }
+    }
+
+    mutating func _wireAdd_asyncMessage(_ _wireGroup: inout ThrowingTaskGroup<_FactoryProxyFixture_bindMockWireTaskResult, any Error>) throws {
+        guard _wireState_asyncMessage.asPending() else { return }
+        _wireGroup.addTask { .asyncMessage(try await AsyncFactories.asyncMessage) }
+    }
+
+    mutating func _wireAdd_asyncTokenConsumer(_ _wireGroup: inout ThrowingTaskGroup<_FactoryProxyFixture_bindMockWireTaskResult, any Error>) throws {
+        guard let asyncToken = _wireState_asyncToken.value() else { return }
+        guard _wireState_asyncTokenConsumer.asPending() else { return }
+        _wireState_asyncTokenConsumer.asResolved(AsyncTokenConsumer(token: asyncToken))
+    }
+
+    mutating func _wireUpdate(_ _wireResult: _FactoryProxyFixture_bindMockWireTaskResult, _ _wireGroup: inout ThrowingTaskGroup<_FactoryProxyFixture_bindMockWireTaskResult, any Error>) throws {
+        switch _wireResult {
+        case .asyncToken(let _wireValue):
+            _wireState_asyncToken.asResolved(_wireValue)
+            try _wireAdd_asyncTokenConsumer(&_wireGroup)
+        case .asyncMessage(let _wireValue):
+            _wireState_asyncMessage.asResolved(_wireValue)
+        }
+    }
+}
+
 private func _wireBootstrapFactoryProxyFixture_bindMock() async throws -> _FactoryProxyFixture_bindMockWireGraph<some AggregateSearchBackend, some GenAppBackend, some GenBackend, some GenProxyRepository, some GenSomethingElse, some Greeting, some TeardownResource> {
     let anyAccountRepository = AccountRepositoryModule.repository()
     let accountController = AccountController(repository: anyAccountRepository)
@@ -2995,10 +3353,6 @@ private func _wireBootstrapFactoryProxyFixture_bindMock() async throws -> _Facto
     let anyAppScopedRepository = AppScopedRepositoryModule.repository()
     let appScopedLog = AppScopedLog()
     let appScopedController = AppScopedController(repository: anyAppScopedRepository, log: appScopedLog)
-    let asyncToken = try await makeAsyncToken()
-    let asyncMessage = try await AsyncFactories.asyncMessage
-    let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
-    let asyncTokenConsumer = AsyncTokenConsumer(token: asyncToken)
     let authMiddleware = AuthMiddleware()
     let buildNumber = BuildInfo.buildNumber
     let banner = makeBanner(appName: appName, buildNumber: buildNumber)
@@ -3102,37 +3456,49 @@ private func _wireBootstrapFactoryProxyFixture_bindMock() async throws -> _Facto
     let _WireFactory_GenAppKeys_auditOfSomeGenAppBackend = _WireFactory_GenAppKeys_audit(backend: someGenAppBackend)
     let _WireRouteContributor_AppScopedController = _WireRouteContributor_AppScopedController(appScopedController, _wireFactory_AppScopedKeys_audit: _WireFactory_AppScopedKeys_audit)
     let _WireRouteContributor_GenAppControllerOfSomeGenAppBackend = _WireRouteContributor_GenAppController(genAppControllerOfSomeGenAppBackend, _wireFactory_GenAppKeys_audit: _WireFactory_GenAppKeys_auditOfSomeGenAppBackend)
-    view.coordinator = coordinator
-    spoke.hub = hub
-    noteBoard.receive(message: noteMessage)
-    await tickCounter.bump(by: tickIncrement)
-    await toolbelt._wireSetWorkshop(workshop)
-    let _wireTeardown: @Sendable () async -> [any Error] = {
-        var errors: [any Error] = []
-        do {
-            try await someTeardownResource.close()
-        } catch {
-            errors.append(error)
+    return try await withThrowingTaskGroup(of: _FactoryProxyFixture_bindMockWireTaskResult.self) { _wireGroup in
+        var building = _FactoryProxyFixture_bindMockWireBuilding()
+        try building._wireAdd_asyncToken(&_wireGroup)
+        try building._wireAdd_asyncMessage(&_wireGroup)
+        while let _wireResult = try await _wireGroup.next() {
+            try building._wireUpdate(_wireResult, &_wireGroup)
         }
-        do {
-            try await teardownConsumer.teardown()
-        } catch {
-            errors.append(error)
+        let asyncToken = building._wireState_asyncToken.take()
+        let asyncMessage = building._wireState_asyncMessage.take()
+        let asyncTokenConsumer = building._wireState_asyncTokenConsumer.take()
+        let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
+        view.coordinator = coordinator
+        spoke.hub = hub
+        noteBoard.receive(message: noteMessage)
+        await tickCounter.bump(by: tickIncrement)
+        await toolbelt._wireSetWorkshop(workshop)
+        let _wireTeardown: @Sendable () async -> [any Error] = {
+            var errors: [any Error] = []
+            do {
+                try await someTeardownResource.close()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownConsumer.teardown()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
+                try await action(teardownHTTPClient)
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownDatabasePool.teardown()
+            } catch {
+                errors.append(error)
+            }
+            return errors
         }
-        do {
-            let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
-            try await action(teardownHTTPClient)
-        } catch {
-            errors.append(error)
-        }
-        do {
-            try await teardownDatabasePool.teardown()
-        } catch {
-            errors.append(error)
-        }
-        return errors
+        return _FactoryProxyFixture_bindMockWireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _wireTeardown: _wireTeardown)
     }
-    return _FactoryProxyFixture_bindMockWireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _wireTeardown: _wireTeardown)
 }
 
 internal struct _GenAppScopedFixture_bindMockWireGraph<T0: AggregateSearchBackend, T1: GenBackend, T2: GenProxyRepository, T3: GenSomethingElse, T4: Greeting, T5: TeardownResource>: Introspectable, Teardownable {
@@ -3366,6 +3732,59 @@ internal struct _GenAppScopedFixture_bindMockWireGraph<T0: AggregateSearchBacken
     }
 }
 
+// Every binding this graph builds in a child task, and every dependency such a binding captures,
+// must be Sendable — `ThrowingTaskGroup`'s result and `addTask`'s closure both require it. These
+// assertions exist so that requirement is reported at the binding rather than inside the
+// generated scheduler below. Never called.
+private func _wireSendableChecks_GenAppScopedFixture_bindMockWireGraph() {
+    func _check<T: Sendable>(_: T.Type) {}
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncBootstrappedDependency.swift", line: 13)
+    _check((AsyncToken).self)
+    #sourceLocation()
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncComputedProperty.swift", line: 15)
+    _check((AsyncMessage).self)
+    #sourceLocation()
+}
+
+private enum _GenAppScopedFixture_bindMockWireTaskResult: Sendable {
+    case asyncToken(AsyncToken)
+    case asyncMessage(AsyncMessage)
+}
+
+private struct _GenAppScopedFixture_bindMockWireBuilding: ~Copyable {
+    var _wireState_asyncToken: _WireBindingState<AsyncToken> = .unmarked
+    var _wireState_asyncMessage: _WireBindingState<AsyncMessage> = .unmarked
+    var _wireState_asyncTokenConsumer: _WireBindingState<AsyncTokenConsumer> = .unmarked
+
+    mutating func _wireAdd_asyncToken(_ _wireGroup: inout ThrowingTaskGroup<_GenAppScopedFixture_bindMockWireTaskResult, any Error>) throws {
+        guard _wireState_asyncToken.asPending() else { return }
+        _wireGroup.addTask { .asyncToken(try await makeAsyncToken()) }
+    }
+
+    mutating func _wireAdd_asyncMessage(_ _wireGroup: inout ThrowingTaskGroup<_GenAppScopedFixture_bindMockWireTaskResult, any Error>) throws {
+        guard _wireState_asyncMessage.asPending() else { return }
+        _wireGroup.addTask { .asyncMessage(try await AsyncFactories.asyncMessage) }
+    }
+
+    mutating func _wireAdd_asyncTokenConsumer(_ _wireGroup: inout ThrowingTaskGroup<_GenAppScopedFixture_bindMockWireTaskResult, any Error>) throws {
+        guard let asyncToken = _wireState_asyncToken.value() else { return }
+        guard _wireState_asyncTokenConsumer.asPending() else { return }
+        _wireState_asyncTokenConsumer.asResolved(AsyncTokenConsumer(token: asyncToken))
+    }
+
+    mutating func _wireUpdate(_ _wireResult: _GenAppScopedFixture_bindMockWireTaskResult, _ _wireGroup: inout ThrowingTaskGroup<_GenAppScopedFixture_bindMockWireTaskResult, any Error>) throws {
+        switch _wireResult {
+        case .asyncToken(let _wireValue):
+            _wireState_asyncToken.asResolved(_wireValue)
+            try _wireAdd_asyncTokenConsumer(&_wireGroup)
+        case .asyncMessage(let _wireValue):
+            _wireState_asyncMessage.asResolved(_wireValue)
+        }
+    }
+}
+
 private func _wireBootstrapGenAppScopedFixture_bindMock() async throws -> _GenAppScopedFixture_bindMockWireGraph<some AggregateSearchBackend, some GenBackend, some GenProxyRepository, some GenSomethingElse, some Greeting, some TeardownResource> {
     let anyAccountRepository = AccountRepositoryModule.repository()
     let accountController = AccountController(repository: anyAccountRepository)
@@ -3388,10 +3807,6 @@ private func _wireBootstrapGenAppScopedFixture_bindMock() async throws -> _GenAp
     let anyAppScopedRepository = AppScopedRepositoryModule.repository()
     let appScopedLog = AppScopedLog()
     let appScopedController = AppScopedController(repository: anyAppScopedRepository, log: appScopedLog)
-    let asyncToken = try await makeAsyncToken()
-    let asyncMessage = try await AsyncFactories.asyncMessage
-    let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
-    let asyncTokenConsumer = AsyncTokenConsumer(token: asyncToken)
     let authMiddleware = AuthMiddleware()
     let buildNumber = BuildInfo.buildNumber
     let banner = makeBanner(appName: appName, buildNumber: buildNumber)
@@ -3492,37 +3907,49 @@ private func _wireBootstrapGenAppScopedFixture_bindMock() async throws -> _GenAp
     let _WireFactory_AppScopedKeys_audit = _WireFactory_AppScopedKeys_audit(repository: anyAppScopedRepository, log: appScopedLog)
     let _WireFactory_FactoryProxyKeys_probe = _WireFactory_FactoryProxyKeys_probe()
     let _WireRouteContributor_AppScopedController = _WireRouteContributor_AppScopedController(appScopedController, _wireFactory_AppScopedKeys_audit: _WireFactory_AppScopedKeys_audit)
-    view.coordinator = coordinator
-    spoke.hub = hub
-    noteBoard.receive(message: noteMessage)
-    await tickCounter.bump(by: tickIncrement)
-    await toolbelt._wireSetWorkshop(workshop)
-    let _wireTeardown: @Sendable () async -> [any Error] = {
-        var errors: [any Error] = []
-        do {
-            try await someTeardownResource.close()
-        } catch {
-            errors.append(error)
+    return try await withThrowingTaskGroup(of: _GenAppScopedFixture_bindMockWireTaskResult.self) { _wireGroup in
+        var building = _GenAppScopedFixture_bindMockWireBuilding()
+        try building._wireAdd_asyncToken(&_wireGroup)
+        try building._wireAdd_asyncMessage(&_wireGroup)
+        while let _wireResult = try await _wireGroup.next() {
+            try building._wireUpdate(_wireResult, &_wireGroup)
         }
-        do {
-            try await teardownConsumer.teardown()
-        } catch {
-            errors.append(error)
+        let asyncToken = building._wireState_asyncToken.take()
+        let asyncMessage = building._wireState_asyncMessage.take()
+        let asyncTokenConsumer = building._wireState_asyncTokenConsumer.take()
+        let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
+        view.coordinator = coordinator
+        spoke.hub = hub
+        noteBoard.receive(message: noteMessage)
+        await tickCounter.bump(by: tickIncrement)
+        await toolbelt._wireSetWorkshop(workshop)
+        let _wireTeardown: @Sendable () async -> [any Error] = {
+            var errors: [any Error] = []
+            do {
+                try await someTeardownResource.close()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownConsumer.teardown()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
+                try await action(teardownHTTPClient)
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownDatabasePool.teardown()
+            } catch {
+                errors.append(error)
+            }
+            return errors
         }
-        do {
-            let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
-            try await action(teardownHTTPClient)
-        } catch {
-            errors.append(error)
-        }
-        do {
-            try await teardownDatabasePool.teardown()
-        } catch {
-            errors.append(error)
-        }
-        return errors
+        return _GenAppScopedFixture_bindMockWireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _wireTeardown: _wireTeardown)
     }
-    return _GenAppScopedFixture_bindMockWireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _wireTeardown: _wireTeardown)
 }
 
 internal struct _GenProxyFixture_bindMockWireGraph<T0: AggregateSearchBackend, T1: GenAppBackend, T2: GenBackend, T3: GenSomethingElse, T4: Greeting, T5: TeardownResource>: Introspectable, Teardownable {
@@ -3762,6 +4189,59 @@ internal struct _GenProxyFixture_bindMockWireGraph<T0: AggregateSearchBackend, T
     }
 }
 
+// Every binding this graph builds in a child task, and every dependency such a binding captures,
+// must be Sendable — `ThrowingTaskGroup`'s result and `addTask`'s closure both require it. These
+// assertions exist so that requirement is reported at the binding rather than inside the
+// generated scheduler below. Never called.
+private func _wireSendableChecks_GenProxyFixture_bindMockWireGraph() {
+    func _check<T: Sendable>(_: T.Type) {}
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncBootstrappedDependency.swift", line: 13)
+    _check((AsyncToken).self)
+    #sourceLocation()
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncComputedProperty.swift", line: 15)
+    _check((AsyncMessage).self)
+    #sourceLocation()
+}
+
+private enum _GenProxyFixture_bindMockWireTaskResult: Sendable {
+    case asyncToken(AsyncToken)
+    case asyncMessage(AsyncMessage)
+}
+
+private struct _GenProxyFixture_bindMockWireBuilding: ~Copyable {
+    var _wireState_asyncToken: _WireBindingState<AsyncToken> = .unmarked
+    var _wireState_asyncMessage: _WireBindingState<AsyncMessage> = .unmarked
+    var _wireState_asyncTokenConsumer: _WireBindingState<AsyncTokenConsumer> = .unmarked
+
+    mutating func _wireAdd_asyncToken(_ _wireGroup: inout ThrowingTaskGroup<_GenProxyFixture_bindMockWireTaskResult, any Error>) throws {
+        guard _wireState_asyncToken.asPending() else { return }
+        _wireGroup.addTask { .asyncToken(try await makeAsyncToken()) }
+    }
+
+    mutating func _wireAdd_asyncMessage(_ _wireGroup: inout ThrowingTaskGroup<_GenProxyFixture_bindMockWireTaskResult, any Error>) throws {
+        guard _wireState_asyncMessage.asPending() else { return }
+        _wireGroup.addTask { .asyncMessage(try await AsyncFactories.asyncMessage) }
+    }
+
+    mutating func _wireAdd_asyncTokenConsumer(_ _wireGroup: inout ThrowingTaskGroup<_GenProxyFixture_bindMockWireTaskResult, any Error>) throws {
+        guard let asyncToken = _wireState_asyncToken.value() else { return }
+        guard _wireState_asyncTokenConsumer.asPending() else { return }
+        _wireState_asyncTokenConsumer.asResolved(AsyncTokenConsumer(token: asyncToken))
+    }
+
+    mutating func _wireUpdate(_ _wireResult: _GenProxyFixture_bindMockWireTaskResult, _ _wireGroup: inout ThrowingTaskGroup<_GenProxyFixture_bindMockWireTaskResult, any Error>) throws {
+        switch _wireResult {
+        case .asyncToken(let _wireValue):
+            _wireState_asyncToken.asResolved(_wireValue)
+            try _wireAdd_asyncTokenConsumer(&_wireGroup)
+        case .asyncMessage(let _wireValue):
+            _wireState_asyncMessage.asResolved(_wireValue)
+        }
+    }
+}
+
 private func _wireBootstrapGenProxyFixture_bindMock() async throws -> _GenProxyFixture_bindMockWireGraph<some AggregateSearchBackend, some GenAppBackend, some GenBackend, some GenSomethingElse, some Greeting, some TeardownResource> {
     let anyAccountRepository = AccountRepositoryModule.repository()
     let accountController = AccountController(repository: anyAccountRepository)
@@ -3784,10 +4264,6 @@ private func _wireBootstrapGenProxyFixture_bindMock() async throws -> _GenProxyF
     let anyAppScopedRepository = AppScopedRepositoryModule.repository()
     let appScopedLog = AppScopedLog()
     let appScopedController = AppScopedController(repository: anyAppScopedRepository, log: appScopedLog)
-    let asyncToken = try await makeAsyncToken()
-    let asyncMessage = try await AsyncFactories.asyncMessage
-    let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
-    let asyncTokenConsumer = AsyncTokenConsumer(token: asyncToken)
     let authMiddleware = AuthMiddleware()
     let buildNumber = BuildInfo.buildNumber
     let banner = makeBanner(appName: appName, buildNumber: buildNumber)
@@ -3891,37 +4367,49 @@ private func _wireBootstrapGenProxyFixture_bindMock() async throws -> _GenProxyF
     let _WireFactory_GenAppKeys_auditOfSomeGenAppBackend = _WireFactory_GenAppKeys_audit(backend: someGenAppBackend)
     let _WireRouteContributor_AppScopedController = _WireRouteContributor_AppScopedController(appScopedController, _wireFactory_AppScopedKeys_audit: _WireFactory_AppScopedKeys_audit)
     let _WireRouteContributor_GenAppControllerOfSomeGenAppBackend = _WireRouteContributor_GenAppController(genAppControllerOfSomeGenAppBackend, _wireFactory_GenAppKeys_audit: _WireFactory_GenAppKeys_auditOfSomeGenAppBackend)
-    view.coordinator = coordinator
-    spoke.hub = hub
-    noteBoard.receive(message: noteMessage)
-    await tickCounter.bump(by: tickIncrement)
-    await toolbelt._wireSetWorkshop(workshop)
-    let _wireTeardown: @Sendable () async -> [any Error] = {
-        var errors: [any Error] = []
-        do {
-            try await someTeardownResource.close()
-        } catch {
-            errors.append(error)
+    return try await withThrowingTaskGroup(of: _GenProxyFixture_bindMockWireTaskResult.self) { _wireGroup in
+        var building = _GenProxyFixture_bindMockWireBuilding()
+        try building._wireAdd_asyncToken(&_wireGroup)
+        try building._wireAdd_asyncMessage(&_wireGroup)
+        while let _wireResult = try await _wireGroup.next() {
+            try building._wireUpdate(_wireResult, &_wireGroup)
         }
-        do {
-            try await teardownConsumer.teardown()
-        } catch {
-            errors.append(error)
+        let asyncToken = building._wireState_asyncToken.take()
+        let asyncMessage = building._wireState_asyncMessage.take()
+        let asyncTokenConsumer = building._wireState_asyncTokenConsumer.take()
+        let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
+        view.coordinator = coordinator
+        spoke.hub = hub
+        noteBoard.receive(message: noteMessage)
+        await tickCounter.bump(by: tickIncrement)
+        await toolbelt._wireSetWorkshop(workshop)
+        let _wireTeardown: @Sendable () async -> [any Error] = {
+            var errors: [any Error] = []
+            do {
+                try await someTeardownResource.close()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownConsumer.teardown()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
+                try await action(teardownHTTPClient)
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownDatabasePool.teardown()
+            } catch {
+                errors.append(error)
+            }
+            return errors
         }
-        do {
-            let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
-            try await action(teardownHTTPClient)
-        } catch {
-            errors.append(error)
-        }
-        do {
-            try await teardownDatabasePool.teardown()
-        } catch {
-            errors.append(error)
-        }
-        return errors
+        return _GenProxyFixture_bindMockWireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _wireTeardown: _wireTeardown)
     }
-    return _GenProxyFixture_bindMockWireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _wireTeardown: _wireTeardown)
 }
 
 internal struct _GenSeedFixture_bindMockWireGraph<T0: AggregateSearchBackend, T1: GenAppBackend, T2: GenProxyRepository, T3: GenSomethingElse, T4: Greeting, T5: TeardownResource>: Introspectable, Teardownable {
@@ -4161,6 +4649,59 @@ internal struct _GenSeedFixture_bindMockWireGraph<T0: AggregateSearchBackend, T1
     }
 }
 
+// Every binding this graph builds in a child task, and every dependency such a binding captures,
+// must be Sendable — `ThrowingTaskGroup`'s result and `addTask`'s closure both require it. These
+// assertions exist so that requirement is reported at the binding rather than inside the
+// generated scheduler below. Never called.
+private func _wireSendableChecks_GenSeedFixture_bindMockWireGraph() {
+    func _check<T: Sendable>(_: T.Type) {}
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncBootstrappedDependency.swift", line: 13)
+    _check((AsyncToken).self)
+    #sourceLocation()
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncComputedProperty.swift", line: 15)
+    _check((AsyncMessage).self)
+    #sourceLocation()
+}
+
+private enum _GenSeedFixture_bindMockWireTaskResult: Sendable {
+    case asyncToken(AsyncToken)
+    case asyncMessage(AsyncMessage)
+}
+
+private struct _GenSeedFixture_bindMockWireBuilding: ~Copyable {
+    var _wireState_asyncToken: _WireBindingState<AsyncToken> = .unmarked
+    var _wireState_asyncMessage: _WireBindingState<AsyncMessage> = .unmarked
+    var _wireState_asyncTokenConsumer: _WireBindingState<AsyncTokenConsumer> = .unmarked
+
+    mutating func _wireAdd_asyncToken(_ _wireGroup: inout ThrowingTaskGroup<_GenSeedFixture_bindMockWireTaskResult, any Error>) throws {
+        guard _wireState_asyncToken.asPending() else { return }
+        _wireGroup.addTask { .asyncToken(try await makeAsyncToken()) }
+    }
+
+    mutating func _wireAdd_asyncMessage(_ _wireGroup: inout ThrowingTaskGroup<_GenSeedFixture_bindMockWireTaskResult, any Error>) throws {
+        guard _wireState_asyncMessage.asPending() else { return }
+        _wireGroup.addTask { .asyncMessage(try await AsyncFactories.asyncMessage) }
+    }
+
+    mutating func _wireAdd_asyncTokenConsumer(_ _wireGroup: inout ThrowingTaskGroup<_GenSeedFixture_bindMockWireTaskResult, any Error>) throws {
+        guard let asyncToken = _wireState_asyncToken.value() else { return }
+        guard _wireState_asyncTokenConsumer.asPending() else { return }
+        _wireState_asyncTokenConsumer.asResolved(AsyncTokenConsumer(token: asyncToken))
+    }
+
+    mutating func _wireUpdate(_ _wireResult: _GenSeedFixture_bindMockWireTaskResult, _ _wireGroup: inout ThrowingTaskGroup<_GenSeedFixture_bindMockWireTaskResult, any Error>) throws {
+        switch _wireResult {
+        case .asyncToken(let _wireValue):
+            _wireState_asyncToken.asResolved(_wireValue)
+            try _wireAdd_asyncTokenConsumer(&_wireGroup)
+        case .asyncMessage(let _wireValue):
+            _wireState_asyncMessage.asResolved(_wireValue)
+        }
+    }
+}
+
 private func _wireBootstrapGenSeedFixture_bindMock() async throws -> _GenSeedFixture_bindMockWireGraph<some AggregateSearchBackend, some GenAppBackend, some GenProxyRepository, some GenSomethingElse, some Greeting, some TeardownResource> {
     let anyAccountRepository = AccountRepositoryModule.repository()
     let accountController = AccountController(repository: anyAccountRepository)
@@ -4183,10 +4724,6 @@ private func _wireBootstrapGenSeedFixture_bindMock() async throws -> _GenSeedFix
     let anyAppScopedRepository = AppScopedRepositoryModule.repository()
     let appScopedLog = AppScopedLog()
     let appScopedController = AppScopedController(repository: anyAppScopedRepository, log: appScopedLog)
-    let asyncToken = try await makeAsyncToken()
-    let asyncMessage = try await AsyncFactories.asyncMessage
-    let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
-    let asyncTokenConsumer = AsyncTokenConsumer(token: asyncToken)
     let authMiddleware = AuthMiddleware()
     let buildNumber = BuildInfo.buildNumber
     let banner = makeBanner(appName: appName, buildNumber: buildNumber)
@@ -4290,37 +4827,49 @@ private func _wireBootstrapGenSeedFixture_bindMock() async throws -> _GenSeedFix
     let _WireFactory_GenAppKeys_auditOfSomeGenAppBackend = _WireFactory_GenAppKeys_audit(backend: someGenAppBackend)
     let _WireRouteContributor_AppScopedController = _WireRouteContributor_AppScopedController(appScopedController, _wireFactory_AppScopedKeys_audit: _WireFactory_AppScopedKeys_audit)
     let _WireRouteContributor_GenAppControllerOfSomeGenAppBackend = _WireRouteContributor_GenAppController(genAppControllerOfSomeGenAppBackend, _wireFactory_GenAppKeys_audit: _WireFactory_GenAppKeys_auditOfSomeGenAppBackend)
-    view.coordinator = coordinator
-    spoke.hub = hub
-    noteBoard.receive(message: noteMessage)
-    await tickCounter.bump(by: tickIncrement)
-    await toolbelt._wireSetWorkshop(workshop)
-    let _wireTeardown: @Sendable () async -> [any Error] = {
-        var errors: [any Error] = []
-        do {
-            try await someTeardownResource.close()
-        } catch {
-            errors.append(error)
+    return try await withThrowingTaskGroup(of: _GenSeedFixture_bindMockWireTaskResult.self) { _wireGroup in
+        var building = _GenSeedFixture_bindMockWireBuilding()
+        try building._wireAdd_asyncToken(&_wireGroup)
+        try building._wireAdd_asyncMessage(&_wireGroup)
+        while let _wireResult = try await _wireGroup.next() {
+            try building._wireUpdate(_wireResult, &_wireGroup)
         }
-        do {
-            try await teardownConsumer.teardown()
-        } catch {
-            errors.append(error)
+        let asyncToken = building._wireState_asyncToken.take()
+        let asyncMessage = building._wireState_asyncMessage.take()
+        let asyncTokenConsumer = building._wireState_asyncTokenConsumer.take()
+        let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
+        view.coordinator = coordinator
+        spoke.hub = hub
+        noteBoard.receive(message: noteMessage)
+        await tickCounter.bump(by: tickIncrement)
+        await toolbelt._wireSetWorkshop(workshop)
+        let _wireTeardown: @Sendable () async -> [any Error] = {
+            var errors: [any Error] = []
+            do {
+                try await someTeardownResource.close()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownConsumer.teardown()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
+                try await action(teardownHTTPClient)
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownDatabasePool.teardown()
+            } catch {
+                errors.append(error)
+            }
+            return errors
         }
-        do {
-            let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
-            try await action(teardownHTTPClient)
-        } catch {
-            errors.append(error)
-        }
-        do {
-            try await teardownDatabasePool.teardown()
-        } catch {
-            errors.append(error)
-        }
-        return errors
+        return _GenSeedFixture_bindMockWireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _wireTeardown: _wireTeardown)
     }
-    return _GenSeedFixture_bindMockWireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _wireTeardown: _wireTeardown)
 }
 
 internal struct _ParallelSchedulerContainerWireGraph: Introspectable, Teardownable {
@@ -4346,16 +4895,16 @@ internal struct _ParallelSchedulerContainerWireGraph: Introspectable, Teardownab
 private func _wireSendableChecks_ParallelSchedulerContainerWireGraph() {
     func _check<T: Sendable>(_: T.Type) {}
 
-    #sourceLocation(file: "Tests/IntegrationTests/ParallelSchedulerExample.swift", line: 38)
-    _check((ParallelSchedulerContainer.ConstructionClock).self)
-    #sourceLocation()
-
     #sourceLocation(file: "Tests/IntegrationTests/ParallelSchedulerExample.swift", line: 55)
     _check((FastSignal).self)
     #sourceLocation()
 
     #sourceLocation(file: "Tests/IntegrationTests/ParallelSchedulerExample.swift", line: 66)
     _check((SlowSignal).self)
+    #sourceLocation()
+
+    #sourceLocation(file: "Tests/IntegrationTests/ParallelSchedulerExample.swift", line: 38)
+    _check((ParallelSchedulerContainer.ConstructionClock).self)
     #sourceLocation()
 }
 
@@ -4365,17 +4914,11 @@ private enum _ParallelSchedulerContainerWireTaskResult: Sendable {
 }
 
 private struct _ParallelSchedulerContainerWireBuilding: ~Copyable {
-    var _wireState_constructionClock: _WireBindingState<ParallelSchedulerContainer.ConstructionClock> = .unmarked
+    let constructionClock: ParallelSchedulerContainer.ConstructionClock
+
     var _wireState_fastSignal: _WireBindingState<FastSignal> = .unmarked
     var _wireState_fastDependent: _WireBindingState<ParallelSchedulerContainer.FastDependent> = .unmarked
     var _wireState_slowSignal: _WireBindingState<SlowSignal> = .unmarked
-
-    mutating func _wireAdd_constructionClock(_ _wireGroup: inout ThrowingTaskGroup<_ParallelSchedulerContainerWireTaskResult, any Error>) throws {
-        guard _wireState_constructionClock.asPending() else { return }
-        _wireState_constructionClock.asResolved(ParallelSchedulerContainer.ConstructionClock())
-        try _wireAdd_fastDependent(&_wireGroup)
-        try _wireAdd_slowSignal(&_wireGroup)
-    }
 
     mutating func _wireAdd_fastSignal(_ _wireGroup: inout ThrowingTaskGroup<_ParallelSchedulerContainerWireTaskResult, any Error>) throws {
         guard _wireState_fastSignal.asPending() else { return }
@@ -4383,14 +4926,15 @@ private struct _ParallelSchedulerContainerWireBuilding: ~Copyable {
     }
 
     mutating func _wireAdd_fastDependent(_ _wireGroup: inout ThrowingTaskGroup<_ParallelSchedulerContainerWireTaskResult, any Error>) throws {
-        guard let fastSignal = _wireState_fastSignal.value(), let constructionClock = _wireState_constructionClock.value() else { return }
+        guard let fastSignal = _wireState_fastSignal.value() else { return }
         guard _wireState_fastDependent.asPending() else { return }
+        let constructionClock = self.constructionClock
         _wireState_fastDependent.asResolved(ParallelSchedulerContainer.FastDependent(fast: fastSignal, clock: constructionClock))
     }
 
     mutating func _wireAdd_slowSignal(_ _wireGroup: inout ThrowingTaskGroup<_ParallelSchedulerContainerWireTaskResult, any Error>) throws {
-        guard let constructionClock = _wireState_constructionClock.value() else { return }
         guard _wireState_slowSignal.asPending() else { return }
+        let constructionClock = self.constructionClock
         _wireGroup.addTask { .slowSignal(try await ParallelSchedulerContainer.makeSlowSignal(clock: constructionClock)) }
     }
 
@@ -4406,14 +4950,18 @@ private struct _ParallelSchedulerContainerWireBuilding: ~Copyable {
 }
 
 private func _wireBootstrapParallelSchedulerContainer() async throws -> _ParallelSchedulerContainerWireGraph {
+    let constructionClock = ParallelSchedulerContainer.ConstructionClock()
     return try await withThrowingTaskGroup(of: _ParallelSchedulerContainerWireTaskResult.self) { _wireGroup in
-        var building = _ParallelSchedulerContainerWireBuilding()
-        try building._wireAdd_constructionClock(&_wireGroup)
+        var building = _ParallelSchedulerContainerWireBuilding(constructionClock: constructionClock)
         try building._wireAdd_fastSignal(&_wireGroup)
+        try building._wireAdd_slowSignal(&_wireGroup)
         while let _wireResult = try await _wireGroup.next() {
             try building._wireUpdate(_wireResult, &_wireGroup)
         }
-        return _ParallelSchedulerContainerWireGraph(constructionClock: building._wireState_constructionClock.take(), fastSignal: building._wireState_fastSignal.take(), fastDependent: building._wireState_fastDependent.take(), slowSignal: building._wireState_slowSignal.take())
+        let fastSignal = building._wireState_fastSignal.take()
+        let fastDependent = building._wireState_fastDependent.take()
+        let slowSignal = building._wireState_slowSignal.take()
+        return _ParallelSchedulerContainerWireGraph(constructionClock: constructionClock, fastSignal: fastSignal, fastDependent: fastDependent, slowSignal: slowSignal)
     }
 }
 
@@ -4508,49 +5056,12 @@ private enum _SchedulerContainerWireTaskResult: Sendable {
 }
 
 private struct _SchedulerContainerWireBuilding: ~Copyable {
-    var _wireState_alphaProbe: _WireBindingState<SchedulerContainer.AlphaProbe> = .unmarked
-    var _wireState_betaProbe: _WireBindingState<SchedulerContainer.BetaProbe> = .unmarked
-    var _wireState_anySchedulerProbeKeyedSchedulerContainerProbes: _WireBindingState<[any SchedulerProbe]> = .unmarked
-    var _wireState_probeHost: _WireBindingState<SchedulerContainer.ProbeHost> = .unmarked
     var _wireState_schedulerConfig: _WireBindingState<SchedulerContainer.SchedulerConfig> = .unmarked
-    var _wireState_schedulerCounter: _WireBindingState<SchedulerContainer.SchedulerCounter> = .unmarked
     var _wireState_schedulerToken: _WireBindingState<SchedulerToken> = .unmarked
-    var _wireState_schedulerService: _WireBindingState<SchedulerContainer.SchedulerService> = .unmarked
-
-    mutating func _wireAdd_alphaProbe(_ _wireGroup: inout ThrowingTaskGroup<_SchedulerContainerWireTaskResult, any Error>) throws {
-        guard _wireState_alphaProbe.asPending() else { return }
-        _wireState_alphaProbe.asResolved(SchedulerContainer.AlphaProbe())
-        try _wireAdd_anySchedulerProbeKeyedSchedulerContainerProbes(&_wireGroup)
-    }
-
-    mutating func _wireAdd_betaProbe(_ _wireGroup: inout ThrowingTaskGroup<_SchedulerContainerWireTaskResult, any Error>) throws {
-        guard _wireState_betaProbe.asPending() else { return }
-        _wireState_betaProbe.asResolved(SchedulerContainer.BetaProbe())
-        try _wireAdd_anySchedulerProbeKeyedSchedulerContainerProbes(&_wireGroup)
-    }
-
-    mutating func _wireAdd_anySchedulerProbeKeyedSchedulerContainerProbes(_ _wireGroup: inout ThrowingTaskGroup<_SchedulerContainerWireTaskResult, any Error>) throws {
-        guard let alphaProbe = _wireState_alphaProbe.value(), let betaProbe = _wireState_betaProbe.value() else { return }
-        guard _wireState_anySchedulerProbeKeyedSchedulerContainerProbes.asPending() else { return }
-        _wireState_anySchedulerProbeKeyedSchedulerContainerProbes.asResolved([alphaProbe, betaProbe] as [any SchedulerProbe])
-        try _wireAdd_probeHost(&_wireGroup)
-    }
-
-    mutating func _wireAdd_probeHost(_ _wireGroup: inout ThrowingTaskGroup<_SchedulerContainerWireTaskResult, any Error>) throws {
-        guard let anySchedulerProbeKeyedSchedulerContainerProbes = _wireState_anySchedulerProbeKeyedSchedulerContainerProbes.value() else { return }
-        guard _wireState_probeHost.asPending() else { return }
-        _wireState_probeHost.asResolved(SchedulerContainer.ProbeHost(probes: anySchedulerProbeKeyedSchedulerContainerProbes))
-    }
 
     mutating func _wireAdd_schedulerConfig(_ _wireGroup: inout ThrowingTaskGroup<_SchedulerContainerWireTaskResult, any Error>) throws {
         guard _wireState_schedulerConfig.asPending() else { return }
         _wireGroup.addTask { .schedulerConfig(try await SchedulerContainer.SchedulerConfig()) }
-    }
-
-    mutating func _wireAdd_schedulerCounter(_ _wireGroup: inout ThrowingTaskGroup<_SchedulerContainerWireTaskResult, any Error>) throws {
-        guard _wireState_schedulerCounter.asPending() else { return }
-        _wireState_schedulerCounter.asResolved(SchedulerContainer.SchedulerCounter())
-        try _wireAdd_schedulerService(&_wireGroup)
     }
 
     mutating func _wireAdd_schedulerToken(_ _wireGroup: inout ThrowingTaskGroup<_SchedulerContainerWireTaskResult, any Error>) throws {
@@ -4558,36 +5069,33 @@ private struct _SchedulerContainerWireBuilding: ~Copyable {
         _wireGroup.addTask { .schedulerToken(try await SchedulerContainer.makeSchedulerToken()) }
     }
 
-    mutating func _wireAdd_schedulerService(_ _wireGroup: inout ThrowingTaskGroup<_SchedulerContainerWireTaskResult, any Error>) throws {
-        guard let schedulerToken = _wireState_schedulerToken.value(), let schedulerCounter = _wireState_schedulerCounter.value(), let schedulerConfig = _wireState_schedulerConfig.value() else { return }
-        guard _wireState_schedulerService.asPending() else { return }
-        _wireState_schedulerService.asResolved(SchedulerContainer.SchedulerService(token: schedulerToken, counter: schedulerCounter, config: schedulerConfig))
-    }
-
     mutating func _wireUpdate(_ _wireResult: _SchedulerContainerWireTaskResult, _ _wireGroup: inout ThrowingTaskGroup<_SchedulerContainerWireTaskResult, any Error>) throws {
         switch _wireResult {
         case .schedulerConfig(let _wireValue):
             _wireState_schedulerConfig.asResolved(_wireValue)
-            try _wireAdd_schedulerService(&_wireGroup)
         case .schedulerToken(let _wireValue):
             _wireState_schedulerToken.asResolved(_wireValue)
-            try _wireAdd_schedulerService(&_wireGroup)
         }
     }
 }
 
 private func _wireBootstrapSchedulerContainer() async throws -> _SchedulerContainerWireGraph {
+    let alphaProbe = SchedulerContainer.AlphaProbe()
+    let betaProbe = SchedulerContainer.BetaProbe()
+    let anySchedulerProbeKeyedSchedulerContainerProbes = [alphaProbe, betaProbe] as [any SchedulerProbe]
+    let probeHost = SchedulerContainer.ProbeHost(probes: anySchedulerProbeKeyedSchedulerContainerProbes)
+    let schedulerCounter = SchedulerContainer.SchedulerCounter()
     return try await withThrowingTaskGroup(of: _SchedulerContainerWireTaskResult.self) { _wireGroup in
         var building = _SchedulerContainerWireBuilding()
-        try building._wireAdd_alphaProbe(&_wireGroup)
-        try building._wireAdd_betaProbe(&_wireGroup)
         try building._wireAdd_schedulerConfig(&_wireGroup)
-        try building._wireAdd_schedulerCounter(&_wireGroup)
         try building._wireAdd_schedulerToken(&_wireGroup)
         while let _wireResult = try await _wireGroup.next() {
             try building._wireUpdate(_wireResult, &_wireGroup)
         }
-        return _SchedulerContainerWireGraph(probeHost: building._wireState_probeHost.take(), schedulerConfig: building._wireState_schedulerConfig.take(), schedulerCounter: building._wireState_schedulerCounter.take(), schedulerToken: building._wireState_schedulerToken.take(), schedulerService: building._wireState_schedulerService.take())
+        let schedulerConfig = building._wireState_schedulerConfig.take()
+        let schedulerToken = building._wireState_schedulerToken.take()
+        let schedulerService = SchedulerContainer.SchedulerService(token: schedulerToken, counter: schedulerCounter, config: schedulerConfig)
+        return _SchedulerContainerWireGraph(probeHost: probeHost, schedulerConfig: schedulerConfig, schedulerCounter: schedulerCounter, schedulerToken: schedulerToken, schedulerService: schedulerService)
     }
 }
 
@@ -4826,6 +5334,59 @@ internal struct _SubjectDoublesFixture_bindBothWireGraph<T0: AggregateSearchBack
     }
 }
 
+// Every binding this graph builds in a child task, and every dependency such a binding captures,
+// must be Sendable — `ThrowingTaskGroup`'s result and `addTask`'s closure both require it. These
+// assertions exist so that requirement is reported at the binding rather than inside the
+// generated scheduler below. Never called.
+private func _wireSendableChecks_SubjectDoublesFixture_bindBothWireGraph() {
+    func _check<T: Sendable>(_: T.Type) {}
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncBootstrappedDependency.swift", line: 13)
+    _check((AsyncToken).self)
+    #sourceLocation()
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncComputedProperty.swift", line: 15)
+    _check((AsyncMessage).self)
+    #sourceLocation()
+}
+
+private enum _SubjectDoublesFixture_bindBothWireTaskResult: Sendable {
+    case asyncToken(AsyncToken)
+    case asyncMessage(AsyncMessage)
+}
+
+private struct _SubjectDoublesFixture_bindBothWireBuilding: ~Copyable {
+    var _wireState_asyncToken: _WireBindingState<AsyncToken> = .unmarked
+    var _wireState_asyncMessage: _WireBindingState<AsyncMessage> = .unmarked
+    var _wireState_asyncTokenConsumer: _WireBindingState<AsyncTokenConsumer> = .unmarked
+
+    mutating func _wireAdd_asyncToken(_ _wireGroup: inout ThrowingTaskGroup<_SubjectDoublesFixture_bindBothWireTaskResult, any Error>) throws {
+        guard _wireState_asyncToken.asPending() else { return }
+        _wireGroup.addTask { .asyncToken(try await makeAsyncToken()) }
+    }
+
+    mutating func _wireAdd_asyncMessage(_ _wireGroup: inout ThrowingTaskGroup<_SubjectDoublesFixture_bindBothWireTaskResult, any Error>) throws {
+        guard _wireState_asyncMessage.asPending() else { return }
+        _wireGroup.addTask { .asyncMessage(try await AsyncFactories.asyncMessage) }
+    }
+
+    mutating func _wireAdd_asyncTokenConsumer(_ _wireGroup: inout ThrowingTaskGroup<_SubjectDoublesFixture_bindBothWireTaskResult, any Error>) throws {
+        guard let asyncToken = _wireState_asyncToken.value() else { return }
+        guard _wireState_asyncTokenConsumer.asPending() else { return }
+        _wireState_asyncTokenConsumer.asResolved(AsyncTokenConsumer(token: asyncToken))
+    }
+
+    mutating func _wireUpdate(_ _wireResult: _SubjectDoublesFixture_bindBothWireTaskResult, _ _wireGroup: inout ThrowingTaskGroup<_SubjectDoublesFixture_bindBothWireTaskResult, any Error>) throws {
+        switch _wireResult {
+        case .asyncToken(let _wireValue):
+            _wireState_asyncToken.asResolved(_wireValue)
+            try _wireAdd_asyncTokenConsumer(&_wireGroup)
+        case .asyncMessage(let _wireValue):
+            _wireState_asyncMessage.asResolved(_wireValue)
+        }
+    }
+}
+
 private func _wireBootstrapSubjectDoublesFixture_bindBoth() async throws -> _SubjectDoublesFixture_bindBothWireGraph<some AggregateSearchBackend, some GenAppBackend, some GenBackend, some GenProxyRepository, some GenSomethingElse, some Greeting, some TeardownResource> {
     let anyAccountRepository = AccountRepositoryModule.repository()
     let accountController = AccountController(repository: anyAccountRepository)
@@ -4848,10 +5409,6 @@ private func _wireBootstrapSubjectDoublesFixture_bindBoth() async throws -> _Sub
     let anyAppScopedRepository = AppScopedRepositoryModule.repository()
     let appScopedLog = AppScopedLog()
     let appScopedController = AppScopedController(repository: anyAppScopedRepository, log: appScopedLog)
-    let asyncToken = try await makeAsyncToken()
-    let asyncMessage = try await AsyncFactories.asyncMessage
-    let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
-    let asyncTokenConsumer = AsyncTokenConsumer(token: asyncToken)
     let authMiddleware = AuthMiddleware()
     let buildNumber = BuildInfo.buildNumber
     let banner = makeBanner(appName: appName, buildNumber: buildNumber)
@@ -4954,37 +5511,49 @@ private func _wireBootstrapSubjectDoublesFixture_bindBoth() async throws -> _Sub
     let _WireFactory_GenAppKeys_auditOfSomeGenAppBackend = _WireFactory_GenAppKeys_audit(backend: someGenAppBackend)
     let _WireRouteContributor_AppScopedController = _WireRouteContributor_AppScopedController(appScopedController, _wireFactory_AppScopedKeys_audit: _WireFactory_AppScopedKeys_audit)
     let _WireRouteContributor_GenAppControllerOfSomeGenAppBackend = _WireRouteContributor_GenAppController(genAppControllerOfSomeGenAppBackend, _wireFactory_GenAppKeys_audit: _WireFactory_GenAppKeys_auditOfSomeGenAppBackend)
-    view.coordinator = coordinator
-    spoke.hub = hub
-    noteBoard.receive(message: noteMessage)
-    await tickCounter.bump(by: tickIncrement)
-    await toolbelt._wireSetWorkshop(workshop)
-    let _wireTeardown: @Sendable () async -> [any Error] = {
-        var errors: [any Error] = []
-        do {
-            try await someTeardownResource.close()
-        } catch {
-            errors.append(error)
+    return try await withThrowingTaskGroup(of: _SubjectDoublesFixture_bindBothWireTaskResult.self) { _wireGroup in
+        var building = _SubjectDoublesFixture_bindBothWireBuilding()
+        try building._wireAdd_asyncToken(&_wireGroup)
+        try building._wireAdd_asyncMessage(&_wireGroup)
+        while let _wireResult = try await _wireGroup.next() {
+            try building._wireUpdate(_wireResult, &_wireGroup)
         }
-        do {
-            try await teardownConsumer.teardown()
-        } catch {
-            errors.append(error)
+        let asyncToken = building._wireState_asyncToken.take()
+        let asyncMessage = building._wireState_asyncMessage.take()
+        let asyncTokenConsumer = building._wireState_asyncTokenConsumer.take()
+        let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
+        view.coordinator = coordinator
+        spoke.hub = hub
+        noteBoard.receive(message: noteMessage)
+        await tickCounter.bump(by: tickIncrement)
+        await toolbelt._wireSetWorkshop(workshop)
+        let _wireTeardown: @Sendable () async -> [any Error] = {
+            var errors: [any Error] = []
+            do {
+                try await someTeardownResource.close()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownConsumer.teardown()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
+                try await action(teardownHTTPClient)
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownDatabasePool.teardown()
+            } catch {
+                errors.append(error)
+            }
+            return errors
         }
-        do {
-            let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
-            try await action(teardownHTTPClient)
-        } catch {
-            errors.append(error)
-        }
-        do {
-            try await teardownDatabasePool.teardown()
-        } catch {
-            errors.append(error)
-        }
-        return errors
+        return _SubjectDoublesFixture_bindBothWireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _wireTeardown: _wireTeardown)
     }
-    return _SubjectDoublesFixture_bindBothWireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _wireTeardown: _wireTeardown)
 }
 
 internal struct _TestContainerWireGraph: Introspectable, Teardownable {
@@ -5289,6 +5858,59 @@ internal struct _WireDoublesFixture_bindMockRepoWireGraph<T0: AggregateSearchBac
     }
 }
 
+// Every binding this graph builds in a child task, and every dependency such a binding captures,
+// must be Sendable — `ThrowingTaskGroup`'s result and `addTask`'s closure both require it. These
+// assertions exist so that requirement is reported at the binding rather than inside the
+// generated scheduler below. Never called.
+private func _wireSendableChecks_WireDoublesFixture_bindMockRepoWireGraph() {
+    func _check<T: Sendable>(_: T.Type) {}
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncBootstrappedDependency.swift", line: 13)
+    _check((AsyncToken).self)
+    #sourceLocation()
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncComputedProperty.swift", line: 15)
+    _check((AsyncMessage).self)
+    #sourceLocation()
+}
+
+private enum _WireDoublesFixture_bindMockRepoWireTaskResult: Sendable {
+    case asyncToken(AsyncToken)
+    case asyncMessage(AsyncMessage)
+}
+
+private struct _WireDoublesFixture_bindMockRepoWireBuilding: ~Copyable {
+    var _wireState_asyncToken: _WireBindingState<AsyncToken> = .unmarked
+    var _wireState_asyncMessage: _WireBindingState<AsyncMessage> = .unmarked
+    var _wireState_asyncTokenConsumer: _WireBindingState<AsyncTokenConsumer> = .unmarked
+
+    mutating func _wireAdd_asyncToken(_ _wireGroup: inout ThrowingTaskGroup<_WireDoublesFixture_bindMockRepoWireTaskResult, any Error>) throws {
+        guard _wireState_asyncToken.asPending() else { return }
+        _wireGroup.addTask { .asyncToken(try await makeAsyncToken()) }
+    }
+
+    mutating func _wireAdd_asyncMessage(_ _wireGroup: inout ThrowingTaskGroup<_WireDoublesFixture_bindMockRepoWireTaskResult, any Error>) throws {
+        guard _wireState_asyncMessage.asPending() else { return }
+        _wireGroup.addTask { .asyncMessage(try await AsyncFactories.asyncMessage) }
+    }
+
+    mutating func _wireAdd_asyncTokenConsumer(_ _wireGroup: inout ThrowingTaskGroup<_WireDoublesFixture_bindMockRepoWireTaskResult, any Error>) throws {
+        guard let asyncToken = _wireState_asyncToken.value() else { return }
+        guard _wireState_asyncTokenConsumer.asPending() else { return }
+        _wireState_asyncTokenConsumer.asResolved(AsyncTokenConsumer(token: asyncToken))
+    }
+
+    mutating func _wireUpdate(_ _wireResult: _WireDoublesFixture_bindMockRepoWireTaskResult, _ _wireGroup: inout ThrowingTaskGroup<_WireDoublesFixture_bindMockRepoWireTaskResult, any Error>) throws {
+        switch _wireResult {
+        case .asyncToken(let _wireValue):
+            _wireState_asyncToken.asResolved(_wireValue)
+            try _wireAdd_asyncTokenConsumer(&_wireGroup)
+        case .asyncMessage(let _wireValue):
+            _wireState_asyncMessage.asResolved(_wireValue)
+        }
+    }
+}
+
 private func _wireBootstrapWireDoublesFixture_bindMockRepo() async throws -> _WireDoublesFixture_bindMockRepoWireGraph<some AggregateSearchBackend, some GenAppBackend, some GenBackend, some GenProxyRepository, some GenSomethingElse, some Greeting, some TeardownResource> {
     let anyAccountRepository = AccountRepositoryModule.repository()
     let accountController = AccountController(repository: anyAccountRepository)
@@ -5311,10 +5933,6 @@ private func _wireBootstrapWireDoublesFixture_bindMockRepo() async throws -> _Wi
     let anyAppScopedRepository = AppScopedRepositoryModule.repository()
     let appScopedLog = AppScopedLog()
     let appScopedController = AppScopedController(repository: anyAppScopedRepository, log: appScopedLog)
-    let asyncToken = try await makeAsyncToken()
-    let asyncMessage = try await AsyncFactories.asyncMessage
-    let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
-    let asyncTokenConsumer = AsyncTokenConsumer(token: asyncToken)
     let authMiddleware = AuthMiddleware()
     let buildNumber = BuildInfo.buildNumber
     let banner = makeBanner(appName: appName, buildNumber: buildNumber)
@@ -5419,37 +6037,49 @@ private func _wireBootstrapWireDoublesFixture_bindMockRepo() async throws -> _Wi
     let _WireFactory_GenAppKeys_auditOfSomeGenAppBackend = _WireFactory_GenAppKeys_audit(backend: someGenAppBackend)
     let _WireRouteContributor_AppScopedController = _WireRouteContributor_AppScopedController(appScopedController, _wireFactory_AppScopedKeys_audit: _WireFactory_AppScopedKeys_audit)
     let _WireRouteContributor_GenAppControllerOfSomeGenAppBackend = _WireRouteContributor_GenAppController(genAppControllerOfSomeGenAppBackend, _wireFactory_GenAppKeys_audit: _WireFactory_GenAppKeys_auditOfSomeGenAppBackend)
-    view.coordinator = coordinator
-    spoke.hub = hub
-    noteBoard.receive(message: noteMessage)
-    await tickCounter.bump(by: tickIncrement)
-    await toolbelt._wireSetWorkshop(workshop)
-    let _wireTeardown: @Sendable () async -> [any Error] = {
-        var errors: [any Error] = []
-        do {
-            try await someTeardownResource.close()
-        } catch {
-            errors.append(error)
+    return try await withThrowingTaskGroup(of: _WireDoublesFixture_bindMockRepoWireTaskResult.self) { _wireGroup in
+        var building = _WireDoublesFixture_bindMockRepoWireBuilding()
+        try building._wireAdd_asyncToken(&_wireGroup)
+        try building._wireAdd_asyncMessage(&_wireGroup)
+        while let _wireResult = try await _wireGroup.next() {
+            try building._wireUpdate(_wireResult, &_wireGroup)
         }
-        do {
-            try await teardownConsumer.teardown()
-        } catch {
-            errors.append(error)
+        let asyncToken = building._wireState_asyncToken.take()
+        let asyncMessage = building._wireState_asyncMessage.take()
+        let asyncTokenConsumer = building._wireState_asyncTokenConsumer.take()
+        let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
+        view.coordinator = coordinator
+        spoke.hub = hub
+        noteBoard.receive(message: noteMessage)
+        await tickCounter.bump(by: tickIncrement)
+        await toolbelt._wireSetWorkshop(workshop)
+        let _wireTeardown: @Sendable () async -> [any Error] = {
+            var errors: [any Error] = []
+            do {
+                try await someTeardownResource.close()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownConsumer.teardown()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
+                try await action(teardownHTTPClient)
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownDatabasePool.teardown()
+            } catch {
+                errors.append(error)
+            }
+            return errors
         }
-        do {
-            let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
-            try await action(teardownHTTPClient)
-        } catch {
-            errors.append(error)
-        }
-        do {
-            try await teardownDatabasePool.teardown()
-        } catch {
-            errors.append(error)
-        }
-        return errors
+        return _WireDoublesFixture_bindMockRepoWireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _wireTeardown: _wireTeardown)
     }
-    return _WireDoublesFixture_bindMockRepoWireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _wireTeardown: _wireTeardown)
 }
 
 internal struct _WireProxyFixture_bindMockWireGraph<T0: AggregateSearchBackend, T1: GenAppBackend, T2: GenBackend, T3: GenProxyRepository, T4: GenSomethingElse, T5: Greeting, T6: TeardownResource>: Introspectable, Teardownable {
@@ -5687,6 +6317,59 @@ internal struct _WireProxyFixture_bindMockWireGraph<T0: AggregateSearchBackend, 
     }
 }
 
+// Every binding this graph builds in a child task, and every dependency such a binding captures,
+// must be Sendable — `ThrowingTaskGroup`'s result and `addTask`'s closure both require it. These
+// assertions exist so that requirement is reported at the binding rather than inside the
+// generated scheduler below. Never called.
+private func _wireSendableChecks_WireProxyFixture_bindMockWireGraph() {
+    func _check<T: Sendable>(_: T.Type) {}
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncBootstrappedDependency.swift", line: 13)
+    _check((AsyncToken).self)
+    #sourceLocation()
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncComputedProperty.swift", line: 15)
+    _check((AsyncMessage).self)
+    #sourceLocation()
+}
+
+private enum _WireProxyFixture_bindMockWireTaskResult: Sendable {
+    case asyncToken(AsyncToken)
+    case asyncMessage(AsyncMessage)
+}
+
+private struct _WireProxyFixture_bindMockWireBuilding: ~Copyable {
+    var _wireState_asyncToken: _WireBindingState<AsyncToken> = .unmarked
+    var _wireState_asyncMessage: _WireBindingState<AsyncMessage> = .unmarked
+    var _wireState_asyncTokenConsumer: _WireBindingState<AsyncTokenConsumer> = .unmarked
+
+    mutating func _wireAdd_asyncToken(_ _wireGroup: inout ThrowingTaskGroup<_WireProxyFixture_bindMockWireTaskResult, any Error>) throws {
+        guard _wireState_asyncToken.asPending() else { return }
+        _wireGroup.addTask { .asyncToken(try await makeAsyncToken()) }
+    }
+
+    mutating func _wireAdd_asyncMessage(_ _wireGroup: inout ThrowingTaskGroup<_WireProxyFixture_bindMockWireTaskResult, any Error>) throws {
+        guard _wireState_asyncMessage.asPending() else { return }
+        _wireGroup.addTask { .asyncMessage(try await AsyncFactories.asyncMessage) }
+    }
+
+    mutating func _wireAdd_asyncTokenConsumer(_ _wireGroup: inout ThrowingTaskGroup<_WireProxyFixture_bindMockWireTaskResult, any Error>) throws {
+        guard let asyncToken = _wireState_asyncToken.value() else { return }
+        guard _wireState_asyncTokenConsumer.asPending() else { return }
+        _wireState_asyncTokenConsumer.asResolved(AsyncTokenConsumer(token: asyncToken))
+    }
+
+    mutating func _wireUpdate(_ _wireResult: _WireProxyFixture_bindMockWireTaskResult, _ _wireGroup: inout ThrowingTaskGroup<_WireProxyFixture_bindMockWireTaskResult, any Error>) throws {
+        switch _wireResult {
+        case .asyncToken(let _wireValue):
+            _wireState_asyncToken.asResolved(_wireValue)
+            try _wireAdd_asyncTokenConsumer(&_wireGroup)
+        case .asyncMessage(let _wireValue):
+            _wireState_asyncMessage.asResolved(_wireValue)
+        }
+    }
+}
+
 private func _wireBootstrapWireProxyFixture_bindMock() async throws -> _WireProxyFixture_bindMockWireGraph<some AggregateSearchBackend, some GenAppBackend, some GenBackend, some GenProxyRepository, some GenSomethingElse, some Greeting, some TeardownResource> {
     let anyAccountRepository = AccountRepositoryModule.repository()
     let accountController = AccountController(repository: anyAccountRepository)
@@ -5709,10 +6392,6 @@ private func _wireBootstrapWireProxyFixture_bindMock() async throws -> _WireProx
     let anyAppScopedRepository = AppScopedRepositoryModule.repository()
     let appScopedLog = AppScopedLog()
     let appScopedController = AppScopedController(repository: anyAppScopedRepository, log: appScopedLog)
-    let asyncToken = try await makeAsyncToken()
-    let asyncMessage = try await AsyncFactories.asyncMessage
-    let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
-    let asyncTokenConsumer = AsyncTokenConsumer(token: asyncToken)
     let authMiddleware = AuthMiddleware()
     let buildNumber = BuildInfo.buildNumber
     let banner = makeBanner(appName: appName, buildNumber: buildNumber)
@@ -5815,37 +6494,49 @@ private func _wireBootstrapWireProxyFixture_bindMock() async throws -> _WireProx
     let _WireFactory_GenAppKeys_auditOfSomeGenAppBackend = _WireFactory_GenAppKeys_audit(backend: someGenAppBackend)
     let _WireRouteContributor_AppScopedController = _WireRouteContributor_AppScopedController(appScopedController, _wireFactory_AppScopedKeys_audit: _WireFactory_AppScopedKeys_audit)
     let _WireRouteContributor_GenAppControllerOfSomeGenAppBackend = _WireRouteContributor_GenAppController(genAppControllerOfSomeGenAppBackend, _wireFactory_GenAppKeys_audit: _WireFactory_GenAppKeys_auditOfSomeGenAppBackend)
-    view.coordinator = coordinator
-    spoke.hub = hub
-    noteBoard.receive(message: noteMessage)
-    await tickCounter.bump(by: tickIncrement)
-    await toolbelt._wireSetWorkshop(workshop)
-    let _wireTeardown: @Sendable () async -> [any Error] = {
-        var errors: [any Error] = []
-        do {
-            try await someTeardownResource.close()
-        } catch {
-            errors.append(error)
+    return try await withThrowingTaskGroup(of: _WireProxyFixture_bindMockWireTaskResult.self) { _wireGroup in
+        var building = _WireProxyFixture_bindMockWireBuilding()
+        try building._wireAdd_asyncToken(&_wireGroup)
+        try building._wireAdd_asyncMessage(&_wireGroup)
+        while let _wireResult = try await _wireGroup.next() {
+            try building._wireUpdate(_wireResult, &_wireGroup)
         }
-        do {
-            try await teardownConsumer.teardown()
-        } catch {
-            errors.append(error)
+        let asyncToken = building._wireState_asyncToken.take()
+        let asyncMessage = building._wireState_asyncMessage.take()
+        let asyncTokenConsumer = building._wireState_asyncTokenConsumer.take()
+        let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
+        view.coordinator = coordinator
+        spoke.hub = hub
+        noteBoard.receive(message: noteMessage)
+        await tickCounter.bump(by: tickIncrement)
+        await toolbelt._wireSetWorkshop(workshop)
+        let _wireTeardown: @Sendable () async -> [any Error] = {
+            var errors: [any Error] = []
+            do {
+                try await someTeardownResource.close()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownConsumer.teardown()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
+                try await action(teardownHTTPClient)
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownDatabasePool.teardown()
+            } catch {
+                errors.append(error)
+            }
+            return errors
         }
-        do {
-            let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
-            try await action(teardownHTTPClient)
-        } catch {
-            errors.append(error)
-        }
-        do {
-            try await teardownDatabasePool.teardown()
-        } catch {
-            errors.append(error)
-        }
-        return errors
+        return _WireProxyFixture_bindMockWireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _wireTeardown: _wireTeardown)
     }
-    return _WireProxyFixture_bindMockWireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _wireTeardown: _wireTeardown)
 }
 
 internal struct _WireScopableFixture_bindMockRepoWireGraph<T0: AggregateSearchBackend, T1: GenAppBackend, T2: GenBackend, T3: GenProxyRepository, T4: GenSomethingElse, T5: Greeting, T6: TeardownResource>: Introspectable, Teardownable {
@@ -6083,6 +6774,59 @@ internal struct _WireScopableFixture_bindMockRepoWireGraph<T0: AggregateSearchBa
     }
 }
 
+// Every binding this graph builds in a child task, and every dependency such a binding captures,
+// must be Sendable — `ThrowingTaskGroup`'s result and `addTask`'s closure both require it. These
+// assertions exist so that requirement is reported at the binding rather than inside the
+// generated scheduler below. Never called.
+private func _wireSendableChecks_WireScopableFixture_bindMockRepoWireGraph() {
+    func _check<T: Sendable>(_: T.Type) {}
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncBootstrappedDependency.swift", line: 13)
+    _check((AsyncToken).self)
+    #sourceLocation()
+
+    #sourceLocation(file: "Tests/IntegrationTests/AsyncComputedProperty.swift", line: 15)
+    _check((AsyncMessage).self)
+    #sourceLocation()
+}
+
+private enum _WireScopableFixture_bindMockRepoWireTaskResult: Sendable {
+    case asyncToken(AsyncToken)
+    case asyncMessage(AsyncMessage)
+}
+
+private struct _WireScopableFixture_bindMockRepoWireBuilding: ~Copyable {
+    var _wireState_asyncToken: _WireBindingState<AsyncToken> = .unmarked
+    var _wireState_asyncMessage: _WireBindingState<AsyncMessage> = .unmarked
+    var _wireState_asyncTokenConsumer: _WireBindingState<AsyncTokenConsumer> = .unmarked
+
+    mutating func _wireAdd_asyncToken(_ _wireGroup: inout ThrowingTaskGroup<_WireScopableFixture_bindMockRepoWireTaskResult, any Error>) throws {
+        guard _wireState_asyncToken.asPending() else { return }
+        _wireGroup.addTask { .asyncToken(try await makeAsyncToken()) }
+    }
+
+    mutating func _wireAdd_asyncMessage(_ _wireGroup: inout ThrowingTaskGroup<_WireScopableFixture_bindMockRepoWireTaskResult, any Error>) throws {
+        guard _wireState_asyncMessage.asPending() else { return }
+        _wireGroup.addTask { .asyncMessage(try await AsyncFactories.asyncMessage) }
+    }
+
+    mutating func _wireAdd_asyncTokenConsumer(_ _wireGroup: inout ThrowingTaskGroup<_WireScopableFixture_bindMockRepoWireTaskResult, any Error>) throws {
+        guard let asyncToken = _wireState_asyncToken.value() else { return }
+        guard _wireState_asyncTokenConsumer.asPending() else { return }
+        _wireState_asyncTokenConsumer.asResolved(AsyncTokenConsumer(token: asyncToken))
+    }
+
+    mutating func _wireUpdate(_ _wireResult: _WireScopableFixture_bindMockRepoWireTaskResult, _ _wireGroup: inout ThrowingTaskGroup<_WireScopableFixture_bindMockRepoWireTaskResult, any Error>) throws {
+        switch _wireResult {
+        case .asyncToken(let _wireValue):
+            _wireState_asyncToken.asResolved(_wireValue)
+            try _wireAdd_asyncTokenConsumer(&_wireGroup)
+        case .asyncMessage(let _wireValue):
+            _wireState_asyncMessage.asResolved(_wireValue)
+        }
+    }
+}
+
 private func _wireBootstrapWireScopableFixture_bindMockRepo() async throws -> _WireScopableFixture_bindMockRepoWireGraph<some AggregateSearchBackend, some GenAppBackend, some GenBackend, some GenProxyRepository, some GenSomethingElse, some Greeting, some TeardownResource> {
     let aggregateReportStore = AggregateReportStore()
     let aggregateReportController = AggregateReportController(store: aggregateReportStore)
@@ -6103,10 +6847,6 @@ private func _wireBootstrapWireScopableFixture_bindMockRepo() async throws -> _W
     let anyAppScopedRepository = AppScopedRepositoryModule.repository()
     let appScopedLog = AppScopedLog()
     let appScopedController = AppScopedController(repository: anyAppScopedRepository, log: appScopedLog)
-    let asyncToken = try await makeAsyncToken()
-    let asyncMessage = try await AsyncFactories.asyncMessage
-    let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
-    let asyncTokenConsumer = AsyncTokenConsumer(token: asyncToken)
     let authMiddleware = AuthMiddleware()
     let buildNumber = BuildInfo.buildNumber
     let banner = makeBanner(appName: appName, buildNumber: buildNumber)
@@ -6211,37 +6951,49 @@ private func _wireBootstrapWireScopableFixture_bindMockRepo() async throws -> _W
     let _WireFactory_GenAppKeys_auditOfSomeGenAppBackend = _WireFactory_GenAppKeys_audit(backend: someGenAppBackend)
     let _WireRouteContributor_AppScopedController = _WireRouteContributor_AppScopedController(appScopedController, _wireFactory_AppScopedKeys_audit: _WireFactory_AppScopedKeys_audit)
     let _WireRouteContributor_GenAppControllerOfSomeGenAppBackend = _WireRouteContributor_GenAppController(genAppControllerOfSomeGenAppBackend, _wireFactory_GenAppKeys_audit: _WireFactory_GenAppKeys_auditOfSomeGenAppBackend)
-    view.coordinator = coordinator
-    spoke.hub = hub
-    noteBoard.receive(message: noteMessage)
-    await tickCounter.bump(by: tickIncrement)
-    await toolbelt._wireSetWorkshop(workshop)
-    let _wireTeardown: @Sendable () async -> [any Error] = {
-        var errors: [any Error] = []
-        do {
-            try await someTeardownResource.close()
-        } catch {
-            errors.append(error)
+    return try await withThrowingTaskGroup(of: _WireScopableFixture_bindMockRepoWireTaskResult.self) { _wireGroup in
+        var building = _WireScopableFixture_bindMockRepoWireBuilding()
+        try building._wireAdd_asyncToken(&_wireGroup)
+        try building._wireAdd_asyncMessage(&_wireGroup)
+        while let _wireResult = try await _wireGroup.next() {
+            try building._wireUpdate(_wireResult, &_wireGroup)
         }
-        do {
-            try await teardownConsumer.teardown()
-        } catch {
-            errors.append(error)
+        let asyncToken = building._wireState_asyncToken.take()
+        let asyncMessage = building._wireState_asyncMessage.take()
+        let asyncTokenConsumer = building._wireState_asyncTokenConsumer.take()
+        let asyncInitConsumer = try await AsyncInitConsumer(token: asyncToken, message: asyncMessage)
+        view.coordinator = coordinator
+        spoke.hub = hub
+        noteBoard.receive(message: noteMessage)
+        await tickCounter.bump(by: tickIncrement)
+        await toolbelt._wireSetWorkshop(workshop)
+        let _wireTeardown: @Sendable () async -> [any Error] = {
+            var errors: [any Error] = []
+            do {
+                try await someTeardownResource.close()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownConsumer.teardown()
+            } catch {
+                errors.append(error)
+            }
+            do {
+                let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
+                try await action(teardownHTTPClient)
+            } catch {
+                errors.append(error)
+            }
+            do {
+                try await teardownDatabasePool.teardown()
+            } catch {
+                errors.append(error)
+            }
+            return errors
         }
-        do {
-            let action: @Sendable (TeardownHTTPClient) async throws -> Void = { (client: TeardownHTTPClient) in try await client.shutdown() }
-            try await action(teardownHTTPClient)
-        } catch {
-            errors.append(error)
-        }
-        do {
-            try await teardownDatabasePool.teardown()
-        } catch {
-            errors.append(error)
-        }
-        return errors
+        return _WireScopableFixture_bindMockRepoWireGraph(aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _wireTeardown: _wireTeardown)
     }
-    return _WireScopableFixture_bindMockRepoWireGraph(aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _wireTeardown: _wireTeardown)
 }
 
 internal struct _AccountRequestSeedWireScope {

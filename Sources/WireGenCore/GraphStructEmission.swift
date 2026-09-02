@@ -207,21 +207,15 @@ func appendStruct(
     file.lines.append(contentsOf: teardownMethodLines(torn))
     file.lines.append("}")
 
-    let scheduled = schedulerApplies(
-        to: topologicalOrder,
+    let plan = schedulerPlan(
+        for: topologicalOrder,
         seedScopes: seedScopes,
         existentialPromotions: existentialPromotions
     )
-    if scheduled {
-        file.lines.append(
-            contentsOf: schedulerSendableCheckLines(structName: structName, topologicalOrder: topologicalOrder)
-        )
-        file.lines.append(
-            contentsOf: schedulerTaskResultEnumLines(structName: structName, topologicalOrder: topologicalOrder)
-        )
-        file.lines.append(
-            contentsOf: schedulerBuildingStructLines(structName: structName, topologicalOrder: topologicalOrder)
-        )
+    if let plan {
+        file.lines.append(contentsOf: schedulerSendableCheckLines(structName: structName, regions: plan))
+        file.lines.append(contentsOf: schedulerTaskResultEnumLines(structName: structName, regions: plan))
+        file.lines.append(contentsOf: schedulerBuildingStructLines(structName: structName, regions: plan))
     }
 
     // Free function at module scope — does the actual construction.
@@ -240,23 +234,12 @@ func appendStruct(
         return
     }
 
-    // M7c.2 — a graph with an async binding and none of the constructs M7c.4 owns constructs through the
-    // state struct instead of the linear `let` chain. See `schedulerApplies`.
-    if scheduled {
-        appendScheduledConstruction(
-            structName: structName,
-            topologicalOrder: topologicalOrder,
-            roots: roots,
-            lift: lift,
-            propertyBlockIndex: propertyBlockIndex,
-            into: &file
-        )
-        return
-    }
-
-    appendLinearConstruction(
+    // M7c.4 — a qualifying graph builds its prefix on the linear chain, schedules the region that can
+    // overlap, and returns to the chain for the suffix and the post-construction tail. See `schedulerPlan`.
+    appendConstructionBody(
         structName: structName,
         topologicalOrder: topologicalOrder,
+        plan: plan,
         roots: roots,
         lift: lift,
         context: context,
@@ -265,46 +248,20 @@ func appendStruct(
     )
 }
 
-/// The scheduled construction body (M7c.3): open the task group, start every source binding, drain the
-/// group applying each result and cascading from it, then hand the memberwise init the cells to take from.
-private func appendScheduledConstruction(
+/// The bootstrap's construction body, in whichever of the two shapes the plan calls for.
+///
+/// **Without a plan** it is the linear `let` chain every graph took before M7c.2, byte for byte.
+///
+/// **With one** it is chain → group → seam → chain, and the *tail* — the member-injection block, the
+/// captured teardown closure and the memberwise init — is emitted once, the same lines either way, because
+/// the seam has already turned every scheduled binding back into a local. That is what keeps M7c.4 small:
+/// nothing after the drain has to know a scheduler exists. See
+/// [ConstructionScheduling.md](../../Documentation/Notes/ConstructionScheduling.md) § "The scheduled
+/// region".
+private func appendConstructionBody(
     structName: String,
     topologicalOrder: [DiscoveredBinding],
-    roots: Set<BindingIdentity>,
-    lift: GraphLift,
-    propertyBlockIndex: Int,
-    into file: inout WireFileBuffer
-) {
-    file.lines.append(
-        contentsOf: schedulerBootstrapBodyLines(structName: structName, topologicalOrder: topologicalOrder)
-    )
-    let returnLineIndex = file.lines.count
-    file.lines.append(storagePlaceholder)
-    file.lines.append(contentsOf: schedulerBootstrapClosingLines())
-    file.lines.append("}")
-    file.storagePatches.append(
-        GraphStoragePatch(
-            structName: structName,
-            parentLocal: wireGraphParameterInternalName(forType: structName),
-            topologicalOrder: topologicalOrder,
-            roots: roots,
-            liftedParameterForIdentity: lift.parameterForIdentity,
-            hasTeardown: false,
-            builderLocal: "building",
-            propertyBlockIndex: propertyBlockIndex,
-            returnLineIndex: returnLineIndex,
-            // Inside the group closure, so one level deeper than the linear chain's return.
-            returnIndent: schedulerReturnIndent
-        )
-    )
-}
-
-/// The linear `let` chain — one construction line per binding in topological order, then the post-init
-/// member-injection block, then the captured teardown. Every graph took this shape before M7c.2, and a
-/// graph that does not qualify for the scheduler still does, byte for byte.
-private func appendLinearConstruction(
-    structName: String,
-    topologicalOrder: [DiscoveredBinding],
+    plan: ConstructionRegions?,
     roots: Set<BindingIdentity>,
     lift: GraphLift,
     context: GraphEmissionContext,
@@ -312,71 +269,46 @@ private func appendLinearConstruction(
     into file: inout WireFileBuffer
 ) {
     let seedScopes = context.seedScopes(structName)
-    let existentialPromotions = context.existentialPromotions
     // Recomputed rather than passed: it is one filter over the order this function already has, and
     // threading it through would put the parameter list past what the linter allows.
     let torn = topologicalOrder.reversed().filter { $0.teardown != nil }
-    let aliases = bootstrapExistentialAliasPlan(existentialPromotions, constructedIn: topologicalOrder)
+    let aliases = bootstrapExistentialAliasPlan(context.existentialPromotions, constructedIn: topologicalOrder)
 
-    // Construction body — bare local names. `let logger = logger`
-    // works because Swift resolves the RHS in the outer scope before
-    // binding the LHS local, so the local shadows cleanly.
-    for binding in topologicalOrder {
-        // A builder aggregate emits a `@resultBuilder`-annotated local
-        // function (capturing the contributor locals) plus its call —
-        // the attribute can't sit on a closure, so it can't be a single
-        // expression like the other forms.
-        if case .aggregate(let aggregate) = binding, aggregate.flavour == .builder {
-            file.lines.append(contentsOf: builderFoldLines(aggregate))
-            continue
-        }
-        // A bridging contributor proxy (`.contributesProxy` over a `@Scoped(seed:)` subject) takes a
-        // `_wireEnterScope` scope-entry thunk. Emit that closure here — in the bootstrap body, so it
-        // captures the singleton locals the scope borrows — right before the proxy's own construction
-        // line, whose `_wireEnterScope` argument resolves to the thunk's local.
-        if let thunkLines = scopeEntryThunkLines(forBridgeProxy: binding, scopes: seedScopes) {
-            file.lines.append(contentsOf: thunkLines)
-        }
-        let local = propertyName(for: binding)
-        let construction = constructionExpression(for: binding)
-        // A specialised generic `@Provides func` can't be called with explicit
-        // type arguments, so annotate the local with the concrete return type
-        // and let Swift infer them (`let repo: Repository<DynamoDBTable> =
-        // makeRepo()`). Harmless when the value arguments already determine them.
-        if case .provider(let provider) = binding, !provider.concreteGenericArguments.isEmpty {
-            file.lines.append("    let \(local): \(binding.boundTypeReference) = \(construction)")
-        } else {
-            file.lines.append("    let \(local) = \(construction)")
-        }
-        // Rule 3 — this binding is read by an `any P` consumer somewhere in this
-        // body. Bind the existential once, here, so the boxing is a single visible
-        // line the consumers share rather than a conversion repeated at each
-        // argument site. See `ExistentialPromotion`.
+    // Post-init member injection, then the captured teardown. Both run over *every* binding's local, in
+    // both shapes: injection parameters are not construction edges (so an injection reads across regions
+    // freely), and the teardown closure closes over each binding's concrete local, which is what lets
+    // `@Teardown` work on an opaquely-bound (`@Singleton(as:)`) type.
+    var tail = renderMemberInjections(for: topologicalOrder)
+    tail.append(contentsOf: bootstrapTeardownClosureLines(torn))
+
+    if let plan {
         file.lines.append(
-            contentsOf: existentialAliasLines(aliases.afterConstruction[binding.identity], boundTo: local)
+            contentsOf: chainConstructionLines(for: plan.prefix, seedScopes: seedScopes, aliases: aliases)
         )
+        file.lines.append(contentsOf: schedulerBootstrapOpeningLines(structName: structName, regions: plan))
+        file.lines.append(contentsOf: schedulerSeamLines(regions: plan))
+        file.lines.append(
+            contentsOf: indentedForGroupBody(
+                chainConstructionLines(for: plan.suffix, seedScopes: seedScopes, aliases: aliases)
+            )
+        )
+        file.lines.append(contentsOf: indentedForGroupBody(tail))
+    } else {
+        file.lines.append(
+            contentsOf: chainConstructionLines(for: topologicalOrder, seedScopes: seedScopes, aliases: aliases)
+        )
+        file.lines.append(contentsOf: tail)
     }
 
-    // Post-init member injection block — emits after all locals
-    // are bound so each injection's target references are in
-    // scope. Empty when no `@Inject weak var` sugar or
-    // `@Inject func` member injections exist in the graph.
-    file.lines.append(contentsOf: renderMemberInjections(for: topologicalOrder))
-
-    // Captured teardown — built here, where each binding's local carries its
-    // concrete type, then handed to the graph. This is what lets `@Teardown`
-    // work on an opaquely-bound (`@Singleton(as:)`) type: the graph stores it as
-    // a lifted `some P` (no concrete member visible), but the closure closes over
-    // the concrete local, so the member call type-checks.
-    file.lines.append(contentsOf: bootstrapTeardownClosureLines(torn))
-
-    // Final return — memberwise init takes one argument per stored
-    // property in declaration order. Label is the property name;
-    // value is the matching local. The captured teardown, when present,
-    // is the trailing stored property and is passed last.
+    // Final return — memberwise init takes one argument per stored property in declaration order. Label is
+    // the property name; value is the matching local. The captured teardown, when present, is the trailing
+    // stored property and is passed last. Reserved here and patched once the whole file exists, because
+    // *what* is stored is decided by what the rest of the file reads off this graph (M7c.1).
     let returnLineIndex = file.lines.count
     file.lines.append(storagePlaceholder)
-
+    if plan != nil {
+        file.lines.append(contentsOf: schedulerBootstrapClosingLines())
+    }
     file.lines.append("}")
 
     file.storagePatches.append(
@@ -387,12 +319,61 @@ private func appendLinearConstruction(
             roots: roots,
             liftedParameterForIdentity: lift.parameterForIdentity,
             hasTeardown: !torn.isEmpty,
-            builderLocal: nil,
             propertyBlockIndex: propertyBlockIndex,
             returnLineIndex: returnLineIndex,
-            returnIndent: "    "
+            returnIndent: plan == nil ? "    " : schedulerReturnIndent
         )
     )
+}
+
+/// One region as the linear `let` chain — one construction line per binding in the order given, with the
+/// builder folds, scope-entry thunks and existential aliases that hang off a construction site.
+///
+/// Emitted at the bootstrap frame's indent; a caller putting these inside the group closure re-indents
+/// them with `indentedForGroupBody`.
+private func chainConstructionLines(
+    for bindings: [DiscoveredBinding],
+    seedScopes: [String: SeedScopeEmission],
+    aliases: ExistentialAliasPlan
+) -> [String] {
+    // Construction body — bare local names. `let logger = logger`
+    // works because Swift resolves the RHS in the outer scope before
+    // binding the LHS local, so the local shadows cleanly.
+    var lines: [String] = []
+    for binding in bindings {
+        // A builder aggregate emits a `@resultBuilder`-annotated local
+        // function (capturing the contributor locals) plus its call —
+        // the attribute can't sit on a closure, so it can't be a single
+        // expression like the other forms.
+        if case .aggregate(let aggregate) = binding, aggregate.flavour == .builder {
+            lines.append(contentsOf: builderFoldLines(aggregate))
+            continue
+        }
+        // A bridging contributor proxy (`.contributesProxy` over a `@Scoped(seed:)` subject) takes a
+        // `_wireEnterScope` scope-entry thunk. Emit that closure here — in the bootstrap body, so it
+        // captures the singleton locals the scope borrows — right before the proxy's own construction
+        // line, whose `_wireEnterScope` argument resolves to the thunk's local.
+        if let thunkLines = scopeEntryThunkLines(forBridgeProxy: binding, scopes: seedScopes) {
+            lines.append(contentsOf: thunkLines)
+        }
+        let local = propertyName(for: binding)
+        let construction = constructionExpression(for: binding)
+        // A specialised generic `@Provides func` can't be called with explicit
+        // type arguments, so annotate the local with the concrete return type
+        // and let Swift infer them (`let repo: Repository<DynamoDBTable> =
+        // makeRepo()`). Harmless when the value arguments already determine them.
+        if case .provider(let provider) = binding, !provider.concreteGenericArguments.isEmpty {
+            lines.append("    let \(local): \(binding.boundTypeReference) = \(construction)")
+        } else {
+            lines.append("    let \(local) = \(construction)")
+        }
+        // Rule 3 — this binding is read by an `any P` consumer somewhere in this
+        // body. Bind the existential once, here, so the boxing is a single visible
+        // line the consumers share rather than a conversion repeated at each
+        // argument site. See `ExistentialPromotion`.
+        lines.append(contentsOf: existentialAliasLines(aliases.afterConstruction[binding.identity], boundTo: local))
+    }
+    return lines
 }
 
 /// Emit a per-container / per-`TestingKey`-variant graph for each named order — the same struct +

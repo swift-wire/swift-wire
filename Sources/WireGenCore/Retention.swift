@@ -165,10 +165,6 @@ package struct GraphStoragePatch {
     package let roots: Set<BindingIdentity>
     package let liftedParameterForIdentity: [String: String]
     package let hasTeardown: Bool
-    /// M7c.2 — the bootstrap's builder local when this graph took the scheduled form, so the memberwise
-    /// init takes each stored binding out of its cell (`building._wireState_pool.take()`) instead of
-    /// naming a `let` local the scheduled body never bound. `nil` for the linear chain.
-    package let builderLocal: String?
     package let propertyBlockIndex: Int
     package let returnLineIndex: Int
     /// M7c.3 — the indent the memberwise-init line takes. The linear chain returns from the bootstrap
@@ -230,13 +226,10 @@ package func resolveStoragePatches(_ patches: [GraphStoragePatch], in lines: ino
         lines[patch.propertyBlockIndex] =
             properties.isEmpty ? storagePlaceholder : properties.joined(separator: "\n")
 
-        var returnArgs =
-            storedNames
-            .map { name in
-                guard let builder = patch.builderLocal else { return "\(name): \(name)" }
-                return "\(name): \(builder)._wireState_\(name).take()"
-            }
-            .joined(separator: ", ")
+        // Always a plain local, in both construction shapes: M7c.4's seam takes each scheduled binding
+        // out of its cell before the tail of the bootstrap runs, so by the time the memberwise init is
+        // reached there is nothing left to distinguish a scheduled binding from a chained one.
+        var returnArgs = storedNames.map { "\($0): \($0)" }.joined(separator: ", ")
         if patch.hasTeardown {
             returnArgs += returnArgs.isEmpty ? "_wireTeardown: _wireTeardown" : ", _wireTeardown: _wireTeardown"
         }
