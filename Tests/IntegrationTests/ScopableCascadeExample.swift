@@ -2,14 +2,14 @@ import Synchronization
 import Wire
 import WireTesting
 
-/// M6a Phase 2 runtime fixture — the `@Scopable` cascade reaching a `@BindType`d dependency through an
+/// Runtime fixture for the `@Scopable` cascade — the `@Scopable` cascade reaching a `@BindType`d dependency through an
 /// *app-scoped* consumer. A `@Singleton` controller reads `any AccountRepository` in its `init`; the
 /// production binding is `RealAccountRepository`, an app-scoped `@Provides`. The `TestingKey` binds that
 /// slot to `MockAccountRepository` and marks the controller `@Scopable`, so under test WireGen lifts both
 /// the controller and the repository out of the app graph and into the seed scope — the controller is
 /// reconstructed per scope entry, and its init-time read sees the per-entry double.
 ///
-/// This is the distinguishing Phase-2 property over the per-call proxy alternative: a proxy would only mock
+/// This is the cascade's distinguishing property over the per-call proxy alternative: a proxy would only mock
 /// *per-call* reads, never the one at `init`. `ScopableCascadeTests` proves the reconstructed controller's
 /// init-time read used the supplied mock.
 
@@ -47,7 +47,7 @@ enum AccountRepositoryModule {
     @Provides static func repository() -> any AccountRepository { RealAccountRepository() }
 }
 
-/// The app-scoped consumer that reads its `@BindType`d dependency **in `init`** — the property Phase 2
+/// The app-scoped consumer that reads its `@BindType`d dependency **in `init`** — the property the cascade
 /// exists to mock. As a singleton it is built once at bootstrap in production; `@TestScopable` lifts it into
 /// the scope under test so this read sees the per-entry double.
 @TestScopable

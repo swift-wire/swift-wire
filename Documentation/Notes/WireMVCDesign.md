@@ -17,11 +17,11 @@
 > `some ServerTransport` is **retained as an opt-in adapter** (`WireMVCServerTransport`,
 > behind a `ServerTransport` package trait) so Hummingbird/Vapor still mount the same
 > controllers. The inversion is proven by
-> [spike-12](../../../swift-wire-spikes/spike-12-wiremvc-proposal-native/) (routing over
-> `HTTPServer.serve`), [spike-13](../../../swift-wire-spikes/spike-13-wiremvc-servertransport-bridge/)
+> `spike-12` (routing over
+> `HTTPServer.serve`), `spike-13`
 > (the `ServerTransport` bridge), and
-> [spike-14](../../../swift-wire-spikes/spike-14-wiremvc-streaming/) (streaming through both).
-> [spike-11](../../../swift-wire-spikes/spike-11-wiremvc-servertransport/) remains the
+> `spike-14` (streaming through both).
+> `spike-11` remains the
 > proof of the decoded-witness *shape* (decode → call → encode); only its registration
 > target moved from `transport.register` to `builder.register`.
 >
@@ -64,7 +64,7 @@ resolves proposal-only) bridges the same proposal-native controllers onto a
 `swift-openapi-vapor` unchanged. The `ServerTransport` register closure is
 `request → (HTTPResponse, HTTPBody?)`; the bridge fabricates a proposal `Reader` from the
 request `HTTPBody?` and a `ResponseSender` that feeds the response `HTTPBody` (streaming —
-see [spike-14](../../../swift-wire-spikes/spike-14-wiremvc-streaming/)). This inverts the
+see `spike-14`). This inverts the
 original cost: OpenAPIRuntime is now a dependency only of the adapter a consumer explicitly
 opts into, not of the core.
 
@@ -187,7 +187,7 @@ discipline is JAX-RS/OpenAPI-flavored; `@ResponseStatus` is the Spring name.)
 - **Streaming / SSE → raw handler (M5.2).** The `RoutableHTTPServerBuilder` handler already
   hands the raw proposal primitives (`consuming sending Reader` / `ResponseSender`) to the
   closure, so the raw escape hatch *is* that signature with decode/encode skipped —
-  [spike-14](../../../swift-wire-spikes/spike-14-wiremvc-streaming/) streams SSE end-to-end
+  `spike-14` streams SSE end-to-end
   both natively and through the `ServerTransport` adapter (with real backpressure), so
   streaming needs **no** framework-specific adapter.
 - **WebSocket → escape-to-framework, not a WireMVC route.** An upgrade is not a
@@ -486,8 +486,8 @@ builder.register(
 The witness that carries these registrations is `registerWireRoutes<Builder: RoutableHTTPServerBuilder>(on:)`
 — generic over the builder, with the `~Copyable` inverse requirements restated at the generic
 boundary (they don't propagate; the proposal's own `serve` does the same). See
-[spike-12](../../../swift-wire-spikes/spike-12-wiremvc-proposal-native/) for the full
+`spike-12` for the full
 hand-written witness served on a real `NIOHTTPServer`, and
-[spike-13](../../../swift-wire-spikes/spike-13-wiremvc-servertransport-bridge/) for the same
+`spike-13` for the same
 witness driven through `some ServerTransport`. spike-11's decode/encode logic is unchanged;
 only the registration target moved from `transport.register` to `builder.register`.

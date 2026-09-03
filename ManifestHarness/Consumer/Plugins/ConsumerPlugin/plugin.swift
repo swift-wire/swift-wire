@@ -5,8 +5,8 @@ import PackagePlugin
 /// declares it as an input, and hands it to the generator.
 ///
 /// Two things are being pinned here, and both are undocumented SPM behaviour
-/// rather than API — which is why this is a gate and why M7a is deferred rather
-/// than adopted (`PendingIssues/20`):
+/// rather than API — which is why this is a gate and why the manifest route is deferred rather
+/// than adopted (#338):
 ///
 /// 1. **The layout.** A plugin's outputs live at
 ///    `<build>/plugins/outputs/<package-id>/<target>/<destination>/<PluginName>/`.

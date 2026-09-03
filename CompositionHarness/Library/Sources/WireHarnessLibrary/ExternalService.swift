@@ -29,7 +29,7 @@ public func makePrimaryExternalService() -> ExternalService {
     ExternalService()
 }
 
-/// A `public @Singleton` the consumer never reaches — the M7b.2 gate.
+/// A `public @Singleton` the consumer never reaches — the pruning gate.
 ///
 /// Reachability pruning has to drop this from the consumer's graph: nothing injects it, no conformance
 /// names it, and a *library's* `allowUnused` is ignored for reachability. Construction traps, so a
@@ -39,7 +39,7 @@ public func makePrimaryExternalService() -> ExternalService {
 public struct UnreachedExternalService {
     @Inject
     public init() {
-        fatalError("UnreachedExternalService was constructed — reachability pruning (M7b.2) should have dropped it")
+        fatalError("UnreachedExternalService was constructed — reachability pruning should have dropped it")
     }
 }
 
@@ -65,7 +65,7 @@ public enum HarnessRouteKeys {
 /// A binding of this library whose own dependency lives in a package the **consumer never depends on**.
 ///
 /// The consumer's plugin scans this library's sources and discovers this binding, but cannot resolve
-/// `DeepConfig` — that type is two packages away and not in its parse set. Before M7b that was a hard
+/// `DeepConfig` — that type is two packages away and not in its parse set. Before pruning that was a hard
 /// missing-binding error, which is exactly why retiring the `_WireExports.swift` marker had to wait for
 /// reachability: with the marker gone, every direct Wire-dependency's bindings enter the parse set,
 /// including ones like this. Nothing in the consumer reaches it, so it is pruned before the

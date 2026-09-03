@@ -3,7 +3,7 @@ import Wire
 import WireTestLibrary
 import WireTesting
 
-/// H2.2a `@Replaces` + `@BindType` composition — the precedence chain per type:
+/// `@Replaces` + `@BindType` composition — the precedence chain per type:
 ///     real binding → `@Replaces` (all graphs) → `@BindType` (its keyed variant only, wins)
 /// The library's real `any ComposeWidget` is superseded by this target's `@Replaces` fake in *every* graph;
 /// a `TestingKey`'s `@BindType` then supersedes it again, but only in that keyed variant. So the keyless

@@ -77,3 +77,7 @@ Default path: the suite trait + `withBindValues` per test; `@Replaces` for a han
 
 - **Suite server:** ASP.NET `IClassFixture<WebApplicationFactory>`, Spring `ApplicationContext` caching, pytest session fixtures, swift-local-containers `containerTrait`.
 - **Correlation-id request store:** standard distributed-tracing / request-context propagation — reused here to carry doubles across the HTTP boundary.
+
+---
+
+<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

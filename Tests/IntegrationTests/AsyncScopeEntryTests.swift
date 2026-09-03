@@ -1,6 +1,6 @@
 import Testing
 
-/// M7c.6's gate — a request scope's two independent async bindings are in flight at once.
+/// scheduled scope entry's gate — a request scope's two independent async bindings are in flight at once.
 ///
 /// This is the scheduler pointed at the path it was always meant for. Per-request construction runs once
 /// per request rather than once per process, so the same structure that saves a few milliseconds at

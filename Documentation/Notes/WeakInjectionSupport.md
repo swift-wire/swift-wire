@@ -380,3 +380,7 @@ goal.
    should already catch the case where two bindings share an
    identifier; confirm it still applies after the weak-codegen
    work and add a test if there's a gap.
+
+---
+
+<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

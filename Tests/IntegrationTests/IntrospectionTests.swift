@@ -2,7 +2,7 @@ import Foundation
 import Testing
 import Wire
 
-/// M2.7 Core end-to-end: the generated graph carries a codegen-baked `introspect()`
+/// Introspection, end-to-end: the generated graph carries a codegen-baked `introspect()`
 /// returning a framework-agnostic wiring model (bindings, kinds, scopes, dependency
 /// edges). Asserts on the `IntrospectionExample` fixture plus, robustly, that every
 /// binding kind the shared integration graph produces is surfaced.

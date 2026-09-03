@@ -1,6 +1,6 @@
 import Testing
 
-/// M7c.3's gate — a dependent of a fast async binding is constructed before a slow, independent async
+/// The scheduling trigger's gate — a dependent of a fast async binding is constructed before a slow, independent async
 /// binding finishes.
 ///
 /// This is the one thing the task group buys and the sequential form cannot produce, so it is asserted on

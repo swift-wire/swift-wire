@@ -212,3 +212,7 @@ The exploration closed with four questions for M5's first sitting. For the recor
 - [BootstrapCollation.md](BootstrapCollation.md) — how the apply steps collate, and what a Tier-1 app
   keeps doing by hand.
 - [ArchitecturalPatterns.md](ArchitecturalPatterns.md) — the hexagonal framing these tiers sit in.
+
+---
+
+<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

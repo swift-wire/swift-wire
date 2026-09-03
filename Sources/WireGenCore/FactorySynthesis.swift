@@ -16,7 +16,7 @@
 // Everything here is domain-free: Wire injects a synthesised binding onto a
 // decorated binding and never learns "middleware".
 
-/// The role mapping a `.mapsFactoryRoles` annotation supplies for a factory template (M5.3, 3.2).
+/// The role mapping a `.mapsFactoryRoles` annotation supplies for a factory template.
 /// `canonicalRoles` is the adapter's full ordered role vocabulary — the names `create`'s generic
 /// parameters take, in the fixed order the consumer's macro calls with. `parameterRoles` maps each of
 /// the template's assisted generic parameters to its role name (a subset/reorder of `canonicalRoles`);

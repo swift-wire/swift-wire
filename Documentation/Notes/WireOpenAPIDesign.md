@@ -349,5 +349,5 @@ the key + conformance declaration), and its own macOS + Linux CI. Dependencies:
   superseded by this note.
 - `wire-hummingbird` (external repo) — the shipped surface this mirrors
   (`HummingbirdRoute.swift`, `WireHummingbird.swift`, `_WireExports.swift`).
-- [spike-10](../../../swift-wire-spikes/spike-10-graph-conformance/) — graph
+- `spike-10` — graph
   conformance emission (the M3.1 no-Core-change basis).

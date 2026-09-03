@@ -2,7 +2,7 @@ import Testing
 
 @testable import WireGenCore
 
-/// Phase A, A1 — the structural half of a plugin-generated contributor proxy. `renderContributorProxyDeclaration`
+/// The structural half of a plugin-generated contributor proxy. `renderContributorProxyDeclaration`
 /// emits the proxy `struct` (fields + init + `Sendable`, generic exactly as the subject) with a *body hole*:
 /// no adapter-protocol conformance, no witness method — those arrive in a domain tool's `extension`. These
 /// tests pin the emitted struct's shape and the field-name contract (`_wireSubject` / `_wireFactory_<key>`)
@@ -245,7 +245,7 @@ struct ContributorProxyEmissionTests {
     /// from the same proxy binding and pins that they line up: the subject is passed *positionally* (the
     /// init's first parameter is unlabelled) and each factory is passed under the `_wireFactory_<key>`
     /// label the init declares. Non-generic subject to keep the graph free of the `T0` lift (an emission
-    /// concern this test isn't about). Mirrors spike-23's compiler-checked handshake at the unit level.
+    /// concern this test isn't about). Mirrors the two-tool compiler-checked handshake at the unit level.
     @Test func emittedInitMatchesGraphConstructionCall() {
         let subject = DiscoveredScopeBoundType(
             typeName: "HealthController",

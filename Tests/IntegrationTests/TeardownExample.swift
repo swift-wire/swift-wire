@@ -1,7 +1,7 @@
 import Synchronization
 import Wire
 
-/// End-to-end fixture for M4 teardown emission: an owned `@Singleton` (member-form
+/// End-to-end fixture for the teardown walk teardown emission: an owned `@Singleton` (member-form
 /// `@Teardown`), a third-party-style produced value (producer-form `@Teardown`), and a
 /// consumer depending on both. Each teardown appends to `teardownLog`, so `TeardownTests`
 /// can assert the reverse-dependency walk fires them — the consumer (dependent) before

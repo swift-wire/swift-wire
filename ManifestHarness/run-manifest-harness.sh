@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 #
-# M7a plugin-output gate.
+# Plugin-output gate.
 #
-# Pins the one mechanism M7a would be built on: a consumer's build command
+# Pins the one mechanism manifest-based discovery would be built on: a consumer's build command
 # reading a *dependency's* build-tool-plugin output, ordered by a derived path
 # declared in `inputFiles`. Both halves of that are undocumented SPM behaviour
 # rather than API — the `.build/plugins/outputs/…` layout and llbuild's
 # ordering — so this gate exists to fail if either changes, rather than to let
-# PendingIssues/20's central claim quietly rot.
+# #338's central claim quietly rot.
 #
 # Unlike the other harnesses here, neither package depends on swift-wire: the
 # claim under test is a toolchain capability, not Wire behaviour. It runs
 # outside `swift test` because it needs a real two-package build with plugins on
 # both sides.
 #
-# M7a is deferred (see PendingIssues/20), so this gate guards a *finding*, not a
+# The manifest route is deferred (see #338), so this gate guards a *finding*, not a
 # shipping path. Its failure means the finding needs re-checking, not that
 # anything users have is broken.
 #
@@ -63,4 +63,4 @@ if [ "${MANIFEST_HARNESS_SWIFTBUILD:-0}" = "1" ]; then
         swift run --build-system swiftbuild --package-path "$DIR/Consumer" ManifestHarnessConsumer
 fi
 
-echo "== M7a gate passed =="
+echo "== plugin-output gate passed =="

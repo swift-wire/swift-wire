@@ -1,9 +1,9 @@
 import WireGenCore
 
-// Test-graph variant contributor-proxy driving — the executable half of H2.2a.
+// Test-graph variant contributor-proxy driving — the executable half of the doubles-threaded scope entry.
 //
-// A shipped M6a variant emits only a seed-scope *facade* returning a scope struct, which loses the teardown
-// + per-root pruning an HTTP adapter reaches request scope through in production (the M5.4 contributor
+// A shipped test-graph variant emits only a seed-scope *facade* returning a scope struct, which loses the teardown
+// + per-root pruning an HTTP adapter reaches request scope through in production (the request-scoped contributor
 // proxy's `_wireEnterScope(seed)` thunk). This file drives the missing piece: for each production bridging
 // proxy over a `@Scoped(seed:)` subject a variant touches, a distinct doubles-threaded variant proxy +
 // `Wire.bootstrap<Variant>_<Subject>Contributor(wireGraph:)` facade (rendered by

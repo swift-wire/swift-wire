@@ -103,7 +103,7 @@ func aggregateProxyTypeName(_ base: String, group: String?) -> String {
 ///   • **Generic parameters union.** The proxy restates every generic subject's parameters. Two subjects
 ///     may declare the same parameter name (both `T`), so parameters are renamed positionally on
 ///     collision and the renaming is applied to that subject's dependency type — the same substitution
-///     `liftSpecialised` performs for lift nodes. Verified by spike-29: the graph then carries one lift
+///     `liftSpecialised` performs for lift nodes. Verified by a spike: the graph then carries one lift
 ///     axis per generic subject and maps them positionally, even when it orders the axes differently.
 func aggregateProxyBinding(
     for subjects: [DiscoveredScopeBoundType],
@@ -165,8 +165,8 @@ func aggregateProxyBinding(
         // Same rule, and the same reason, as `contributorProxyBinding`'s: a synthesised proxy is never a
         // user declaration, so it is anchored at a *subject's* location and any diagnostic about it reads
         // as a claim about a type the user did not write and cannot annotate. The two synthesis paths
-        // produce the same kind of binding and now agree; before M7c.1 the divergence was invisible
-        // because nothing distinguished a rooted proxy from a reached one, and M7c.1's retention
+        // produce the same kind of binding and now agree; before retention narrowing the divergence was
+        // invisible because nothing distinguished a rooted proxy from a reached one, and the retention
         // diagnostic made it print a fix-it no user could act on.
         allowUnused: true,
         originModule: subjects[0].originModule

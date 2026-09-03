@@ -2,7 +2,7 @@ import Testing
 
 @testable import WireGenCore
 
-/// M2.3: contribution aliases — the `.contributes(to:)` capability of
+/// contribution aliases: contribution aliases — the `.contributes(to:)` capability of
 /// `WireAdapterAnnotationV1`. An adapter declares `WireAdapterAnnotationV1(annotation: "X",
 /// capability: .contributes(to: key))`, so `@X` on a binding aliases `@Contributes(to: key)`.
 /// These pin the three moving parts: discovery of the capability, name-agnostic use-site

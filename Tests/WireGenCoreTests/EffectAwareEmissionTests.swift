@@ -8,7 +8,7 @@ import Testing
 /// Lives in its own suite (rather than appended to `CodeEmissionTests`)
 /// so the gallery struct's body stays under the lint threshold.
 ///
-/// Every fixture here asserts the `let` form, and after M7c.3 that is a statement about the *trigger*
+/// Every fixture here asserts the `let` form, and after the scheduling trigger that is a statement about the *trigger*
 /// rather than an accident. A graph takes the construction state struct only when two of its async
 /// bindings can be in flight at once; each fixture below has at most one async binding, or a chain of
 /// them, so none qualifies and all keep the linear chain. `ConstructionSchedulingTests` owns the

@@ -179,3 +179,7 @@ controller proxied to an app-scoped contributor that enters the scope per reques
 **M5/WireMVC**, via the shared "adapter replaces the binding" primitive). Not part
 of the M2.3 contract; see [`WireHummingbirdDesign.md`](WireHummingbirdDesign.md),
 *Scope model*.
+
+---
+
+<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

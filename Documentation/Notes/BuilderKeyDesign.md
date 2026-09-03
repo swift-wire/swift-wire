@@ -435,3 +435,7 @@ coupling with OpaqueTypesSupport is real but doesn't block
 iteration 5: the common cases ship without it, the parameterized-
 opaque cases ship with it. Together they form the most expressive
 multibinding mechanism in any DI framework, Swift or otherwise.
+
+---
+
+<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

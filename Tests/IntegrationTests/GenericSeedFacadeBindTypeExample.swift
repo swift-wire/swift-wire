@@ -1,7 +1,7 @@
 import Wire
 import WireTesting
 
-/// Phase-3 seed-façade generic gate — a plain (non-route) generic `@Scoped(seed:)` subject over an opaque
+/// Seed-façade generic gate — a plain (non-route) generic `@Scoped(seed:)` subject over an opaque
 /// `@BindType`'d backend, entered via the seed façade (`Wire.bootstrap<Variant>_<Seed>Scope`) rather than a
 /// contributor proxy. Locks the opaque-axis drop + concretization on the seed-façade path: the variant app
 /// graph drops the mocked `some GenBackend` axis (re-indexing its remaining opaque axes), and the scope

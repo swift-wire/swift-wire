@@ -30,7 +30,7 @@
 /// same file as a binding — harmless for an internal generated file.
 ///
 /// `bootstrap` is declared `async throws` regardless of whether the
-/// current set of bindings actually have async/throws inits. M7's
+/// current set of bindings actually have async/throws inits. The performance work's
 /// lifecycle work makes async/throws constructor injection a
 /// first-class option, and locking the signature in now means later
 /// migrations don't ripple through every consumer's `try await
@@ -53,7 +53,7 @@ package func renderWireGraph(
     // Only the *default* graph takes it: a container graph is an alternate wiring of the same module, and
     // a seeded scope already has its own entry shape.
     graphInputsType: String? = nil,
-    // M7c.1 — needed to decide the *home package*, which is what makes an `allowUnused:` binding a root
+    // Needed to decide the *home package*, which is what makes an `allowUnused:` binding a root
     // (a library's `allowUnused` keeps only its diagnostic meaning). See `declaredRoots`.
     externalModules: Set<String> = []
 ) -> String {
@@ -121,11 +121,11 @@ package func renderWireGraph(
     // name doesn't compile — the parameter needs the opaque-erased `_WireGraph<some P>` form.
     // Map each parent graph to its bindings so the opened reference can be computed per scope.
     let parentGraphBindings = bindingsByParentGraph(default: topologicalOrder, containers: containerTopologicalOrders)
-    // M7d — the whole-scope façade (`_<S>WireScope` + `Wire.bootstrap<S>Scope` + `_wireBootstrap<S>Scope`)
+    // The whole-scope façade (`_<S>WireScope` + `Wire.bootstrap<S>Scope` + `_wireBootstrap<S>Scope`)
     // is emitted only for a scope **no bridging proxy enters**.
     //
     // A proxy carries a `_wireEnterScope` thunk that constructs the routed subject's own transitive
-    // subgraph per request (M5.4.6), and the generated witness calls that, never the façade — so wherever
+    // subgraph per request, and the generated witness calls that, never the façade — so wherever
     // a proxy exists the façade is `internal` dead code: a struct and two functions per seed scope, in
     // every consumer with routed controllers. Where no proxy enters a scope the façade is the only way in,
     // and dropping it would make the scope unconstructible, so it stays. That is the dead-code criterion
@@ -164,7 +164,7 @@ package func renderWireGraph(
     // Emitted last so it's a single stable trailing block.
     appendWireFacade(file.bootstrapEntries, into: &file.lines)
 
-    // M7c.1 — every graph's stored-property block and memberwise-init call, decided now that the whole
+    // Every graph's stored-property block and memberwise-init call, decided now that the whole
     // file exists and the reads off each graph can be seen. See `resolveStoragePatches`.
     resolveStoragePatches(file.storagePatches, in: &file.lines)
 
@@ -194,7 +194,7 @@ package struct SeedScopeEmission: Sendable {
     package let borrowedBindingPropertyNames: Set<String>
     /// The resolved producer adjacency for the scope's graph — used by the scope-entry thunk emission to
     /// construct (and tear down) only the bindings reachable from the routed controller (per-root
-    /// reachability, M5.4.6). Empty means "no pruning" (every scope binding is treated as reachable),
+    /// reachability). Empty means "no pruning" (every scope binding is treated as reachable),
     /// preserving whole-scope behaviour for callers that don't supply edges.
     package let edges: [BindingIdentity: [BindingIdentity]]
     /// The scope graph's rule-3 promotions — an `any P` consumer inside this
@@ -698,10 +698,10 @@ func seedsEnteredByProxy(in bindings: [DiscoveredBinding]) -> Set<String> {
 }
 
 /// Emit the whole-scope façade — `_<S>WireScope` plus `_wireBootstrap<S>Scope` plus the `Wire` entry —
-/// for each seed scope **no bridging proxy enters** (M7d).
+/// for each seed scope **no bridging proxy enters**.
 ///
 /// A proxy carries a `_wireEnterScope` thunk that constructs the routed subject's own transitive subgraph
-/// per request (M5.4.6), and the generated witness calls that, never the façade. So wherever a proxy
+/// per request, and the generated witness calls that, never the façade. So wherever a proxy
 /// exists the façade is `internal` dead code — a struct and two functions per seed scope, in every
 /// consumer with routed controllers. Where no proxy enters a scope the façade is the only way in, and
 /// dropping it would make the scope unconstructible, so it stays. That is the dead-code criterion stated

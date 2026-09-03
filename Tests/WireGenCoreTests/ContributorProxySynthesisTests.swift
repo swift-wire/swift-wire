@@ -257,7 +257,7 @@ struct ContributorProxySynthesisTests {
 
     // MARK: - Synthesised proxies are exempt from the dead-binding warning
 
-    /// A keyless `.liftsPeersToProxy` directive — M5.5's global-middleware proxy. It contributes to no
+    /// A keyless `.liftsPeersToProxy` directive — the composition root's global-middleware proxy. It contributes to no
     /// multibinding and nothing in the graph injects it: its consumer is the adapter's *generated* code.
     private func bootstrapAnnotation() -> DiscoveredAdapterAnnotation {
         DiscoveredAdapterAnnotation(
@@ -289,12 +289,12 @@ struct ContributorProxySynthesisTests {
     ///
     /// `.liftsPeersToProxy`'s contract is that "the adapter's own codegen reads it" directly off the graph
     /// — WireMVC's `@WireMVCBootstrap` emits `let bootstrap = graph.<subject>`. That read lives in another
-    /// tool's output file, and M7c.1 decides retention by scanning *swift-wire's* emitted text, whose note
+    /// tool's output file, and retention narrowing decides retention by scanning *swift-wire's* emitted text, whose note
     /// claims a textual scan "cannot under-fire". It cannot, within that file; across the adapter boundary
     /// it silently dropped the property and `wire-mvc/Fixtures` and `wire-mvc-examples/SwiftHttpServerExample`
     /// both failed to build with `'appBootstrap' is unavailable` — in generated code the app never wrote.
     ///
-    /// Rooted through `allowUnused` rather than a fourth root kind, because M7b.0 settled that roots are
+    /// Rooted through `allowUnused` rather than a fourth root kind, because the roots model settled that roots are
     /// *declared* precisely for uses Wire cannot see, and an adapter annotation is that declaration.
     @Test func aLiftsPeersToProxySubjectIsRootedSoTheGraphStoresIt() {
         let result = applyContributorProxies(
@@ -308,7 +308,7 @@ struct ContributorProxySynthesisTests {
 
     /// The narrowness of that rule, stated as a test: a `.contributesProxy` subject is *not* rooted. Its
     /// proxy flows into a multibinding the adapter reads through the aggregate, so nothing reads the
-    /// subject off the graph and storing it would be retention the M7c.1 narrowing exists to remove.
+    /// subject off the graph and storing it would be retention the retention narrowing narrowing exists to remove.
     @Test func aContributesProxySubjectIsNotRooted() {
         let result = applyContributorProxies(
             to: [.default: [controller()]],

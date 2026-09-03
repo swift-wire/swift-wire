@@ -1,4 +1,4 @@
-/// Per-binding construction state — the cell the generated bootstrap builds a graph out of (M7c).
+/// Per-binding construction state — the cell the generated bootstrap builds a graph out of.
 ///
 /// A graph that Wire schedules is not a chain of `let`s but a `~Copyable` state struct owned by the
 /// bootstrap frame, carrying one of these per binding. Each binding's `add` checks that its dependencies

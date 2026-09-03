@@ -586,3 +586,7 @@ cd wire-open-api/Fixtures && swift build
 
 The second exits 1 on the recursive document and 0 with only the recursive property removed, which is
 the isolation that makes it a bug report rather than an observation.
+
+---
+
+<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

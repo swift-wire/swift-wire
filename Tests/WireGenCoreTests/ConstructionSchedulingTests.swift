@@ -2,13 +2,13 @@ import Testing
 
 @testable import WireGenCore
 
-/// M7c.4 — which bindings a graph schedules, and the shape the scheduled emission produces.
+/// The region split — which bindings a graph schedules, and the shape the scheduled emission produces.
 ///
 /// Two predicates decide everything here and the negative cases matter at least as much as the positive
 /// ones. **Between graphs:** a graph is scheduled only if two of its async bindings can be in flight at
 /// once. **Within one:** only the region that can overlap is scheduled — a serial prefix and a serial
 /// suffix stay the linear `let` chain, which is what holds the machinery to four bindings on a
-/// hundred-and-ten-binding graph, and what makes the constructs M7c.4 has not translated a question about
+/// hundred-and-ten-binding graph, and what makes the constructs the region split has not translated a question about
 /// the *group region* rather than about the graph.
 @Suite("Construction scheduling")
 struct ConstructionSchedulingTests {
@@ -401,7 +401,7 @@ struct ConstructionSchedulingTests {
     }
 
     @Test func theSeamTurnsEveryScheduledBindingBackIntoALocal() {
-        // What keeps M7c.4 small. After the drain the suffix chain, the injection block, the teardown
+        // What keeps the region split small. After the drain the suffix chain, the injection block, the teardown
         // closure and the memberwise init are all standing on locals — the ground each was written
         // against — so none of them has to know a scheduler exists.
         let output = renderWireGraph(imports: [], topologicalOrder: independentAsyncPair())

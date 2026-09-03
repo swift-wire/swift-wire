@@ -2,7 +2,7 @@ import Synchronization
 import Wire
 import WireTesting
 
-/// M6a Phase 1 runtime fixture — a `@BindType` doubles substitution reaching a dependency *inside a seed
+/// Runtime fixture for the direct `@BindType` case — a `@BindType` doubles substitution reaching a dependency *inside a seed
 /// scope* (the no-cascade case). A `@Scoped(seed:)` controller injects `any TodoRepository`; the production
 /// binding is `RealTodoRepository`, and the `TestingKey` binds that slot to `MockTodoRepository`, sourced
 /// per scope-entry from a test-held `doubles`. WireGen emits a variant seed scope (disambiguated from the

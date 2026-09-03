@@ -111,7 +111,7 @@ extends that check rather than opening it fresh.
 > is [ConstructionScheduling.md](ConstructionScheduling.md) § *Init-failure partial teardown*; the fixture
 > this section asks for is `Tests/IntegrationTests/PartialTeardownExample.swift`, in both construction
 > shapes. **Per-request scope entry got the same treatment shortly after**, once M7c.6's own fixture made
-> that gap reachable — see [CompletedIssues/21](../../CompletedIssues/21-scope-entry-partial-teardown.md).
+> that gap reachable — see [#339](https://github.com/tachyonics/swift-wire/issues/339).
 
 
 Distinct from `graph.teardown()`: if an init throws **partway through bootstrap**, the

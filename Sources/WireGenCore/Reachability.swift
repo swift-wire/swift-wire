@@ -1,4 +1,4 @@
-// Reachability — the walk M7b prunes with (M7b.1: computed, not yet applied).
+// Reachability — the walk pruning is computed from.
 //
 // A dependency should cost only what the consumer reaches, so codegen wants the bindings reachable from
 // the graph's *roots* rather than every binding in the merged parse set. Wire reads syntax, never use —
@@ -15,7 +15,7 @@
 //      `reachabilityEdges` unions them back in — over the same node set, as a *separate* map. Widening
 //      the sort's edges instead would turn a legal member-injection cycle into a build failure.
 //   2. **Roots are per graph.** These are the app/container graph's. A seed scope's roots are the subject
-//      and yields its bridging proxy's thunk names, and M5.4.6 already prunes with them at emission
+//      and yields its bridging proxy's thunk names, and per-root reachability already prunes with them at emission
 //      (`reachableBindings(from:in:)`) — the same concept one layer down, deliberately sharing vocabulary.
 //
 // The traversal itself is `reachable(from:over:)` (`TestingGraph.swift`), which already walks this map
@@ -27,9 +27,9 @@
 package enum ReachabilityPolicy: Sendable {
     /// No reachability computed — `GraphResult.reachable` is `nil` and every resolved binding is emitted.
     case none
-    /// Drop every binding unreachable from the declared roots, home-module bindings included (M7b.3).
+    /// Drop every binding unreachable from the declared roots, home-module bindings included.
     ///
-    /// M7b.2 retained the home half wholesale, which made the first cut incapable of regressing an app.
+    /// The first cut of pruning retained the home half wholesale, which made it incapable of regressing an app.
     /// Dropping that union is the behaviour change: a binding the app reaches only through `graph.x` —
     /// an expression Wire never sees — is now gone unless it says `allowUnused: true`. That is why the
     /// pruned set is reported rather than silently applied; see `prunedBindingDiagnostics`.
@@ -47,7 +47,7 @@ package enum ReachabilityPolicy: Sendable {
 }
 
 /// The **declared roots** — what a graph must construct even though nothing in it consumes them. This is
-/// the M7b.0 model, independent of how much of the graph a given pass is willing to prune.
+/// the roots model itself, independent of how much of the graph a given pass is willing to prune.
 ///
 /// Two rules, and the second has a key form:
 ///
@@ -107,8 +107,8 @@ package func declaredRoots(
 
 /// The identities the walk starts from under `policy` — `nil` when the policy prunes nothing.
 ///
-/// The declared roots, plus everything this container's seed scopes borrow. **M7b.2 also unioned in every
-/// home-module binding**; M7b.3 is exactly the change of dropping that union, so the declared roots now
+/// The declared roots, plus everything this container's seed scopes borrow. **The first cut also unioned in
+/// every home-module binding**; dropping that union is exactly the change, so the declared roots now
 /// carry the whole graph and the migration diagnostic earns its keep. Nothing else moved: the same walk
 /// over the same edges from a smaller set.
 package func retentionRoots(

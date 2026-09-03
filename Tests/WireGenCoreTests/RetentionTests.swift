@@ -2,7 +2,7 @@ import Testing
 
 @testable import WireGenCore
 
-/// M7c.1 — what the emitted graph *stores*, as distinct from what it constructs.
+/// retention narrowing — what the emitted graph *stores*, as distinct from what it constructs.
 ///
 /// The distinction is the point: every binding here is constructed in the bootstrap body whatever these
 /// tests assert; the question is only whether the graph holds a reference afterwards. Where a test wants
@@ -92,7 +92,7 @@ struct RetentionTests {
     }
 
     /// The stub costs exactly what the stored property cost — one line — so narrowing retention does not
-    /// trade against the generated-volume axis M7b optimised.
+    /// trade against the generated-volume axis reachability pruning optimised.
     @Test func theStubIsLineForLineWhatTheStoredPropertyWas() {
         let stored = renderWireGraph(imports: [], topologicalOrder: [singleton("Leaf", allowUnused: true)])
         let dropped = renderWireGraph(imports: [], topologicalOrder: [singleton("Leaf")])
@@ -118,7 +118,7 @@ struct RetentionTests {
         #expect(output.contains("internal var leaf: Leaf { fatalError() }"))
     }
 
-    /// `@Teardown` is the one place M7b's answer and M7c.1's differ, deliberately. It does **not** root a
+    /// `@Teardown` is the one place reachability pruning's answer and retention narrowing's differ, deliberately. It does **not** root a
     /// binding for reachability — a resource nothing reaches is never built — but it does retain one that
     /// is built, because the teardown closure captures the local either way.
     @Test func aTeardownBindingIsStoredWithoutAllowUnused() {

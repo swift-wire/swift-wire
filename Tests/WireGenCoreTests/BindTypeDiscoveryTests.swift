@@ -2,7 +2,7 @@ import Testing
 
 @testable import WireGenCore
 
-/// M6a Phase 1: `@BindType` / `TestingKey` discovery. Pins that a `TestingKey`
+/// The direct `@BindType` case: `@BindType` / `TestingKey` discovery. Pins that a `TestingKey`
 /// static is recognised, its canonical reference captured, and each stacked
 /// `@BindType(slot, Mock)` marker read into a substitution — the type form and
 /// the keyed form alike, mirroring `@Provides` / `@Replaces` argument reading.

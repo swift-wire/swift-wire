@@ -3,8 +3,8 @@
 > **Status:** the model settled during M2 design and was then **refined against the
 > real [hummingbird-examples](https://github.com/hummingbird-project/hummingbird-examples)
 > repo** (the controller survey below). Proven against real Hummingbird via
-> [spike-9](../../../swift-wire-spikes/spike-9-hummingbird-bootstrap/) (bootstrap +
-> collation) and [spike-10](../../../swift-wire-spikes/spike-10-graph-conformance/)
+> `spike-9` (bootstrap +
+> collation) and `spike-10`
 > (graph conformance); the context-free surface + conformance-extension seam were
 > re-proven in the external `wire-hummingbird` repo.
 >
@@ -381,9 +381,9 @@ macro**, not a proxy.
 
 ## References
 
-- [spike-9](../../../swift-wire-spikes/spike-9-hummingbird-bootstrap/) — bootstrap, collation, `some RouterMethods`, middleware BuilderKey, lifecycle.
-- [spike-10](../../../swift-wire-spikes/spike-10-graph-conformance/) — graph conformance, associated-type inference.
-- [spike-8](../../../swift-wire-spikes/spike-8-hummingbird-request-scope/) — request-scope entry, mechanism B (M5).
+- `spike-9` — bootstrap, collation, `some RouterMethods`, middleware BuilderKey, lifecycle.
+- `spike-10` — graph conformance, associated-type inference.
+- `spike-8` — request-scope entry, mechanism B (M5).
 - `wire-hummingbird` (external repo) — the context-free surface + conformance seam, end-to-end against pushed swift-wire main.
 - [BuilderKeyDesign.md](BuilderKeyDesign.md) / [OpaqueTypesSupport.md](OpaqueTypesSupport.md) — the middleware-fold key; lifting.
 - [AdapterModel.md](AdapterModel.md) — the side-effect `@RoutedBy` contract this adapter no longer uses (still relevant to WireOpenAPI/M3).

@@ -89,3 +89,7 @@ All of this lives in the **test graph** — the test target regenerates its own 
 
 - **Instance mocking:** Dagger-Hilt `@BindValue` / `@TestInstallIn`, Spring `@MockBean`, ASP.NET `ConfigureTestServices(_ => mock)`, NestJS `.overrideProvider().useValue()`. Common shape: the test holds the mock; the framework injects that instance; the scope collapses to it — nobody mocks "per request."
 - **Scoped resolution:** Spring scoped proxies (per-call resolution of a scoped bean injected into a singleton) — the alternative-with-a-gap above.
+
+---
+
+<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

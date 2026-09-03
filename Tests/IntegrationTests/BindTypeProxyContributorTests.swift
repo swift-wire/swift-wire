@@ -1,7 +1,7 @@
 import Synchronization
 import Testing
 
-/// H2.2a gate — the doubles-threaded contributor-proxy scope entry driven over the *proxy* the variant
+/// The doubles-threaded contributor-proxy scope entry driven over the *proxy* the variant
 /// emits (not the seed-scope façade). `Wire.bootstrap<Variant>_<Subject>Contributor(wireGraph:)` builds the
 /// variant proxy against the variant app graph; `proxy._wireEnterScope(seed, doubles:)` enters request
 /// scope, threading the key's doubles. Proves the three properties the shipped façade path loses: the mock
@@ -27,7 +27,7 @@ struct BindTypeProxyContributorTests {
 
         // (a) Init-time mock — the lifted `@Singleton` controller was reconstructed in the scope, and its
         // `init` read the supplied mock (`"mock:init"`, not the production `"real:init"`). The distinguishing
-        // Phase-2 property a per-call proxy would miss.
+        // The cascade property a per-call proxy would miss.
         #expect(subject.tag() == "mock:init")
         #expect(mock.recordedTags == ["init"])
 
@@ -42,7 +42,7 @@ struct BindTypeProxyContributorTests {
         #expect(!mock.recordedTags.contains("sibling"))
     }
 
-    /// Phase-2 leak-freedom — the route-carrying analog of the `EagerSingletonBindType` gate. The eager
+    /// Cascade leak-freedom — the route-carrying analog of the `EagerSingletonBindType` gate. The eager
     /// `@Singleton` `ProxyAccountController` (reading its `@BindType`'d slot at `init`) is `@Scopable`-lifted,
     /// so the variant app graph drops it: `Wire.bootstrap<Variant>()` never forces `RealProxyRepository`'s
     /// construction. The keyless `Wire.bootstrap()` constructs the eager controller at app bootstrap, which

@@ -207,10 +207,10 @@ struct WireGen {
         // consumed only through a specialised generic dependency counts
         // as live.
         var resolvedBindingsByContainer: [String?: [DiscoveredBinding]]
-        // What reachability dropped, across every graph — the M7b.3 migration diagnostic's input.
+        // What reachability dropped, across every graph — the home-module migration diagnostic's input.
         var prunedBindings: [DiscoveredBinding]
         // Everything reachability *decided*, retained and pruned alike. The dead-binding pass judges
-        // what is not in here, which is how M7b.4 folds the two into one diagnostic per binding.
+        // what is not in here, which is how the two fold into one diagnostic per binding.
         var judgedByReachability: Set<BindingIdentity>
     }
 
@@ -243,7 +243,7 @@ struct WireGen {
                 .sorted(by: { $0.seed < $1.seed })
             // Orchestrate the seed scopes first — a bridging contributor proxy needs its scope's borrow
             // set to gain the `.scopeCapture` ordering deps that place it after those singletons, and
-            // that linking must happen before the app graph's topological sort below. M7b.2 leans on the
+            // that linking must happen before the app graph's topological sort below. Pruning leans on the
             // same ordering for a second reason: the app graph's pruning needs to know what the scopes
             // borrow.
             let containerOrchestrations = orchestrateSeedScopes(
@@ -311,7 +311,7 @@ struct WireGen {
         injectionRewriteKeys: Set<String>
     ) -> [Diagnostic] {
         var diagnostics: [Diagnostic] = []
-        // M7b.3 — what reachability dropped, before anything else has a chance to describe it worse.
+        // What reachability dropped, before anything else has a chance to describe it worse.
         diagnostics += prunedBindingDiagnostics(
             graphs.prunedBindings,
             externalModules: aggregate.externalModules
@@ -335,7 +335,7 @@ struct WireGen {
                 bindings.flatMap { $0.contributions }
             }
         )
-        // What reachability judged — retained *and* pruned — is not re-judged here. See M7b.4 in
+        // What reachability judged — retained *and* pruned — is not re-judged here. See the fold in
         // `DeadBindingDiagnostics.swift`: for a pruned graph, `prunedBindingDiagnostics` above is the
         // dead-code diagnostic, and this pass covers what is left (seed-scope partitions).
         diagnostics += deadBindingDiagnostics(
@@ -541,7 +541,7 @@ extension WireGen {
         let testingVariantsEnabled: Bool
     }
 
-    /// Render and write the graph file. Test-graph variants (M6a Phase 1) — one per `TestingKey`, emitted
+    /// Render and write the graph file. Test-graph variants — one per `TestingKey`, emitted
     /// alongside the production graphs: the doubles-threaded variant seed scopes (`_<KeyRef>_<Seed>WireScope`,
     /// borrowing the production `_WireGraph`) and the variant's `_<Key>Doubles` struct. Built on the
     /// validated production bindings; a module with no `TestingKey` yields none, leaving the emitted output
@@ -605,7 +605,7 @@ extension WireGen {
                 inputs.aggregate.graphInputs,
                 externalModules: inputs.aggregate.externalModules
             )?.typeName,
-            // M7c.1 — the home/external split the retention roots read: a library's `allowUnused` keeps
+            // The home/external split the retention roots read: a library's `allowUnused` keeps
             // its diagnostic meaning only, exactly as it does for reachability.
             externalModules: inputs.aggregate.externalModules
         )

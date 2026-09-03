@@ -1,11 +1,11 @@
-# Manifest harness (M7a plugin-output gate)
+# Manifest harness (plugin-output gate)
 
-Pins the mechanism M7a would be built on: **a consumer's build command reading a
+Pins the mechanism manifest-based discovery would be built on: **a consumer's build command reading a
 dependency's build-tool-plugin output.** The design note had recorded this as
 impossible; a 2026-08 spike narrowed that to *impossible at plan time*, and
 showed it works at command-execution time given a declared `inputFiles` edge.
-That finding is what defers M7a rather than kills it, so it is worth a gate —
-see [PendingIssues/20](../PendingIssues/20-manifest-discovery-plugin-output-visibility.md).
+That finding is what defers the manifest route rather than kills it, so it is worth a gate —
+see [#338](https://github.com/tachyonics/swift-wire/issues/338).
 
 ```
 ManifestHarness/
@@ -33,17 +33,17 @@ Two undocumented behaviours are being pinned, and neither is API:
 The script runs two phases because **only the second is deterministic**, which
 the first attempt at this harness got wrong:
 
-- **Phase 1 — clean build.** Proves the derived path resolves: a wrong path
+- **Step 1 — clean build.** Proves the derived path resolves: a wrong path
   reads nothing and traps. The producer sleeps before writing, so an unordered
   consumer is *likely* to fail here — but scheduling can still let it win the
   race, and it was observed doing so. This phase alone would pass with the edge
   removed.
-- **Phase 2 — change the library, rebuild.** The manifest is derived from the
+- **Step 2 — change the library, rebuild.** The manifest is derived from the
   library's sources, so adding a type changes its contents, and nothing but the
   declared edge would re-run the consumer's codegen. A stale manifest fails.
   Verified: deleting the `inputFiles` edge passes phase 1 and fails phase 2.
 
-Phase 3 repeats phase 1 under the Swift Build backend, which keeps both the
+Step 3 repeats step 1 under the Swift Build backend, which keeps both the
 layout and the ordering. It is opt-in (`MANIFEST_HARNESS_SWIFTBUILD=1`) because
 a failure there is a different finding from a failure above.
 
@@ -52,8 +52,8 @@ a failure there is a different finding from a failure above.
 **Whether a consumer can know which dependencies emit a manifest.** It cannot —
 a dependency package's plugin target does not appear in its `targets` at all, so
 this harness's consumer hardcodes the one dependency it knows about, and the
-producing plugin's name with it. That gap is the reason M7a is deferred, and it
-is recorded in PendingIssues/20 rather than gated here, because there is nothing
+producing plugin's name with it. That gap is the reason the manifest route is deferred, and it
+is recorded in #338 rather than gated here, because there is nothing
 to pin: an input nothing produces is a hard build failure, and no predicate
 available at plan time answers the question exactly.
 

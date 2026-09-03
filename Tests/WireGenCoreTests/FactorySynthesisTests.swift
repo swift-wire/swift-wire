@@ -367,7 +367,7 @@ struct FactorySynthesisTests {
     }
 }
 
-/// M5.3, 3.3 — the injected axis. A `@Factory` middleware that `@Inject`s a generic dependency (the
+/// The injected axis. A `@Factory` middleware that `@Inject`s a generic dependency (the
 /// backend the controller shares) makes that generic parameter *injected*: the synthesised factory
 /// becomes generic over it and threads the graph-resolved backend through the transitive lift, exactly
 /// as the controller does. The rest of the parameters stay *assisted* (box roles on `create`).

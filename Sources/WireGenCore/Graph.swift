@@ -16,7 +16,7 @@ package struct GraphResult: Sendable {
     package let genericTemplates: [DiscoveredBinding]
     /// The resolved producer adjacency — each binding's identity to the identities of the bindings that
     /// satisfy its init-time dependencies (as `resolveDependencies` computed for the topological sort).
-    /// Surfaced so per-root reachability (a seed scope constructed per routed controller — M5.4.6) can BFS
+    /// Surfaced so per-root reachability (a seed scope constructed per routed controller) can BFS
     /// from a root over the real resolution rather than re-deriving edges. Empty for a failed graph.
     package let edges: [BindingIdentity: [BindingIdentity]]
     /// Every `any P` consumer that resolved to a `some P` producer through rule 3.
@@ -30,7 +30,7 @@ package struct GraphResult: Sendable {
     /// `resolveReplacements`. The build orchestration collects and prints these
     /// alongside the other source-pattern warnings.
     package let warnings: [Diagnostic]
-    /// The bindings reachable from this graph's declared roots (M7b), or `nil` when the caller asked for
+    /// The bindings reachable from this graph's declared roots, or `nil` when the caller asked for
     /// no reachability (`ReachabilityPolicy.none` — a seed scope or testing variant, whose construction
     /// set is bounded elsewhere). Under `.prune` this **is** the emitted node set: an unreachable binding
     /// is gone from `topologicalOrder`, from the edges, and from the missing-binding and cycle reports.
@@ -359,7 +359,7 @@ private func specialiseBinding(
                 // binding the app reaches through a door Wire cannot see, and what the app actually holds
                 // is `Container<DataPoint>` — the specialisation — never the `makeContainer<T>` template,
                 // which produces nothing on its own. Dropping it here made the annotation inert for every
-                // generic binding: no reachability root under M7b, and no stored property under M7c.1.
+                // generic binding: not a reachability root, and not a stored property.
                 allowUnused: provider.allowUnused,
                 teardown: provider.teardown,
                 originModule: provider.originModule
@@ -598,9 +598,9 @@ package func buildDependencyGraph(
         typealiases: typealiases
     )
 
-    // Reachability, then the restriction (M7b.2) — here, between resolution and the sort, because the
+    // Reachability, then the restriction — here, between resolution and the sort, because the
     // walk needs resolved edges and everything after it consumes the reduced set unchanged. Under
-    // `.none` this is the identity, so a graph that prunes nothing is byte-identical to pre-M7b output.
+    // `.none` this is the identity, so a graph that prunes nothing is byte-identical to unpruned output.
     let retained = computeReachability(
         in: resolvedBindings,
         dependencyEdges: resolution.edges,

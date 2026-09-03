@@ -1,12 +1,12 @@
-// M7c.5 — init-failure partial teardown.
+// Init-failure partial teardown.
 //
-// The half deferred from M4 ([TeardownDesign.md](../../Documentation/Notes/TeardownDesign.md) § "Init-
+// The half deferred from the app-scope teardown walk ([TeardownDesign.md](../../Documentation/Notes/TeardownDesign.md) § "Init-
 // failure partial teardown"): if an init throws partway through bootstrap, the `@Teardown` bindings already
 // constructed have to be torn down in reverse before the bootstrap rethrows. It could not be written
-// against M4's sequential chain because "the already-constructed set" is whatever the construction shape
+// against that walk's sequential chain because "the already-constructed set" is whatever the construction shape
 // makes it, and that shape was still moving.
 //
-// **The shape it settles against is not the one the design note predicted**, because M7c.4 split the body
+// **The shape it settles against is not the one the design note predicted**, because the region split divided the body
 // into a chain, a group and a chain. The note assumed one state struct held every binding, so the
 // constructed set could be read off the cells. Now it is three things at once: a linear prefix of locals, a
 // set of resolved cells, and a linear suffix of locals. So the constructed set is **accumulated rather than
@@ -140,7 +140,7 @@ func groupTeardownRecoveryLines(
 /// Whether the construction body can fail at all — the other half of the trigger.
 ///
 /// Read off the emitted construction lines rather than re-derived from binding effects, for the reason
-/// M7c.1's retention scan gives: four places decide what carries `try`, and re-deriving the union would be
+/// the retention scan gives: four places decide what carries `try`, and re-deriving the union would be
 /// four copies kept in step by hand. Over-firing here is not free — a `do` block that cannot throw draws
 /// `'catch' block is unreachable`, in generated code — so the scan is given the construction lines only,
 /// never the teardown closure's own body, which always contains a `try` of its own.

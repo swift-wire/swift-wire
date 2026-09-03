@@ -330,3 +330,7 @@ worth keeping separate:
   (route/controller/global, most-specific-wins) but keep **placement at the sender-holder** — because
   "a middleware that throws" is categorically not a "map-to-response" event but a "could not serve this
   request" one.
+
+---
+
+<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

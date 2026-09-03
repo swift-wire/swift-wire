@@ -525,3 +525,7 @@ prominently when explaining Lazy.
    confirm there are no concurrency holes — the standard "lazy
    task" pattern is well-known but each implementation deserves
    its own check.
+
+---
+
+<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

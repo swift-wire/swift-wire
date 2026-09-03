@@ -6,7 +6,7 @@ import Testing
 /// so from the plugin's side: refusing a scope macro on a template, and — for the case that motivated it
 /// — telling a reader who injects a scoped binding into a template something that is actually true.
 ///
-/// The forcing case is `PendingIssues/16`. The shipped fix-it named `_WireFactory_<key>`, a type the
+/// The forcing case is #337. The shipped fix-it named `_WireFactory_<key>`, a type the
 /// plugin synthesises and the user has no declaration for, and its alternative (annotate the template)
 /// took a reader from one error to three. Both halves are asserted here in full, because the failure mode
 /// being guarded against is advice that reads plausibly and cannot be followed.

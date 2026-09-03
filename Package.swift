@@ -46,7 +46,7 @@ let package = Package(
         // The codegen executable, exposed so an adapter package's build plugin can invoke it via
         // `context.tool(named: "WireGen")` — an adapter that owns route (or other domain) codegen runs
         // WireGen for the graph + structural half, then its own domain tool. See the WireMVC codegen
-        // notes (Phase A): the build plugin moves to the adapter.
+        // notes: the build plugin moves to the adapter.
         .executable(name: "WireGen", targets: ["WireGen"]),
     ],
     dependencies: [
@@ -129,7 +129,7 @@ let package = Package(
         ),
         // A same-package, Wire-aware library the IntegrationTests target
         // composes via cross-target source reading (iteration 7c). It opts
-        // in by depending on the `Wire` product (M7b.5 retired the
+        // in by depending on the `Wire` product (this replaced the
         // hand-declared marker file) and exposes a public
         // `@Singleton`; it has no plugin of its own — the consumer's plugin
         // re-parses its sources.

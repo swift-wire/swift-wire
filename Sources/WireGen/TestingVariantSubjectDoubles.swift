@@ -17,7 +17,7 @@ import WireGenCore
 //  • **Seed-scoped** (`@Scoped(seed:)`) — *not* per-subject. A seed scope is partitioned by seed type, so
 //    every controller on `HTTPRequest` shares one scope and one `doublesFields`. The subject's own share is
 //    that set intersected with `reachableBindings(from:)` — the same per-root BFS the scope-entry thunk uses
-//    to prune construction and teardown (M5.4.6) — unioned with its proxy's mock-consuming factory fields,
+//    to prune construction and teardown — unioned with its proxy's mock-consuming factory fields,
 //    which are *not* reachable from the subject (a middleware is not a dependency of the controller) but are
 //    consumed on its behalf per request.
 extension WireGen {

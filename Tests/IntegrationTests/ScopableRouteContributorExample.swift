@@ -3,7 +3,7 @@ import Wire
 import WireTestLibrary
 import WireTesting
 
-/// Phase-1 gate for seedless `@Scopable` — an **app-scoped** (`@Singleton`) route contributor that consumes a
+/// Seedless `@Scopable` gate — an **app-scoped** (`@Singleton`) route contributor that consumes a
 /// `@BindType`'d slot. `AppScopedController` is a `@Singleton @RouteController` (its own request entry, not a
 /// `@Scoped(seed:)` subject), so in production it's built once with the real repository. Under the key it's
 /// `@Scopable`'d, so the variant rebuilds it **per-request, seedlessly** — its variant proxy carries

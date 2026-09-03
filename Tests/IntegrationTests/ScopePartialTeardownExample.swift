@@ -2,15 +2,15 @@ import Synchronization
 import Wire
 import WireTestLibrary
 
-/// PendingIssues/21 — a **scope entry** that throws partway tears down the scope bindings it had already
+/// #339 — a **scope entry** that throws partway tears down the scope bindings it had already
 /// built, in reverse, before the original error reaches the caller.
 ///
-/// M7c.5 gave this to the app bootstrap and left scope entry without it. The gap is worse here than it was
-/// there, and for the reason M4's deferral does *not* transfer: a failed bootstrap ends in process exit, so
+/// partial teardown gave this to the app bootstrap and left scope entry without it. The gap is worse here than it was
+/// there, and for the reason the teardown walk's deferral does *not* transfer: a failed bootstrap ends in process exit, so
 /// the OS reclaims the half-built resources, while a failed scope entry leaks per request in a process that
 /// keeps serving.
 ///
-/// **Two scopes, because M7c.6 left two construction shapes here too.** `ChainScopeSeed`'s scope is wholly
+/// **Two scopes, because scheduled scope entry left two construction shapes here too.** `ChainScopeSeed`'s scope is wholly
 /// synchronous, so it is the linear chain; `GroupScopeSeed`'s has an independent async pair, so it takes
 /// the scheduler — and its torn binding sits **in the group region**, which is the case the accumulator
 /// cannot reach at its construction site and the drain's own `catch` has to recover from a cell.

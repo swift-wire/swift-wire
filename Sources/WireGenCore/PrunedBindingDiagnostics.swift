@@ -1,12 +1,12 @@
-// M7b.3 — telling the developer what reachability pruning dropped.
+// Telling the developer what reachability pruning dropped.
 //
-// M7b.2 pruned only dependency-module bindings, which no consumer could notice. M7b.3 prunes the home
-// module too, and that *is* noticeable: a binding the app reaches only through `graph.x` — an expression
+// The first cut of pruning took only dependency-module bindings, which no consumer could notice. Pruning
+// the home module too *is* noticeable: a binding the app reaches only through `graph.x` — an expression
 // Wire never sees — is gone unless it says `allowUnused: true`. The pruned set is exactly the information
 // the developer needs, so it is reported rather than applied in silence.
 //
 // **This does not use the dead-binding visibility gate**, and the reason is worth stating because the
-// first cut of M7b.3 did. That gate stays silent on `public` because Wire cannot see every consumer of a
+// first cut did. That gate stays silent on `public` because Wire cannot see every consumer of a
 // public declaration — and here it can: the only thing that constructs a binding is this graph, and
 // `_WireGraph` is `internal` to its own module, so no downstream consumer can be the reason a public
 // binding is absent. Visibility gates diagnostics about *consumption*; this one is about *construction*,
@@ -26,14 +26,14 @@
 // the graph, and its failure is a warning rather than a confusing compile error.
 //
 // This supersedes the dead-binding warning for anything it reports. The two describe one fact — nothing
-// reaches this binding — and this one says more, so `deadBindingDiagnostics` skips what was pruned. M7b.4
-// finishes the merge by replacing the first-order consumption check itself.
+// reaches this binding — and this one says more, so `deadBindingDiagnostics` skips what was pruned; the
+// merge is finished by reachability replacing the first-order consumption check itself.
 
 /// Warn for each home-module binding the graph pruned, at every visibility, with the `allowUnused`
 /// fix-it. Output is sorted by source location for stable build output.
 ///
 /// Dependency-module bindings are never reported: a library binding a consumer does not reach is the
-/// milestone working, not a problem to fix, and the consumer cannot act on it anyway.
+/// pruning working, not a problem to fix, and the consumer cannot act on it anyway.
 ///
 /// Synthesised aggregates are skipped — the multibinding liveness diagnostics speak for a key that
 /// nothing consumes, and in the aggregate's own vocabulary. A *contributor* pruned along with its

@@ -3,7 +3,7 @@
 > ✅ **COMPLETE** — shipped as part of milestone **M6a (testing)**: the variant app graph drops the mocked
 > eager `@Singleton(as:)` bindings (Docker-free mocked suites) and handles the generic seed-scoped subject.
 > Retained as implementation history; the "for review before building" framing and open items below are
-> historical. See [../ROADMAP.md](../../ROADMAP.md) and [../PendingIssues](../../PendingIssues/README.md).
+> historical. See [../ROADMAP.md](../../ROADMAP.md) and [known gaps](../Notes/KnownGaps.md).
 
 > **Status:** design record + phased plan for making a `TestingKey` variant a **divergent app graph**,
 > so `@BindType` alone stops an eager `@Singleton` from constructing under the mock (the wire-mvc-examples

@@ -92,7 +92,7 @@ final class LifetimeMacroExclusionTests: XCTestCase {
     }
 
     func test_scopedAndFactory_isTheCombinationTheFixItUsedToRecommend() {
-        // The exact spelling `PendingIssues/16`'s fix-it told a reader to write. It is refused here, which
+        // The exact spelling #337's fix-it told a reader to write. It is refused here, which
         // is what lets the cross-scope note offer moves that exist instead.
         assertMacroExpansion(
             """

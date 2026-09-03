@@ -3,10 +3,10 @@
 > **Status:** the settled design for M5.2 (the raw escape-hatch handler) and M5.3
 > (middleware). Extends [WireMVCDesign.md](WireMVCDesign.md) (the M5.0 record) and refines the
 > M5.2/M5.3 sections of [M5_PLAN.md](../Archive/M5_PLAN.md). Proven substrate:
-> [spike-12](../../../swift-wire-spikes/spike-12-wiremvc-proposal-native/) (proposal-native
-> routing), [spike-13](../../../swift-wire-spikes/spike-13-wiremvc-servertransport-bridge/)
-> (the `ServerTransport` bridge), [spike-14](../../../swift-wire-spikes/spike-14-wiremvc-streaming/)
-> (streaming), and [spike-15](../../../swift-wire-spikes/spike-15-wiremvc-opaque-middleware-fold/)
+> `spike-12` (proposal-native
+> routing), `spike-13`
+> (the `ServerTransport` bridge), `spike-14`
+> (streaming), and `spike-15`
 > (the fold + capability forwarding). The middleware fold is **witness-local concrete** codegen over
 > the proposal's `Middleware`/`MiddlewareBuilder`, resting on generic `@Provides` factories; spike-15
 > corrected an earlier draft that expected a `BuilderKey` *opaque* fold (not expressible — see
@@ -29,7 +29,7 @@ the compiler enforces it.
 The single most load-bearing fact about the whole middleware model is that it is **entailed by the
 proposal's `Middleware.intercept<Return>(input:, next:) -> Return` signature**, not chosen against
 HTTP-middleware precedent. The entailment (each step forced by the previous, proven with the compiler
-in [spike-17](../../../swift-wire-spikes/spike-17-wiremvc-poison-box/)):
+in `spike-17`):
 
 1. `Return` is universally generic — the middleware is compiled once for *all* `Return`, so it can't
    assume it's `Void` or construct one (a literal `return ()` fails: *cannot convert '()' to `Return`*).
@@ -98,8 +98,8 @@ public struct RequestResponseMiddlewareBox<RequestContext, Reader, ResponseSende
   spike-15 vendored; now the Model-B enum). Middleware stay the proposal's `Middleware` (the shippable
   `Middleware` module — protocol + `MiddlewareBuilder` + `ChainedMiddleware`); only the
   `Input`/`NextInput` box type is WireMVC's, and the box being unused upstream is why owning it is free.
-  [spike-16](../../../swift-wire-spikes/spike-16-wiremvc-generic-fold/) confirms the fold compiles over a
-  *generic* builder's associated types; [spike-17](../../../swift-wire-spikes/spike-17-wiremvc-poison-box/)
+  `spike-16` confirms the fold compiles over a
+  *generic* builder's associated types; `spike-17`
   confirms the enum + `responding`/`withPendingContents` and the always-run short-circuit.
 - **Explode = the box's `withPendingContents`.** `consuming func withPendingContents { request, context, reader, sender in … }`
   runs the terminal on a `.pending` box and no-ops on `.responded`; the generated terminal calls it.
@@ -143,7 +143,7 @@ public struct RequestResponseMiddlewareBox<RequestContext, Reader, ResponseSende
   fold (`MiddlewareBuilder`'s `First.NextInput == Second.Input` thread) — the macro never names
   it; the terminal just explodes it via `withPendingContents`.
 - **The fold is witness-local concrete codegen, not a graph binding** — proven by
-  [spike-15](../../../swift-wire-spikes/spike-15-wiremvc-opaque-middleware-fold/). It is *not* a
+  `spike-15`. It is *not* a
   `BuilderKey` fold: `BuilderKey` yields a binding whose type must be nameable/opaque, but
   `Middleware` has two primary associated types (`Input`, `NextInput`) that can't be partially
   bound, so "pinned input, opaque output" is not expressible. So the chain is built inline in the
@@ -185,7 +185,7 @@ public struct RequestResponseMiddlewareBox<RequestContext, Reader, ResponseSende
 ## `@Middleware` naming, dispatch & the fold — 4a implementation record
 
 Building 4a surfaced constraints the conceptual design didn't anticipate. All findings validated by
-[spike-16](../../../swift-wire-spikes/spike-16-wiremvc-generic-fold/) and the wire-mvc implementation.
+`spike-16` and the wire-mvc implementation.
 
 **The naming problem.** A composable middleware must be generic over the box (`<Ctx, Reader, Sender>`)
 to sit at any position — the reader/sender are irreducibly the *server's* associated types (the live
@@ -283,7 +283,7 @@ Request flow: `base box → ctrl-mw… → route-mw… → [ explode → project
 - **Shipped proposal:** `Middleware`/`ChainedMiddleware`/`MiddlewareBuilder`,
   `RequestResponseMiddlewareBox` + `withContents`, `HTTPServerCapability.RequestContext`.
 - **No opaque fold to build — corrected by
-  [spike-15](../../../swift-wire-spikes/spike-15-wiremvc-opaque-middleware-fold/).** An earlier
+  `spike-15`.** An earlier
   draft named the type-preserving *opaque `BuilderKey` fold* as the one unbuilt piece. spike-15
   found it is **not expressible**: `Middleware`'s two primary associated types can't be partially
   bound, so a fold can't be returned through a `some Middleware`-with-pinned-input boundary. The
@@ -313,7 +313,7 @@ such a middleware splits by whether it has dependencies:
 
 - **Works today, no Core change:** *concrete* middleware (an ordinary binding, injected onto the
   controller) and *generic dep-free* middleware (the witness constructs `Mw<In>()` inline — proven
-  in [spike-15](../../../swift-wire-spikes/spike-15-wiremvc-opaque-middleware-fold/)). Covers the
+  in `spike-15`). Covers the
   logging/timing tier.
 - **Needs the `@Factory` template:** *generic middleware with `@Inject` deps*
   (auth-with-a-verifier, session-with-a-store). The reason it doesn't fit as a plain binding: the
@@ -519,3 +519,7 @@ Every `@Middleware` folds a graph binding; the plugin dispatches on the argument
   marker was considered and dropped.
 - **A separate per-controller adapter type** — not needed. `create` accepts the full canonical
   box-role triple and maps the used subset into its return; the reordering *is* `create`'s body.
+
+---
+
+<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

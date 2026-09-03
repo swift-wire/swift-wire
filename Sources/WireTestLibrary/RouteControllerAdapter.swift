@@ -1,7 +1,7 @@
 import Wire
 
 // A minimal stand-in adapter, published by this Wire-aware test library so swift-wire's own IntegrationTests
-// can exercise the contributor-proxy codegen (M5.4 / M6a) without a real external adapter (WireMVC et al.
+// can exercise the contributor-proxy and test-variant codegen without a real external adapter (WireMVC et al.
 // live in their own repos). `@RouteController` marks a `@Scoped(seed:)` subject as a keyless contributor
 // proxy: the build plugin synthesises a standalone bridging proxy (`_WireRouteContributor_<Subject>`)
 // carrying a `_wireEnterScope` scope-entry thunk that constructs the subject fresh per request — the same

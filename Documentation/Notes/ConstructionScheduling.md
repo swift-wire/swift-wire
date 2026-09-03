@@ -741,7 +741,7 @@ seam first. **Every gate compiles the generated output**, per the `-typecheck`-i
   path. Filed as issue 21 on the strength of "all 19 per-request thunks carry a `_wireScopeTeardown` and
   none can throw yet" — and **the fixture above is what falsified that**, since it both constructs with
   `try` and carries a `@Teardown` binding. **Fixed** (see
-  [CompletedIssues/21](../../CompletedIssues/21-scope-entry-partial-teardown.md)): the thunk accumulates its
+  [#339](https://github.com/tachyonics/swift-wire/issues/339)): the thunk accumulates its
   actions as each binding is built and unwinds them before rethrowing, and the `tornInGroup: []` this step
   passed became the group's real torn set, so a scheduled scope's binding is recovered from its cell by the
   drain's own `catch`. M4's reasoning for deferring the bootstrap half — a failed bootstrap ends in process

@@ -195,11 +195,11 @@ package struct DiscoveredScopeBoundType: Sendable {
     /// warning for an intentionally-unconsumed binding (e.g. a graph root).
     /// `var` for one reason: `ContributorProxySynthesis` marks a `.liftsPeersToProxy` subject a root
     /// after discovery, and a whole-struct rebuild there is how `specialiseBinding` silently dropped this
-    /// very field once already (M7c.1).
+    /// very field once already.
     package var allowUnused: Bool
     /// The owned-type teardown action from a `@Teardown` method on this
     /// type (member form), or `nil` when the type declares none. Recorded
-    /// in M1 but inert — code emission ignores it; M4 emits the call in
+    /// here; the teardown walk emits the call in
     /// reverse dependency order. See `TeardownAction`.
     package let teardown: TeardownAction?
     /// `true` when the declaration carries a bare `@Replaces` marker — the
@@ -429,8 +429,8 @@ package struct DiscoveredProvider: Sendable {
     /// warning for an intentionally-unconsumed binding.
     package let allowUnused: Bool
     /// The producer-form teardown action from a `@Teardown(<action>)`
-    /// attached to this `@Provides`, or `nil` when none. Recorded in M1
-    /// but inert — code emission ignores it; M4 applies it to the
+    /// attached to this `@Provides`, or `nil` when none. Recorded here,
+    /// and the teardown walk applies it to the
     /// produced value at scope teardown. See `TeardownAction`.
     package let teardown: TeardownAction?
     /// `true` when the declaration carries a bare `@Replaces` marker — the

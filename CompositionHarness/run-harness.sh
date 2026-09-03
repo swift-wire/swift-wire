@@ -16,7 +16,7 @@ echo "== 7g positive: external-package composition =="
 # external WireHarnessLibrary), then runs it — main.swift bootstraps the
 # generated graph and asserts the library's unkeyed + keyed bindings
 # composed across the package boundary, printing OK or trapping. It also
-# carries the M7b reachability gates: an unreached library binding and an
+# carries the reachability gates: an unreached library binding and an
 # unreached home binding both trap on construction, and a
 # conformance-rooted aggregate must keep its external contributor.
 #
@@ -29,7 +29,7 @@ trap 'rm -f "$BUILD_LOG"' EXIT
 swift build --package-path "$DIR/Consumer" 2>&1 | tee "$BUILD_LOG"
 
 echo "== 7g: the pruning warning names the home binding it dropped =="
-# The other half of the M7b.3 gate. Pruning a home-module binding is a
+# The other half of the home-module pruning gate. Pruning a home-module binding is a
 # behaviour change, so it has to be *said* — and said with the fix. Without
 # this, the trap above would still pass if the diagnostic silently stopped
 # firing, which is the failure mode most worth catching.

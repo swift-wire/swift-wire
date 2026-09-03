@@ -2,10 +2,10 @@ import Testing
 
 @testable import WireGenCore
 
-/// M6a Phase 1 gate: a `@Scoped(seed:)` controller injecting a `@BindType`d
+/// The direct `@BindType` case's gate: a `@Scoped(seed:)` controller injecting a `@BindType`d
 /// dependency. The scope-entry thunk grows a `doubles` parameter and the
 /// `@BindType`d binding resolves to `doubles.<field>` (a concrete mock), with
-/// the consumer wired to it — the plan's §1.4 sketch. Mirrors the M5.4 seed-scope
+/// the consumer wired to it — the design sketch. Mirrors the request-scope seed-scope
 /// emission tests: constructs the bridging proxy directly and renders the graph.
 @Suite("BindType seed-scope")
 struct BindTypeSeedScopeTests {

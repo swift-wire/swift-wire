@@ -1,7 +1,7 @@
-// Retention — what the generated graph *stores*, as opposed to what it constructs (M7c.1).
+// Retention — what the generated graph *stores*, as opposed to what it constructs.
 //
-// M7b answered "which bindings does this graph build?"; this file answers the different question
-// "which of them does it hold a reference to afterwards?". Until M7c.1 the two were the same — one
+// Reachability answered "which bindings does this graph build?"; this file answers the different question
+// "which of them does it hold a reference to afterwards?". The two used to be the same — one
 // stored property per binding — and that is the property `Documentation/Notes/ConstructionScheduling.md`
 // § "Step 1 — narrow what the graph retains" removes.
 //
@@ -11,19 +11,19 @@
 // the later sub-steps their non-Sendable and noncopyable support; it is not a size optimisation that
 // happens to come first.
 //
-// The retained set is the M7b root model plus three additions the roots do not cover, each of which is a
+// The retained set is the reachability root model plus three additions the roots do not cover, each of which is a
 // place something *other than a consumer* holds the value:
 //
 //   1. **`@Teardown` bindings.** `bootstrapTeardownClosureLines` captures each one's concrete local, so
 //      the closure retains it whatever this file decides — dropping the property would buy no
 //      transferability, and would take `graph.x` away from exactly the resources users most often read.
-//      Note the deliberate collision with M7b: `@Teardown` does **not** root a binding for *reachability*
+//      Note the deliberate collision with reachability: `@Teardown` does **not** root a binding for *reachability*
 //      (a resource nothing reaches is never built, so there is nothing to shut down), but it does retain
 //      one that is built. Same annotation, opposite answers, because they are different questions.
 //   2. **Opaquely-bound (`some P`) bindings.** These lift a generic parameter onto the struct, so the
 //      graph's *type* names them — `_WireGraph<some Greeting, …>`, which every seed scope's `wireGraph:`
 //      parameter and every bootstrap return type spells. Dropping one is a surface change to the graph's
-//      type identity rather than a retention change, so M7c.1 leaves the lift set alone; the binding is
+//      type identity rather than a retention change, so narrowing leaves the lift set alone; the binding is
 //      retained by the type either way.
 //   3. **Anything read off the graph by generated code** — seed-scope façade borrows, contributor-proxy
 //      facades, seedless reconstruction, and graph-conformance members. See `graphPropertyReads`.
@@ -37,7 +37,7 @@
 /// read-sites this has to agree with: generated code reads `_wireGraph.<property>`, and the user reads
 /// `graph.<property>`. Identity would have to be mapped back to a name at every comparison.
 ///
-/// `roots` is `declaredRoots`' output for this graph — the M7b root model, unchanged and deliberately
+/// `roots` is `declaredRoots`' output for this graph — the reachability root model, unchanged and deliberately
 /// reused rather than re-derived, so "what the graph keeps" cannot drift from "what the graph builds
 /// because nothing else would".
 package func retainedPropertyNames(
@@ -167,7 +167,7 @@ package struct GraphStoragePatch {
     package let hasTeardown: Bool
     package let propertyBlockIndex: Int
     package let returnLineIndex: Int
-    /// M7c.3 — the indent the memberwise-init line takes. The linear chain returns from the bootstrap
+    /// The indent the memberwise-init line takes. The linear chain returns from the bootstrap
     /// function's own body; the scheduled form returns from inside the task-group closure, one level in.
     package let returnIndent: String
 }
@@ -178,14 +178,14 @@ package let storagePlaceholder = "\u{0}__wire_storage_slot__"
 
 /// Fill every reserved storage slot, then sweep the unclaimed ones.
 ///
-/// This is where M7c.1's narrowing actually happens. For each graph: scan the emitted file for what reads
+/// This is where the narrowing actually happens. For each graph: scan the emitted file for what reads
 /// off it, union that with the roots, `@Teardown` and opaque bindings, then emit a stored property for
 /// each retained binding and an **unavailable computed stub** for each dropped one.
 ///
-/// The stub is the migration diagnostic, and its form is a deliberate departure from M7b.3's. A build
+/// The stub is the migration diagnostic, and its form is a deliberate departure from the pruning warning's. A build
 /// warning per dropped property would never quiesce: dropping the property is the *normal* case for every
 /// non-root binding, so a well-formed app would carry one warning per binding forever — the opposite of
-/// M7b.3, whose pruned set is empty once an app is migrated. `@available(*, unavailable, message:)` moves
+/// pruning, whose pruned set is empty once an app is migrated. `@available(*, unavailable, message:)` moves
 /// the same information to the only place it is actionable: the compiler reports it **at the user's own
 /// `graph.x` read site**, with Wire's message and the annotation to add, and says nothing at all to an app
 /// that does not read the property. It stores nothing, so it costs retention nothing — a computed property
@@ -216,7 +216,7 @@ package func resolveStoragePatches(_ patches: [GraphStoragePatch], in lines: ino
                 storedNames.append(property)
             } else {
                 // One line, attribute and all, so the stub is line-for-line what the stored property was:
-                // narrowing retention must not cost generated volume, which is the axis M7b optimised.
+                // narrowing retention must not cost generated volume, which is the axis pruning optimised.
                 properties.append(
                     "    @available(*, unavailable, message: \(unretainedMessage(for: binding, property: property))) "
                         + "internal var \(property): \(type) { fatalError() }"
@@ -226,7 +226,7 @@ package func resolveStoragePatches(_ patches: [GraphStoragePatch], in lines: ino
         lines[patch.propertyBlockIndex] =
             properties.isEmpty ? storagePlaceholder : properties.joined(separator: "\n")
 
-        // Always a plain local, in both construction shapes: M7c.4's seam takes each scheduled binding
+        // Always a plain local, in both construction shapes: the region seam takes each scheduled binding
         // out of its cell before the tail of the bootstrap runs, so by the time the memberwise init is
         // reached there is nothing left to distinguish a scheduled binding from a chained one.
         var returnArgs = storedNames.map { "\($0): \($0)" }.joined(separator: ", ")

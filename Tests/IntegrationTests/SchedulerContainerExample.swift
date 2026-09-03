@@ -1,9 +1,9 @@
 import Wire
 
-/// M7c.2 — the first graph built through the **construction state struct** rather than the linear `let`
+/// The first graph built through the **construction state struct** rather than the linear `let`
 /// chain. A `@Container` because the trigger is per graph (`schedulerApplies`): a container is a separate
 /// wiring, so this exercises the scheduled emission without moving the default graph, which still carries
-/// builder folds, member injections and existential aliases that M7c.4 owns.
+/// builder folds, member injections and existential aliases that the region split owns.
 ///
 /// What it is built to cover, since the scheduled form is a different emission for each of these:
 ///
@@ -17,7 +17,7 @@ import Wire
 ///   topological order — is what fires it. `SchedulerService` is reachable only by being triggered from
 ///   whichever of its three dependencies resolves last.
 ///
-/// Deliberately absent, because each is excluded from the trigger and belongs to M7c.4: builder
+/// Deliberately absent, because each is excluded from the trigger and belongs to the region split: builder
 /// aggregates, scope-entry thunks, existential promotions, member injections, `@Teardown`, opaque lifts.
 
 package protocol SchedulerProbe: Sendable {

@@ -1,7 +1,7 @@
 import Foundation
 import WireGenCore
 
-/// Test-graph variant construction — the executable half of the M6a Phase 1 primitives. Each
+/// Test-graph variant construction — the executable half of the substitution primitives. Each
 /// `TestingKey` selects a graph variant: its `@BindType` substitutions rewrite the named slots into
 /// doubles-sourced bindings, and the variant is emitted alongside the production graphs as a
 /// container-shaped `_<KeyRef>WireGraph` + its seed scopes (threaded with the variant's `_<Key>Doubles`)
@@ -69,9 +69,9 @@ extension WireGen {
     /// Build a variant per discovered `TestingKey` (deduped by reference). The variant reuses the production
     /// `_WireGraph` as its parent — the app graph is unchanged — and diverges only in its seed scopes:
     ///
-    /// - **Phase 1 (no cascade):** a `@BindType` substitutes a binding *already inside a seed scope*, which
+    /// - **The direct case (no cascade):** a `@BindType` substitutes a binding *already inside a seed scope*, which
     ///   is rewritten so the slot resolves to `doubles.<field>`.
-    /// - **Phase 2 (the `@Scopable` cascade):** a `@BindType`d binding reached through *app-scoped*
+    /// - **The cascade (`@Scopable`):** a `@BindType`d binding reached through *app-scoped*
     ///   consumers. `cascadeLift` walks from it up to the seed roots; every app singleton on the path (the
     ///   mocked leaf plus each `@Scopable`d hop) is *lifted* out of the borrow set and into the scope's own
     ///   binding set, so it's reconstructed per scope entry and a `@Singleton` consumer sees the double —
@@ -80,7 +80,7 @@ extension WireGen {
     /// The affected scopes are disambiguated from production by the key (`_<KeyRef>_<Seed>WireScope`) and
     /// thread the variant's `_<Key>Doubles` alongside the seed. `appEdges` is the production app graph's
     /// resolved adjacency, which the cascade walks.
-    /// `retained` is the production app graph's reachable set (M7b.2), or `nil` when nothing was pruned.
+    /// `retained` is the production app graph's reachable set, or `nil` when nothing was pruned.
     /// A variant borrows the production `_WireGraph`'s properties for every app singleton it does not
     /// lift, so it has to be derived from what production actually constructs: borrowing a pruned binding
     /// would emit `_wireGraph.<pruned>` and fail to compile in generated *test* code, which no production
@@ -303,8 +303,8 @@ extension WireGen {
     }
 
     /// Accumulate one testing key's variant seed scopes across the default-graph seed partitions. Per
-    /// partition it applies the Phase-1 `@BindType` substitutions (a slot already inside the seed scope)
-    /// and the Phase-2 `@Scopable` cascade (app singletons lifted into the scope), then orchestrates the
+    /// partition it applies the direct `@BindType` substitutions (a slot already inside the seed scope)
+    /// and the `@Scopable` cascade (app singletons lifted into the scope), then orchestrates the
     /// substituted + lifted scope — folding the doubles fields, built scopes, existential promotions,
     /// validation failures, and cascade diagnostics into one accumulation.
     fileprivate static func accumulateVariantScopes(
@@ -318,10 +318,10 @@ extension WireGen {
         for (partition, bindings) in partitions.seedPartitions {
             guard let seedKey = partition.scope else { continue }
 
-            // Phase 1 — substitutions that hit a binding already in this seed scope.
+            // The direct case — substitutions that hit a binding already in this seed scope.
             let seedSubstituted = applyBindTypeSubstitutions(to: bindings, substitutions: key.substitutions)
 
-            // Phase 2 — the cascade: the app singletons (mocked leaf + `@Scopable`d hops) to lift in.
+            // The cascade: the app singletons (mocked leaf + `@Scopable`d hops) to lift in.
             let cascade = cascadeLift(
                 seedBindings: bindings,
                 appSingletons: partitions.defaultSingletons,
@@ -494,7 +494,7 @@ extension WireGen {
 
 /// Whether the production app graph kept `binding`, so a variant may derive from or borrow it.
 ///
-/// Only a *dependency-module* binding can have been pruned — M7b.2 retains every home binding — and
+/// Only a *dependency-module* binding can have been pruned at this point — home bindings are retained — and
 /// `retained` holds *resolved* identities (post-specialisation, aggregates included), so anything absent
 /// from it for a reason other than pruning is kept. Narrowing the test to the external half is what stops
 /// this from silently dropping the generic templates and pre-specialisation bindings a variant needs.

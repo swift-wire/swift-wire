@@ -1,6 +1,6 @@
 import Testing
 
-/// M7c.2 — behaviour of a graph built through the construction state struct rather than the linear chain.
+/// Behaviour of a graph built through the construction state struct rather than the linear chain.
 ///
 /// These assert *what the graph is*, not what it looks like: the emitted text is guarded by
 /// `GoldenHarness`, but the note's finding is that the noncopyable spellings pass `-typecheck` and fail at

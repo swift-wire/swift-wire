@@ -2,7 +2,7 @@ import Testing
 
 @testable import WireGenCore
 
-/// M6a Phase 1: the test-graph variant transform — `@BindType` substitutions
+/// The direct `@BindType` case: the test-graph variant transform — `@BindType` substitutions
 /// rewriting a slot into a doubles-sourced binding, and the `_<Key>Doubles`
 /// struct the scope is entered with.
 @Suite("TestingGraph")

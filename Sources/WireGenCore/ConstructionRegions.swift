@@ -1,8 +1,8 @@
-// M7c.4 — how much of one graph the task group spans.
+// How much of one graph the task group spans.
 //
-// M7c.3 decided *whether* a graph is scheduled and said nothing about how much of it is, so the answer it
-// inherited was "all of it": every binding got a cell, an `add` and an `update` arm. The argument M7c.3
-// made for the trigger runs one level down and had never been applied there — a group only pays where two
+// The scheduling trigger decides *whether* a graph is scheduled and says nothing about how much of it is,
+// so the answer this inherited was "all of it": every binding got a cell, an `add` and an `update` arm.
+// The argument the trigger rests on runs one level down and had never been applied there — a group only pays where two
 // async bindings can overlap, and inside a scheduled graph a binding that cannot overlap with anything
 // gains nothing from a cell either. Measured on the integration corpus, the region that can overlap is
 // **four bindings out of a hundred and ten**.
@@ -56,7 +56,7 @@ struct ConstructionRegions {
 /// Split a graph into prefix / group / suffix, or answer `nil` when there is nothing to schedule.
 ///
 /// **Overlap** — the async bindings with at least one *independent* async partner — is the seed, and it is
-/// the same set M7c.3's trigger turns on. An async binding comparable with every other async binding never
+/// the same set the scheduling trigger turns on. An async binding comparable with every other async binding never
 /// runs beside anything, so it is not a reason to open a group.
 ///
 /// - `prefix` — no Overlap ancestor, and not in Overlap.

@@ -21,10 +21,10 @@ let package = Package(
     ],
     targets: [
         // No build plugin: the library is consumed, not bootstrapped — the
-        // consumer's plugin re-parses these sources (M1). What marks it
+        // consumer's plugin re-parses these sources. What marks it
         // Wire-aware is this target's own dependency on the `Wire` product;
         // the hand-declared `_WireExports.swift` marker it used to carry was
-        // retired in M7b.5.
+        // since retired.
         .target(
             name: "WireHarnessLibrary",
             dependencies: [

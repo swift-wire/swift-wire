@@ -19,7 +19,7 @@
 /// whether the scope reaches it or not, and — since a bridge proxy is itself an app singleton — that
 /// includes the proxy. Two callers need the real subset. `linkingScopeEntryCaptures` does, because
 /// capturing an unused borrow adds a spurious ordering edge (a proxy capturing itself is a cycle). And
-/// M7b.2's pruning does, because a scope's use of a singleton is an edge in the *scope's* graph, which
+/// pruning does, because a scope's use of a singleton is an edge in the *scope's* graph, which
 /// the app graph cannot see: without carrying these in as retention roots, a dependency-module singleton
 /// used only inside a request scope is pruned out from under it.
 package func usedBorrows(in orchestration: SeedScopeOrchestration) -> [DiscoveredBinding] {

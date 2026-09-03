@@ -4,7 +4,7 @@ import SwiftSyntaxMacros
 /// `@Teardown` is a marker peer macro. It generates no code on its own
 /// — its purpose is to be recognised by the build plugin's source scan,
 /// which records the binding's teardown action so the scope's teardown
-/// phase can run it (in M4; M1 records but emits nothing).
+/// teardown walk can run it.
 ///
 /// Two overloads share this implementation, distinguished only by the
 /// build plugin reading the use site:

@@ -63,7 +63,7 @@ missed: a realistic middleware carries a `where` clause (associated-type + `~Cop
 requirements), which step-2 synthesis dropped — captured as `DiscoveredFactoryTemplate.genericWhereClause`
 and restated on `create`. Gate: `WireMVCExample` served `SessionMiddleware` (concrete `@Inject` dep) on
 `UsersController`. De-risked by
-[spike-18](../../../swift-wire-spikes/spike-18-wiremvc-factory-lift/). Box roles were assumed written in
+`spike-18`. Box roles were assumed written in
 canonical order — the convention `3.2` removed. *(The wrapping init was itself a footgun, retired at
 3.1c.)*
 
@@ -97,8 +97,8 @@ whenever the controller is generic, threading `T0` through the existing transiti
 (`_WireGraph<T0>` → `_WireRouteContributor_<C><T0>` → `C<T0>`). Made **unconditional** (every
 `@Controller` gets a proxy, per [[feedback_consistent_api_over_conditional_shape]]) because it is also
 the end-state shape request-scoped controllers need. Retired
-[spike-18](../../../swift-wire-spikes/spike-18-wiremvc-factory-lift/)'s peer-invisibility premise;
-de-risked by [spike-19](../../../swift-wire-spikes/spike-19-wiremvc-contributor-proxy/). Gate: all three
+`spike-18`'s peer-invisibility premise;
+de-risked by `spike-19`. Gate: all three
 runtimes served identically; `SwiftHttpServerExample`'s CouchDB CRUD test passed with `RequireAPIKey`
 lifted onto the generic controller's proxy. **The proxy stayed; its *macro* generation was superseded by
 Phase A.**
@@ -138,7 +138,7 @@ fields + `T0` threading + graph) with a **body hole**; a WireMVC codegen tool em
 an `extension` on that struct, same consumer module, meeting it only on the deterministic field names.
 The **build plugin moved to the adapter** (a WireMVC plugin running both tools); swift-wire's one change
 was to **publish WireGen as an executable product**. De-risked by
-[spike-23](../../../swift-wire-spikes/spike-23-two-tool-codegen/): two tools, one module, compiles +
+`spike-23`: two tools, one module, compiles +
 serves, and the field-name handshake is compiler-enforced (a desync fails the build at the reference
 site). Chosen over an extensible WireGen because orchestration is domain knowledge and belongs in the
 adapter, keeping WireGen strictly structural.
@@ -193,7 +193,7 @@ deps as bare-parameter dependencies, so it's a **lift node** the existing transi
 threads `T0` through; the proxy field is `_WireFactory_<key><Repository>`, matched to the consumer's
 generic param by constraint. This is where a generic controller and its middleware share one backend
 through the graph. De-risked by
-[spike-22](../../../swift-wire-spikes/spike-22-plugin-generated-proxy/). Gate: `Controllers`' `AuditGate`
+`spike-22`. Gate: `Controllers`' `AuditGate`
 gained a `Repository: TodoRepository` injected axis sharing the controller's backend; all three runtimes
 serve.
 
@@ -234,9 +234,9 @@ fold shows `LogRequests`, `AuditGate` (injected axis), and `RequireAPIKey` all l
 - **Forward work (designed, not built):**
   [Notes/DecompositionTransformers.md](../Notes/DecompositionTransformers.md) — pluggable parameter
   decomposition, `@Configuration`, explicit `@RawRoute` roles.
-- **Spikes:** [18](../../../swift-wire-spikes/spike-18-wiremvc-factory-lift/) (factory lift),
-  [19](../../../swift-wire-spikes/spike-19-wiremvc-contributor-proxy/) (contributor proxy),
-  [21](../../../swift-wire-spikes/spike-21-wiremvc-transforming-rawroute/) (transforming middleware /
-  raw route), [22](../../../swift-wire-spikes/spike-22-plugin-generated-proxy/) (plugin-generated proxy /
-  injected axis), [23](../../../swift-wire-spikes/spike-23-two-tool-codegen/) (two-tool orchestration).
+- **Spikes:** `18` (factory lift),
+  `19` (contributor proxy),
+  `21` (transforming middleware /
+  raw route), `22` (plugin-generated proxy /
+  injected axis), `23` (two-tool orchestration).
 - **Milestone context:** [M5_PLAN.md](M5_PLAN.md), M5.3.

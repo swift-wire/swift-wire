@@ -10,12 +10,12 @@ import SwiftSyntax
 //   (`providerTeardownAction`). The action expression (closure or
 //   free/static function reference) is applied to the produced value.
 //
-// M1 records the action but emits nothing — the reverse-dependency
-// teardown walk is M4. The helpers here also carry the iteration-6
+// Discovery records the action; the reverse-dependency teardown walk
+// emits the calls. The helpers here also carry the iteration-6
 // misuse diagnostics. See README "Lifecycle and teardown".
 
-/// A teardown action recorded from a `@Teardown` annotation. In M1 it is
-/// captured but inert — code emission ignores it; M4 emits the call in
+/// A teardown action recorded from a `@Teardown` annotation. Captured
+/// here; the teardown walk emits the call in
 /// reverse dependency order at scope teardown. See the README's
 /// "Lifecycle and teardown" section and M1_PLAN iteration 6.
 package struct TeardownAction: Sendable, Equatable {

@@ -19,10 +19,10 @@ what you meant, then re-record with `--update` and commit the recording in the s
 
 Two milestones are written against the same invariant, and neither can be trusted without this:
 
-- **M7b — reachability pruning.** "A graph in which every binding is already reachable from a root
-  produces byte-identical generated output before and after M7b." That is what makes pruning invisible to
+- **Reachability pruning.** "A graph in which every binding is already reachable from a root
+  produces byte-identical generated output before and after pruning." That is what makes pruning invisible to
   single-module apps.
-- **M8 — noncopyable bindings.** "A graph containing no `~Copyable` or `~Escapable` bindings produces
+- **Noncopyable bindings.** "A graph containing no `~Copyable` or `~Escapable` bindings produces
   byte-identical generated output."
 
 ## Notes

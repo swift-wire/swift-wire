@@ -1,6 +1,6 @@
 import Testing
 
-/// M6a Phase 1 gate — the runtime chain for a `@BindType` doubles substitution: variant seed scope →
+/// The direct `@BindType` case's gate — the runtime chain for a `@BindType` doubles substitution: variant seed scope →
 /// doubles-threaded scope-entry → the seed-scoped consumer resolves to the *exact* supplied instance.
 /// Hand-builds the `doubles` (standing in for the not-yet-built adapter witness) and drives the generated
 /// `bootstrap…Scope(seed:wireGraph:doubles:)` — the `WireDoublesFixture.bindMockRepo` variant of

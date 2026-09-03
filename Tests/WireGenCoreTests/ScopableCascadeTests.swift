@@ -2,7 +2,7 @@ import Testing
 
 @testable import WireGenCore
 
-/// M6a Phase 2: the `@Scopable` cascade — `@Scopable` discovery, the path computation from a `@BindType`d
+/// The `@Scopable` cascade: the `@Scopable` cascade — `@Scopable` discovery, the path computation from a `@BindType`d
 /// binding up to the seed roots, the guided diagnostic for an unmarked hop, the stale-`@BindType`
 /// diagnostic, and the lift of a `@Scopable`d singleton into the scope (constructed there, not borrowed).
 @Suite("ScopableCascade (core)")

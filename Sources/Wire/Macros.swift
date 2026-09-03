@@ -352,9 +352,9 @@ public macro Contributes<Builder>(to: BuilderKey<Builder>, withOrder: Int) =
 ///     static func httpClient() -> HTTPClient { HTTPClient() }
 ///
 /// `@Teardown` itself contributes no code — it's a marker the build
-/// plugin recognises during source scanning. In M1 the plugin records
+/// plugin recognises during source scanning. The plugin records
 /// the action but emits no teardown calls; the reverse-dependency walk
-/// lands in M4.
+/// is emitted by the teardown walk.
 @attached(peer)
 public macro Teardown() = #externalMacro(module: "WireMacrosImpl", type: "TeardownMacro")
 

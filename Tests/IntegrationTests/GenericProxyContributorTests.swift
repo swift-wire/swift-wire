@@ -1,6 +1,6 @@
 import Testing
 
-/// Phase-3 generic-subject gate — shape 1 (full concretization). Drives the variant proxy for a
+/// Generic-subject gate — shape 1 (full concretization). Drives the variant proxy for a
 /// `@RouteController @Scoped(seed:)` subject generic over the `@BindType`'d protocol, built from the variant
 /// app graph (which drops the mocked `some GenProxyRepository` and re-indexes its remaining opaque axes), and
 /// asserts the mock is reached through the concretized subject.
