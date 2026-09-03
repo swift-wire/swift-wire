@@ -209,8 +209,12 @@ private func sendableCheckFunctionName(forGraph structName: String) -> String {
 /// That assertion earns its place on the other half — a non-Sendable *dependency*, where nothing is wrong
 /// with the marker and the native failure is `sending closure risks causing data races` inside a closure
 /// the user never wrote.
-func schedulerTaskResultEnumLines(structName: String, regions: ConstructionRegions) -> [String] {
-    var lines = ["", "private enum \(taskResultEnumName(forGraph: structName)): Sendable {"]
+func schedulerTaskResultEnumLines(
+    structName: String,
+    regions: ConstructionRegions,
+    isLocal: Bool = false
+) -> [String] {
+    var lines = ["", "\(isLocal ? "" : "private ")enum \(taskResultEnumName(forGraph: structName)): Sendable {"]
     for binding in regions.group where bindingIsAsync(binding) {
         lines.append("    case \(propertyName(for: binding))(\(binding.boundTypeReference))")
     }
@@ -225,7 +229,11 @@ func schedulerTaskResultEnumLines(structName: String, regions: ConstructionRegio
 /// into dependents that may not be — and a uniform signature is what keeps the cascade a plain call rather
 /// than a per-edge effect calculation. None is `async`: an async binding's suspension moved into its child
 /// task, and the parent's only `await` is the drain loop's `next()`.
-func schedulerBuildingStructLines(structName: String, regions: ConstructionRegions) -> [String] {
+func schedulerBuildingStructLines(
+    structName: String,
+    regions: ConstructionRegions,
+    isLocal: Bool = false
+) -> [String] {
     let names = Set(regions.group.map { propertyName(for: $0) })
     // Direct dependents *within the group*, keyed by the producer's property name — the cascade's
     // adjacency. Built from the same local names the construction expressions reference, and kept in the
@@ -239,7 +247,7 @@ func schedulerBuildingStructLines(structName: String, regions: ConstructionRegio
     }
     let groupType = "ThrowingTaskGroup<\(taskResultEnumName(forGraph: structName)), any Error>"
 
-    var lines = ["", "private struct \(buildingStructName(forGraph: structName)): ~Copyable {"]
+    var lines = ["", "\(isLocal ? "" : "private ")struct \(buildingStructName(forGraph: structName)): ~Copyable {"]
     // The seam, inbound. A frontier value is already constructed, so it is a `let`, not a cell: a cell
     // would add a state transition that can never fail and a `value()` that can never return `nil`. The
     // property name is the binding's own, so the construction expressions inside the methods below resolve

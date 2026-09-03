@@ -35,7 +35,16 @@ struct ConstructionRegions {
     let group: [DiscoveredBinding]
     /// Built serially, after the group has drained and its cells have become locals again.
     let suffix: [DiscoveredBinding]
-    /// The prefix bindings a group binding reads — the only values that cross the seam.
+    /// Locals a group binding reads that are **not graph bindings at all** — the enclosing frame's, not
+    /// the construction's.
+    ///
+    /// Empty for the app bootstrap, and that is not an accident: there a bare name resolves to a
+    /// module-scope `@Provides` declaration, which the building struct's methods can see as well as the
+    /// bootstrap frame can. A **scope entry** is the opposite case — its thunk's seed parameter, its
+    /// `doubles` parameter and the singletons it borrows are all closure locals, invisible from inside a
+    /// struct declared beside them, so each has to cross the seam the same way a frontier binding does.
+    let crossingLocals: [String]
+    /// The prefix bindings a group binding reads — the only *bindings* that cross the seam.
     ///
     /// They cannot be locals as far as the building struct is concerned (its methods cannot see the
     /// bootstrap frame), so each becomes a plain stored property on it, handed over at its
@@ -92,8 +101,7 @@ func constructionRegions(for topologicalOrder: [DiscoveredBinding]) -> Construct
     let groupNames = Set(group.map { propertyName(for: $0) })
     var crossing: Set<String> = []
     for binding in group {
-        for local in constructionDependencyLocals(of: binding)
-        where edges.names.contains(local) && !groupNames.contains(local) {
+        for local in constructionDependencyLocals(of: binding) where !groupNames.contains(local) {
             crossing.insert(local)
         }
     }
@@ -101,6 +109,7 @@ func constructionRegions(for topologicalOrder: [DiscoveredBinding]) -> Construct
         prefix: prefix,
         group: group,
         suffix: suffix,
+        crossingLocals: crossing.subtracting(edges.names).sorted(),
         frontier: prefix.filter { crossing.contains(propertyName(for: $0)) }
     )
 }

@@ -4,8 +4,8 @@
 > the golden guard, M7b.2 dependency-module pruning, M7b.3 home pruning with its migration diagnostic,
 > M7b.4 the dead-code fold, M7b.5 marker retirement — and **M7d rode in with M7b.5**. M7a stays deferred
 > with its mechanism proven and its blocker recorded
-> ([PendingIssues/20](../PendingIssues/20-manifest-discovery-plugin-output-visibility.md)); M7c and M7e keep
-> their existing triggers. Downstream (wire-mvc, wire-open-api, wire-configuration, wire-mvc-examples,
+> ([PendingIssues/20](../PendingIssues/20-manifest-discovery-plugin-output-visibility.md)); M7e keeps its existing trigger, and M7c
+> completed across six sub-steps (2026-09). Downstream (wire-mvc, wire-open-api, wire-configuration, wire-mvc-examples,
 > wire-mvc-performance) moved with the marker retirement.
 >
 > The gates below are kept as written, with each sub-step's outcome recorded under it — including the two

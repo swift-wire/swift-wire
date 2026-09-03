@@ -8,7 +8,9 @@ and has since been fixed. #17 and #18 both came from Phase 5's allocation work �
 here held by a *deadline* rather than by severity; #18 was held by a compiler diagnostic and has since been
 fixed. #19 came from the README's entry-point pass and is the first entry here whose fix is held partly by
 an *upstream* API gap rather than by this codebase. #20 came from starting M7 and is the second, and the
-first recorded to stop a *proven* mechanism being re-spiked. Resolved ones have moved to
+first recorded to stop a *proven* mechanism being re-spiked. #21 came from closing M7c and is the first
+recorded because a *survey done for another question* found it — the question being which construction
+paths should take the scheduler, and the answer being none of them. Resolved ones have moved to
 [../CompletedIssues/](../CompletedIssues/README.md). States:
 
 - 🔴 **Known broken** — reproduced or provably unhandled in the current code.
@@ -31,6 +33,7 @@ first recorded to stop a *proven* mechanism being re-spiked. Resolved ones have 
 | [17](17-path-parameter-shape.md) | The handler's path-parameter shape is a pre-1.0 public decision | wire-mvc | 🟡 |
 | [19](19-app-scope-teardown-no-shutdown-trigger.md) | App-scope teardown under `@WireMVCBootstrap` has no shutdown trigger | wire-mvc (+upstream) | 🔴 |
 | [20](20-manifest-discovery-plugin-output-visibility.md) | M7a's manifest route works; a consumer can't tell which dependencies emit one | swift-wire (+upstream) | 🟡 |
+| [21](21-scope-entry-partial-teardown.md) | A scope entry that throws partway leaks the scope bindings it had already built | swift-wire | 🟡 |
 
 These are all **latent** — real, but none is on a shipped example's path (Phase C didn't force them). **#02**
 is the known-broken functional gap in the *testing* surface (a global `@Middleware` that injects a mocked

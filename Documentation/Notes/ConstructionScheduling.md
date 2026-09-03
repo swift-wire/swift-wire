@@ -8,7 +8,8 @@
 > emitter translations to one change of scope: fifteen graphs schedule where two did, on 44 cells across
 > the whole corpus. **M7c.5 — init-failure partial teardown, the half deferred from M4 — shipped with it**,
 > and § *Init-failure partial teardown* is rewritten against what M7c.4 built rather than what this note
-> predicted. M7c.6 keeps its trigger. It
+> predicted. **M7c.6 closed the milestone by pointing the scheduler at per-request scope entry** — the path
+> it was always meant for, and the one the corpus had no fixture for until this step built one. It
 > **supersedes the
 > `AtomicState<T>`-cell sketch** in [EffectAwareResolution.md](EffectAwareResolution.md) *§ Strict
 > per-level vs dynamic ready-as-deps-resolve*; that note stays as the conceptual framing (the levels
@@ -692,6 +693,56 @@ seam first. **Every gate compiles the generated output**, per the `-typecheck`-i
   `ScopeEntryEmission.swift:128`, `SeedlessReconstructionEmission.swift:136` and
   `ContributorProxyFacadeEmission.swift:62` get the scheduler. Per-request scope entry is where async data
   resolution actually shows up, so "app bootstrap only" is a defensible first cut but not obviously right.
+
+  **Decided: per-request scope entry takes it, and the corpus gained the fixture that made the question
+  answerable.** The first pass at this step surveyed the corpus, found **zero async bindings on every scope
+  path**, and concluded none should schedule. That reasoning was circular: the corpus is ours, so the
+  absence of an async request scope in it is a gap in the fixtures, not a fact about applications. A
+  controller that loads two independent things before it can serve is the ordinary shape, and per-request
+  construction is the *hot* path — it runs once per request where the app bootstrap runs once per process.
+  The same call was made twice before in this milestone (M7c.2 added a fixture rather than declaring its
+  population empty; M7c.4 was rewritten because its gate was), and it is made the same way here.
+
+  `Tests/IntegrationTests/AsyncScopeEntryExample.swift` is that fixture: a `@Scoped(seed:)` scope with two
+  independent async bindings, a dependent of one, a `@Teardown` binding, entered through a bridged
+  contributor proxy so it lands on the per-request thunk. **The assertion had to be built differently from
+  `ParallelSchedulerExample`'s.** That one has its slow binding wait for a dependent, which discriminates
+  there only because the topological order happens to put the slow one first; here it does not, and the
+  same assertion passed under serial construction. So each half instead **waits for the other to have
+  started** — which serial construction cannot satisfy in any order, and which is order-independent by
+  construction. Against the unscheduled thunk the gate fails in 1.4 s (the poll bound, exhausted); against
+  the scheduled one it passes in 0.008 s.
+
+  **One structural thing made this cheap, and one made it restricted.** The building struct and marker enum
+  are declared **inside the thunk closure** — verified compiling and running on both toolchains — so there
+  is no module-scope hoisting and no per-(scope, root) naming problem to solve. What that costs is the
+  seam: a bare name inside a locally-declared struct's methods resolves to nothing, where at app scope it
+  would have found a module-scope `@Provides`. Prefix bindings cross as stored properties exactly as they
+  do at app scope, but a group binding that reads the *seed*, `doubles`, or a borrowed singleton would need
+  a stored property whose type the region computation has no way to know — those are closure locals, not
+  bindings in the order. So `ConstructionRegions` gained `crossingLocals`, and a scope whose scheduled
+  region reaches one keeps the chain. Every other exclusion is `schedulerPlan`'s; that one is the seam's.
+
+  The `_wireSendableChecks` assertions are also omitted here: `#sourceLocation` is a top-of-file directive
+  and derails the parse from inside a closure. What is lost is the located half of the diagnostic — the
+  marker enum's own error still names the case, the type, and the user's declaration in a note, which
+  M7c.3 measured as the better of the two anyway.
+
+  **The other two paths, and the enumeration is wrong by one.**
+  `ContributorProxyFacadeEmission` is not a fourth site: it emits borrows and factory locals and then calls
+  `scopeEntryThunkLines` for the construction, so it has no chain of its own and inherits whatever that one
+  does. `SeedScopeStructEmission` is the whole-scope façade, which M7d established is dead code in a
+  consumer — emitted only for a scope no proxy enters — so scheduling it would optimise swift-wire's own
+  test constructor. `SeedlessReconstructionEmission` is the same closure shape as scope entry and could
+  reuse the same helper, but it reconstructs per *test* rather than per request; it is a follow-on when
+  something wants it, not a decision against.
+
+  The survey also found something it was not looking for, filed as
+  [PendingIssues/21](../../PendingIssues/21-scope-entry-partial-teardown.md): all 19 per-request
+  construction thunks carry a `_wireScopeTeardown` and none can throw yet, so M7c.5's partial teardown is
+  missing there and latent. M4's reasoning for deferring the bootstrap half — a failed bootstrap ends in
+  process exit, so the OS reclaims it — does not transfer to a path that runs per request in a process that
+  keeps serving.
 
 The per-graph rule — scheduler if two of the graph's async bindings can be in flight at once, today's
 linear chain otherwise — is what protects the golden and what keeps this from being a per-binding

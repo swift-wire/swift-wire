@@ -18,8 +18,10 @@ struct AggregateProxyContributorTests {
 
         // The multibinding receives ONE element for three annotated subjects — where `.contributesProxy`
         // would have contributed three separate proxies.
-        // Two groups on one annotation → two aggregates in the multibinding, one per spec.
-        #expect(graph.aggregateContributorHost.controllers.count == 2)
+        // A group per spec, each its own aggregate in the multibinding — "alpha" and "beta" here, plus
+        // `AsyncScopeEntryExample`'s "async", which declares its own group precisely so it composes with
+        // these rather than joining them.
+        #expect(graph.aggregateContributorHost.controllers.count == 3)
         #expect(graph.aggregateContributorHost.soloControllers.count == 1)
     }
 
