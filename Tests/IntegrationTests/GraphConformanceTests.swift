@@ -1,7 +1,7 @@
 import Testing
 import Wire
 
-/// M2.1 end-to-end: the generated `_WireGraph` conforms to an app-declared
+/// graph conformance end-to-end: the generated `_WireGraph` conforms to an app-declared
 /// protocol via a `WireGraphConformanceV1`, and is consumed *generically* through
 /// that protocol — so this only compiles if the build plugin emitted a valid
 /// `extension _WireGraph: GraphComposable` and the associated `Context` resolved.

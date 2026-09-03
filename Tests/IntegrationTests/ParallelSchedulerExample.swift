@@ -1,12 +1,12 @@
 import Synchronization
 import Wire
 
-/// M7c.3 — the graph the task group exists for: two async bindings that can be in flight at once, and a
+/// The graph the task group exists for: two async bindings that can be in flight at once, and a
 /// dependent of the *faster* one.
 ///
 /// `SchedulerContainerExample` proves the state struct's shape; this one proves it schedules. The gate is
 /// that `FastDependent` is constructed while `makeSlowSignal` is still suspended, which no sequential
-/// ordering can produce — under the linear chain, or under M7c.2's inline cascade, the slow binding runs
+/// ordering can produce — under the linear chain, or under the construction state struct's inline cascade, the slow binding runs
 /// to completion before the fast one is even started.
 ///
 /// **Observed rather than timed.** The obvious fixture sleeps 200 ms in one binding and 5 ms in the other

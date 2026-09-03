@@ -429,3 +429,7 @@ selectors] is not addressed here; it's a disambiguator (not a
 normalization target), and its payoff for Wire is coupled to multi-module
 composition — see
 [`MultiModuleComposition.md`](MultiModuleComposition.md).
+
+---
+
+<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

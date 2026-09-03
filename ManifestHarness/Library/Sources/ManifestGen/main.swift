@@ -1,7 +1,7 @@
 import Foundation
 
 // Stands in for WireGen's contributor half: scans the library's own sources and
-// writes a per-library manifest describing what it found, plus a generated
+// writes a per-library manifest describing what it found (the deferred route — see #338), plus a generated
 // Swift marker. Arguments: <manifest.json> <marker.swift> <source.swift…>.
 //
 // It derives the manifest from the sources rather than hardcoding it so that a

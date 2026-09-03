@@ -3,7 +3,7 @@ import Wire
 import WireTestLibrary
 import WireTesting
 
-/// H2.2a regression fixture — the borrow case the original proxy gate missed. A non-generic
+/// Regression fixture — the borrow case the original proxy gate missed. A non-generic
 /// `@RouteController @Scoped(seed:)` subject that injects a **plain app `@Singleton`** (a `UserStore`-style
 /// store, neither `@BindType`'d nor `@Scopable`-lifted) alongside its mocked request-scoped dependency. The
 /// variant scope *borrows* that singleton from the reused graph, so the facade must bind it as a Sendable

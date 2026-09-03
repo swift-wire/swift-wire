@@ -259,3 +259,7 @@ additive when a real case appears.
 Building on the current seed model now forecloses nothing: the
 multibinding-key tracking already shipped is the same pattern this would
 extend, and the value-level scope key can absorb the seed later.
+
+---
+
+<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

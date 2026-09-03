@@ -3,10 +3,10 @@ import Wire
 import WireTestLibrary
 import WireTesting
 
-/// H2.2a runtime fixture — the doubles-threaded contributor-proxy scope entry. A `@RouteController`-marked
+/// Runtime fixture — the doubles-threaded contributor-proxy scope entry. A `@RouteController`-marked
 /// `@Scoped(seed:)` subject is reached, in production, through a bridging contributor proxy whose
 /// `_wireEnterScope(seed)` thunk constructs it fresh per request (returning `(subject, teardown)`, pruned to
-/// the subject's reachable subgraph). This fixture drives the *variant* proxy the M6a testing key emits:
+/// the subject's reachable subgraph). This fixture drives the *variant* proxy the testing key emits:
 /// `Wire.bootstrap<Variant>_<Subject>Contributor(wireGraph:)` builds a variant proxy whose
 /// `_wireEnterScope(seed, doubles:)` threads the key's `_<Key>Doubles`, so a `@BindType`d dependency resolves
 /// to the supplied mock — including at the `init` of a `@Scopable` singleton lifted into the scope.
@@ -67,7 +67,7 @@ enum ProxyRepositoryModule {
     @Provides static func repository() -> any ProxyRepository { RealProxyRepository() }
 }
 
-/// The app-scoped consumer that reads its `@BindType`d dependency **in `init`** — the property Phase 2 mocks.
+/// The app-scoped consumer that reads its `@BindType`d dependency **in `init`** — the property the cascade mocks.
 /// `@TestScopable` lifts it into the scope under test so this read sees the per-entry double.
 @TestScopable
 @Singleton

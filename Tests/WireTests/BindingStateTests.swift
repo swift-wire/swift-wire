@@ -2,7 +2,7 @@ import Testing
 
 @testable import Wire
 
-/// The construction cell's behaviour (M7c).
+/// The construction cell's behaviour (construction scheduling).
 ///
 /// These exist because the cell's characteristic failure modes **pass `-typecheck` and fail at `-c`** —
 /// the three consuming spellings its API is shaped to avoid. Assertions over rendered generated text
@@ -83,7 +83,7 @@ struct BindingStateTests {
     }
 
     @Test func aCellCarriesANoncopyablePayload() {
-        // The reason the cell is generic over `~Copyable` at all: M8's noncopyable bindings need no second
+        // The reason the cell is generic over `~Copyable` at all: noncopyable bindings's noncopyable bindings need no second
         // emitter, because storing and moving one is the same structure. `value()` is deliberately absent
         // here — reading without consuming is a copy — so `take()` is the only way out, which is also the
         // rule for a noncopyable binding's single consumer.

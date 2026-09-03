@@ -12,7 +12,7 @@ struct ReplacesTests {
     // MARK: - Helpers
 
     /// An `@Singleton(as: identity.self)` lift node in `module`, optionally
-    /// carrying the bare `@Replaces` marker. Mirrors spike-27's shape: both the
+    /// carrying the bare `@Replaces` marker. Mirrors the test-target composition shape: both the
     /// real and fake repos bind `some Repo`, so they share graph identity.
     private func opaqueSingleton(
         _ name: String,

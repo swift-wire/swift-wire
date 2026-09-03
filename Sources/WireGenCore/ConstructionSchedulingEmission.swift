@@ -1,4 +1,4 @@
-// M7c.3 — the construction state struct, driven by a `ThrowingTaskGroup`.
+// The construction state struct, driven by a `ThrowingTaskGroup`.
 //
 // The cell itself is `Wire._WireBindingState`, not something emitted here: generated code already names
 // Wire's public types (`Introspectable`, `Teardownable`, `WiringModel`), and a type whose failure modes
@@ -7,8 +7,8 @@
 //
 // `Documentation/Notes/ConstructionScheduling.md` § "The mechanism" replaces the linear `let` chain with
 // one `~Copyable` state struct owned by the bootstrap frame: a cell per binding, an `add` per binding that
-// fires when its dependencies have resolved, and a cascade from each resolution to its dependents. M7c.2
-// drove that structure with no group at all, so the whole cascade ran inline; **M7c.3 puts the async
+// fires when its dependencies have resolved, and a cascade from each resolution to its dependents. The
+// structure first landed with no group at all, so the whole cascade ran inline; **this puts the async
 // bindings into child tasks**, and the parent — suspended on the group's iterator — applies each result
 // and fires its dependents. Child tasks never schedule; they return a marker.
 //
@@ -85,8 +85,8 @@ func constructionDependencyLocals(of binding: DiscoveredBinding) -> [String] {
 /// predicate, and it stays per-graph because a per-binding one would need to know whether a type is
 /// `Sendable`, which a SwiftSyntax pipeline cannot answer.
 ///
-/// **Negative half — the constructs M7c.4 has not translated, tested against the *group region* only.**
-/// M7c.3 asked whether the construct appeared anywhere in the graph, which is what made every large graph
+/// **Negative half — the constructs the region split has not translated, tested against the *group region*
+/// only.** The trigger used to ask whether the construct appeared anywhere in the graph, which is what made every large graph
 /// in the corpus fail on five clauses at once. A construct in the prefix or the suffix is emitted by the
 /// linear chain exactly as it always was, so it is not the scheduler's business:
 ///
@@ -102,7 +102,7 @@ func constructionDependencyLocals(of binding: DiscoveredBinding) -> [String] {
 /// - **opaque (`some P`) lifts**, which put a generic parameter on the graph struct that the building
 ///   struct would have to mirror and the bootstrap infer through both.
 ///
-/// Two clauses M7c.3 carried are **gone rather than narrowed**, because both name post-construction blocks
+/// Two clauses the whole-graph trigger carried are **gone rather than narrowed**, because both name post-construction blocks
 /// that run after the seam, where every binding is a local again: **member injection** (which cannot be
 /// region-scoped at all — its parameters are not construction edges) and **`@Teardown`** (whose closure is
 /// built at the end of the bootstrap over each binding's concrete local). Twelve corpus graphs exercise
@@ -427,7 +427,7 @@ func schedulerBootstrapOpeningLines(
             + ") { \(groupParameterName) in",
         "        var building = \(buildingStructName(forGraph: structName))(\(arguments))",
     ]
-    // M7c.5 — a scheduled `@Teardown` binding is built inside a method of the building struct, where the
+    // Partial teardown: a scheduled `@Teardown` binding is built inside a method of the building struct, where the
     // accumulator is out of scope, so a throw during the drain is where its cell has to be read instead.
     // The `do` is emitted only when there is such a binding; otherwise the outer `catch` is the whole story.
     let recovers = !tornInGroup.isEmpty
@@ -452,7 +452,7 @@ func schedulerBootstrapOpeningLines(
 
 /// The seam, outbound: every scheduled binding becomes a local again.
 ///
-/// This is what keeps M7c.4 small. After these lines the suffix chain, the member-injection block, the
+/// This is what keeps the region split small. After these lines the suffix chain, the member-injection block, the
 /// captured teardown closure and the memberwise init are all standing on locals, which is the ground every
 /// one of them was written against — so none of them has to know a scheduler exists.
 func schedulerSeamLines(regions: ConstructionRegions) -> [String] {

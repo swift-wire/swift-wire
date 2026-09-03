@@ -6,12 +6,12 @@ import Testing
 /// a binding the app pulls out some way Wire cannot see, while a wrong **edge set** drops one the graph
 /// itself constructs.
 ///
-/// The fixtures are split home/library on purpose, because that split *is* M7b.2: every home-module
+/// The fixtures are split home/library on purpose, because that split *is* the first cut of pruning: every home-module
 /// binding is retained (and is a retention root, so its dependencies come with it), while a
 /// dependency-module binding survives only if something reaches it. A test that used home bindings
 /// throughout would pass no matter what the walk did.
 ///
-/// See `Documentation/Notes/MultiModuleComposition.md` § "Reachability roots (M7b.0)".
+/// See `Documentation/Notes/MultiModuleComposition.md` § "Reachability roots (the roots model)".
 @Suite("Reachability")
 struct ReachabilityTests {
     // MARK: - Fixtures
@@ -133,7 +133,7 @@ struct ReachabilityTests {
         )
     }
 
-    /// The same fixture, in a dependency module — the half M7b.2 is allowed to prune.
+    /// The same fixture, in a dependency module — the half the first cut of pruning is allowed to prune.
     private func library(
         _ name: String,
         deps: [String] = [],
@@ -345,7 +345,7 @@ struct ReachabilityTests {
     func keyVisibilityDoesNotRoot() {
         // `_WireGraph` is `internal`, so an aggregate's product has no downstream reader for `public` to
         // be protecting. Visibility gates diagnostics; consumption gates construction.
-        // The key is the library's, so its aggregate is a library binding — M7b.2 retains every *home*
+        // The key is the library's, so its aggregate is a library binding — the first cut of pruning retains every *home*
         // binding, a synthesised aggregate included, which would otherwise mask what is being tested.
         for access in [AccessLevel.public, .open, .package, .internal] {
             let names = reachableNames(
@@ -426,7 +426,7 @@ struct ReachabilityTests {
         #expect(result.outcome.topologicalOrder?.count == 2)
     }
 
-    // MARK: - The restriction (M7b.2)
+    // MARK: - The restriction (the first cut of pruning)
 
     @Test("An unreached dependency-module binding is not emitted")
     func unreachedLibraryBindingIsNotEmitted() {
@@ -439,9 +439,9 @@ struct ReachabilityTests {
         #expect(emitted == ["App", "UsedLibraryBinding"])
     }
 
-    @Test("An unreached home binding is pruned too — the M7b.3 behaviour change")
+    @Test("An unreached home binding is pruned too — the home-module pruning behaviour change")
     func unreachedHomeBindingIsPruned() {
-        // M7b.2 retained the home half wholesale. M7b.3 does not: a binding the app reaches only through
+        // The first cut of pruning retained the home half wholesale. Home-module pruning does not: a binding the app reaches only through
         // `graph.x` is gone unless it says so, which is the whole reason this ships with a diagnostic.
         let emitted = emittedNames([
             singleton("DeclaredRoot", deps: ["Reached"], allowUnused: true),

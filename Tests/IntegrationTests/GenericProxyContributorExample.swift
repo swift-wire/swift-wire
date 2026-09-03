@@ -3,7 +3,7 @@ import Wire
 import WireTestLibrary
 import WireTesting
 
-/// H2.2a generic-subject spike — shape 1 (full concretization). A `@RouteController @Scoped(seed:)` subject
+/// Generic-subject case — shape 1 (full concretization). A `@RouteController @Scoped(seed:)` subject
 /// generic *only* over the `@BindType`'d protocol (`<R: GenProxyRepository>`, the idiomatic Wire opaque-lift:
 /// inject a protocol dep by making the consumer generic over it). Under the key the slot resolves to the
 /// concrete `MockGenProxyRepository`, so the variant subject fully concretizes to

@@ -25,7 +25,7 @@ enum HarnessComposableConformance {
     )
 }
 
-/// The transitive-activation gate (M7b.5). `WireHarnessTransitive` declares a binding of this same simple
+/// The transitive-activation gate. `WireHarnessTransitive` declares a binding of this same simple
 /// name, and Wire keys bindings by simple type name — so if that package were activated, the merged graph
 /// would carry two `HarnessSharedService` bindings and fail with a duplicate-binding error. The consumer
 /// depends on it only *transitively*, through `WireHarnessLibrary`, and transitive dependencies are not
@@ -35,7 +35,7 @@ struct HarnessSharedService {
     let origin = "consumer"
 }
 
-/// The M7b.3 gate — a *home*-module binding nothing reaches, declared right here in the consumer.
+/// The home-module pruning gate — a *home*-module binding nothing reaches, declared right here in the consumer.
 ///
 /// It lives in the harness rather than in `Tests/IntegrationTests` because the pruning warning fires at
 /// every visibility, so a deliberately-unreached fixture inside the test corpus would warn on every build.
@@ -45,7 +45,7 @@ struct HarnessSharedService {
 struct UnreachedHomeBinding {
     @Inject
     init() {
-        fatalError("UnreachedHomeBinding was constructed — reachability pruning (M7b.3) should have dropped it")
+        fatalError("UnreachedHomeBinding was constructed — reachability pruning should have dropped it")
     }
 }
 
@@ -58,7 +58,7 @@ let graph = try await Wire.bootstrap()
 precondition(graph.app.service.name == "external", "unkeyed external binding did not compose")
 precondition(graph.app.primary.name == "external", "keyed external binding did not compose")
 
-// M7b.2 — reachability pruning. `UnreachedExternalService` traps on construction, so reaching this line at
+// Reachability pruning. `UnreachedExternalService` traps on construction, so reaching this line at
 // all is the assertion that it was pruned: nothing injects it and a library's `allowUnused` is ignored.
 print("OK: unreached external binding was pruned (it would have trapped on construction)")
 
@@ -72,7 +72,7 @@ precondition(
 )
 print("OK: conformance-rooted aggregate kept its external contributor")
 
-// M7b.5 — the transitive package stayed out. A duplicate-binding error would have failed the build
+// The transitive package stayed out. A duplicate-binding error would have failed the build
 // before this ran; reading the consumer's own value proves which binding is in the graph.
 precondition(
     graph.harnessSharedService.origin == "consumer",
@@ -80,13 +80,13 @@ precondition(
 )
 print("OK: transitive Wire-aware package was not activated")
 
-// M7b.5 — a library binding whose own dependency lives in a package this consumer never depended on
+// A library binding whose own dependency lives in a package this consumer never depended on
 // (`LibraryBindingNeedingDeep` needs `DeepConfig`). Nothing here reaches it, so reachability strips it
 // before the missing-binding check. Reaching this line means that unresolvable binding was a non-event,
 // which is exactly what had to be true before the marker could be retired.
 print("OK: an unreachable library binding with an unresolvable dependency did not fail the build")
 
-// M7b.3 — the home-module half. Same shape as the library one above: `UnreachedHomeBinding` traps on
+// The home-module half. Same shape as the library one above: `UnreachedHomeBinding` traps on
 // construction, so reaching this line is the assertion that it was pruned from the consumer's own graph.
 print("OK: unreached home binding was pruned (it would have trapped on construction)")
 print("OK: composed unkeyed + keyed ExternalService from external package")

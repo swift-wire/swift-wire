@@ -27,7 +27,7 @@ struct InjectExtractionResult {
     /// which init-time path the type uses.
     var memberInjections: [MemberInjection] = []
     /// Owned-type teardown action from a `@Teardown`-marked method on
-    /// this type (member form), or `nil` when none. Recorded in M1 but
+    /// this type (member form), or `nil` when none. Recorded but
     /// inert. At most one per type; a second is a diagnostic.
     var teardown: TeardownAction?
     /// Source-pattern diagnostics raised while walking the type's

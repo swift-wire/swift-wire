@@ -3,7 +3,7 @@ import PackageDescription
 
 // The third package in the composition harness: Wire-aware, but only ever a *transitive* dependency of
 // the consumer (Consumer → WireHarnessLibrary → WireHarnessTransitive). It exists to hold two properties
-// M7b.5 rests on, both of which were previously enforced by the `_WireExports.swift` marker's absence
+// marker retirement rests on, both of which were previously enforced by the `_WireExports.swift` marker's absence
 // and are now enforced by the activation rule itself:
 //
 //   1. A transitive Wire-aware package is **not** activated. Only direct dependencies are.

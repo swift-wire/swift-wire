@@ -190,7 +190,7 @@ struct SeedScopeEmissionTests {
         #expect(
             output.contains("let sessionController = SessionController(seed: requestSeed, repository: todoRepository)")
         )
-        // The thunk returns the subject alongside the scope's teardown closure (M5.4.5) — here empty, since
+        // The thunk returns the subject alongside the scope's teardown closure (request-scope teardown) — here empty, since
         // no scope binding carries a @Teardown.
         #expect(output.contains("let _wireScopeTeardown: @Sendable () async -> [any Error] = {"))
         #expect(
@@ -275,7 +275,7 @@ struct SeedScopeEmissionTests {
 
     @Test func scopeEntryThunkTearsDownScopedBindings() {
         // A `@Scoped` resource carrying a `@Teardown func close() async` — the scope-entry thunk's teardown
-        // closure calls it against the construction local (M5.4.5, consistent with the graph's teardown).
+        // closure calls it against the construction local (request-scope teardown, consistent with the graph's teardown).
         // The borrowed app singleton is excluded (it is torn down at app scope, not per request).
         let subject = DiscoveredScopeBoundType(
             typeName: "SessionController",
@@ -344,7 +344,7 @@ struct SeedScopeEmissionTests {
     }
 
     @Test func scopeEntryThunkPrunesUnreachableBindings() {
-        // Per-root reachability (M5.4.6): the scope has a sibling controller's resource (`BResource`) that
+        // Per-root reachability (per-root reachability): the scope has a sibling controller's resource (`BResource`) that
         // the routed `AController` doesn't reach. Given the resolved edges, the thunk constructs only the
         // reachable subgraph — `AResource` + `AController`, never `BResource`.
         let subject = DiscoveredScopeBoundType(

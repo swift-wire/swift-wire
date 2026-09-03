@@ -16,7 +16,7 @@
 // Everything here is domain-free: Wire injects a synthesised binding onto a
 // decorated binding and never learns "middleware".
 
-/// The role mapping a `.mapsFactoryRoles` annotation supplies for a factory template (M5.3, 3.2).
+/// The role mapping a `.mapsFactoryRoles` annotation supplies for a factory template.
 /// `canonicalRoles` is the adapter's full ordered role vocabulary — the names `create`'s generic
 /// parameters take, in the fixed order the consumer's macro calls with. `parameterRoles` maps each of
 /// the template's assisted generic parameters to its role name (a subset/reorder of `canonicalRoles`);
@@ -422,6 +422,9 @@ package func renderFactoryDeclaration(_ factory: SynthesizedFactory) -> String {
 ///             AuditMiddleware(backend: doubles.backend)
 ///         }
 ///     }
+///
+/// The box-role form — the `create<Role…>(doubles:, _, _, _)` shape — is exercised end-to-end through
+/// wire-mvc rather than by a fixture here, so a break in it would leave this repository's suite green. See #333.
 package func renderVariantFactoryDeclaration(
     _ factory: SynthesizedFactory,
     typeName: String,

@@ -1,7 +1,7 @@
 import Testing
 import WireTestLibrary
 
-/// H2.2a `@Replaces` + `@BindType` composition gate. The precedence chain per type is
+/// `@Replaces` + `@BindType` composition gate. The precedence chain per type is
 ///     real → `@Replaces` (all graphs) → `@BindType` (its keyed variant only, wins).
 /// Proves the combination compiles (no `multiple bindings; ambiguous`), the keyless scope-entry resolves to
 /// the `@Replaces` Fake, the keyed variant (with doubles) resolves to the `@BindType` Mock, and the real

@@ -214,7 +214,7 @@ extension DiscoveredBinding {
 
     /// The teardown action recorded on the binding's declaration (`@Teardown`), or `nil`
     /// when it has none. `@Singleton`/`@Scoped` carry the member form; `@Provides` the
-    /// producer form; aggregates never have one. M4's teardown walk emits a call for each
+    /// producer form; aggregates never have one. The teardown walk emits a call for each
     /// binding that has one, in reverse construction order.
     package var teardown: TeardownAction? {
         switch self {

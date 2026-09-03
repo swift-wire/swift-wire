@@ -18,7 +18,7 @@
 > which milestone owns it, have answers. See *Open decision* at the end.
 >
 > **Two items were removed on first assembly**, both from the parity note's streaming track, because
-> `PendingIssues/14` records them already measured: the Hummingbird/Vapor duplex question (answered, spikes
+> [tachyonics/wire-mvc#173](https://github.com/tachyonics/wire-mvc/issues/173) records them already measured: the Hummingbird/Vapor duplex question (answered, spikes
 > 31–32) and the lending tier's ownership question (answered, spike-33). What looked like a three-item track
 > gated on an experiment is one item gated on an upstream compiler fix. Sequencing across repositories is
 > exactly where this kind of staleness accumulates, which is the case for keeping one ordered list.
@@ -53,7 +53,7 @@ cheap.
 | [`HummingbirdExamplesParity.md`](https://github.com/tachyonics/wire-mvc-examples/blob/main/Documentation/Notes/HummingbirdExamplesParity.md) | the parity track (5 items) and the streaming track (3), with their internal ordering already argued — **the parity track is now closed**; that note carries the per-item record behind each |
 | [`StreamingResponseTier.md`](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/StreamingResponseTier.md) | the tier shipped, and migrating SSE and multipart off `@RawRoute` — "the larger part of the payoff" — is **now done**, Phase 1 |
 | [`WireMVCRouter.md`](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/WireMVCRouter.md) | the six-item router backlog, **all six shipped**; that note carries the per-item record and the prior-art surveys behind each decision |
-| [`PendingIssues/14`](../../PendingIssues/14-typed-tier-duplex-routes.md) | the duplex story: what spikes 31–33 already measured, and the upstream bug the typed tier waits on |
+| [tachyonics/wire-mvc#173](https://github.com/tachyonics/wire-mvc/issues/173) | the duplex story: what spikes 31–33 already measured, and the upstream bug the typed tier waits on |
 | [wire-mvc-performance](https://github.com/tachyonics/wire-mvc-performance) | measured per-request cost and allocations — where Phase 5 comes from |
 
 Where an ordering below differs from its source, the difference is called out and argued. Where it does not,
@@ -107,7 +107,7 @@ written, and is kept here only so it is not re-run.
    head left the handler running to completion — the lifetime tie to the returned body only exists once
    there is a body. Fixed with `withTaskCancellationHandler` and pinned by a test that cancels mid-flight;
    the residue (the cancelled request is *reported* as a 500, indistinguishable from a broken route) is
-   [`PendingIssues/15`](../../PendingIssues/15-cancelled-request-reports-500.md).
+   [tachyonics/wire-mvc#174](https://github.com/tachyonics/wire-mvc/issues/174).
 
    That question also settled one this note had left implicit: **the unstructured task is not a choice to
    revisit.** `ServerTransport.register` returns `(HTTPResponse, HTTPBody?)` and the framework consumes the
@@ -128,7 +128,7 @@ written, and is kept here only so it is not re-run.
 
 2. ~~**The `response-body-processing` echo as a `@RawRoute`.**~~ **Already answered — do not re-run.**
    The parity note lists the full-duplex case as unverified on Hummingbird and Vapor, and that is now stale.
-   [`PendingIssues/14`](../../PendingIssues/14-typed-tier-duplex-routes.md) records it measured: **spike-31**
+   [tachyonics/wire-mvc#173](https://github.com/tachyonics/wire-mvc/issues/173) records it measured: **spike-31**
    established that the transport interleaves on both Hummingbird and Vapor, and **spike-32** drove
    `@RawRoute` duplex end to end on the proposal-native server *and* through `WireMVCServerTransport` on
    Hummingbird, with a raw-socket ping-pong client that cannot pass if either direction buffers.
@@ -369,7 +369,7 @@ of its own sentence that said *route-scope* — twice, since it ended up with no
      context-transforming middleware, which the box does support, therefore reaches no handler either.
 
    **A swift-wire diagnostic bug fell out of the first of those, and belonged to this repository** —
-   [#16](../../CompletedIssues/16-factory-template-scope-hint.md), **since fixed**. Injecting
+   [#337](https://github.com/tachyonics/swift-wire/issues/337), **since fixed**. Injecting
    a scoped binding into a factory template reports `no binding produces 'Caller'` with a guided note —
    *"scope `_WireFactory_ControllerMiddleware_screenAccess` to `@Scoped(seed: HTTPRequest.self)` too, or
    extract the scope-bound concern into a wrapper bound at the wider scope"*. The first half cannot be
@@ -478,7 +478,7 @@ of its own sentence that said *route-scope* — twice, since it ended up with no
 ownership as the open question. That framing is superseded: spikes 31–33 have already run, the ownership
 question came back **yes**, and the design compiles with real bindings — including negative checks (a second
 `send` gives `'responseSender' consumed more than once`; reusing the stream likewise). See
-[`PendingIssues/14`](../../PendingIssues/14-typed-tier-duplex-routes.md).
+[tachyonics/wire-mvc#173](https://github.com/tachyonics/wire-mvc/issues/173).
 
 What remains is not a question but an **upstream blocker**:
 [swiftlang/swift#91473](https://github.com/swiftlang/swift/issues/91473). The response must be `~Escapable`
@@ -670,7 +670,7 @@ treatment #135 gave the registry, and needs no decision — it can land whenever
 be changed quietly: `[String: Substring]` is written into `HTTPServerRouteBuilder.register`'s handler
 shape and into `RequestBound.bind`, the protocol every `@RequestBinding` conforms to, user-written ones
 included — sixteen signature sites in wire-mvc alone. That makes it the same pre-1.0 trade #148 spent on
-the response-header registry, and it is [`PendingIssues/17`](../../PendingIssues/17-path-parameter-shape.md)
+the response-header registry, and it is [tachyonics/wire-mvc#175](https://github.com/tachyonics/wire-mvc/issues/175)
 rather than a line in this phase. Reading the consumers is what forced the split: two of them look up
 **by name at runtime** (`bind` takes a name; `RouteContext` is read by middleware that does not know the
 route template), so the replacement is a view over `parameterNames` and the positional values rather than
@@ -911,7 +911,7 @@ of its own, which left a typed terminal draining in *both* branches of a `do`/`c
 exclusive — so a deferred `onSend` contribution that threw part-way had its already-succeeded siblings run
 again by the `catch`. Not duplicated header fields: the second drain's result is discarded wholesale, so
 the observable defect was a contribution's **side effects happening twice**, on closures deliberately kept
-non-`@Sendable` precisely so they can capture per-request state. Filed as PendingIssues #18 and fixed in
+non-`@Sendable` precisely so they can capture per-request state. Filed as tachyonics/wire-mvc#176 and fixed in
 wire-mvc by giving the drain to the terminals — which is also what finally made `drain()` `consuming`,
 the property #148 was argued on and did not deliver. Both halves of the pair were found by *pulling on the
 ownership annotation*: #155 by re-walking the contribution sites this caveat named, #18 by trying to write
@@ -1102,7 +1102,7 @@ Duplex — reading a request while writing a response — is ordinary in the pro
 handler holds both carriers at once. In a return-based model it has to be reconstructed inside the response
 body callback, after the route function has returned. Vapor's adoption does not support it at all yet: it
 eagerly collects the whole request body before building its `Request`. That is a stronger argument for the
-typed duplex tier in [`PendingIssues/14`](../../PendingIssues/14-typed-tier-duplex-routes.md) than the
+typed duplex tier in [tachyonics/wire-mvc#173](https://github.com/tachyonics/wire-mvc/issues/173) than the
 performance work produced.
 
 ## The `ServerTransport` ceiling, for reference
@@ -1142,6 +1142,6 @@ Growing a milestone to hold work that no longer belongs to it is a worse record 
 The point this section was written to make stands and is now discharged: leaving it unstated was the only
 outcome that was not fine. **What is left to place was small enough to describe in a sentence** by the
 end, which it was not at the start — the router path's remaining allocation group, half of which is now
-[`PendingIssues/17`](../../PendingIssues/17-path-parameter-shape.md), and one upstream pull request. The
+[tachyonics/wire-mvc#175](https://github.com/tachyonics/wire-mvc/issues/175), and one upstream pull request. The
 lent-binding validation step, which this sentence used to name, has shipped. Everything else is either
 done or waiting on [swiftlang/swift#91473](https://github.com/swiftlang/swift/issues/91473).

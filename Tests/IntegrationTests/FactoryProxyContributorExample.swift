@@ -3,7 +3,7 @@ import Wire
 import WireTestLibrary
 import WireTesting
 
-/// H2.2a factory-carrying-proxy regression — a `@RouteController @Scoped(seed:)` subject that also carries a
+/// Factory-carrying-proxy regression — a `@RouteController @Scoped(seed:)` subject that also carries a
 /// lifted `@Factory` (via `@RouteMiddleware(key)`), so its contributor proxy has a `_wireFactory_<key>` field
 /// alongside the scope-entry thunk. The variant facade must bind that factory instance as a local (like the
 /// production bootstrap body) before constructing the variant proxy — else the bare `_WireFactory_<key>`

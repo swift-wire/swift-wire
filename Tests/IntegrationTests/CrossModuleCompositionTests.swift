@@ -3,7 +3,7 @@ import WireTestLibrary
 
 /// Iteration 7c — same-package cross-module composition. `WireTestLibrary`
 /// is a Wire-aware sibling target — it depends on the `Wire` module, which
-/// is what marks it composable since M7b.5 retired the `_WireExports.swift`
+/// is what marks it composable, since the retirement of the `_WireExports.swift`
 /// marker, and it exposes a `public @Singleton LibraryService`. The build
 /// plugin re-parses the library's sources, stamps its bindings with
 /// `originModule: "WireTestLibrary"`, composes them into this target's

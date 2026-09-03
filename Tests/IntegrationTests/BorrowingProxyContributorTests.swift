@@ -1,6 +1,6 @@
 import Testing
 
-/// H2.2a regression gate — a variant-proxy subject that borrows a plain app `@Singleton` (the shape that
+/// Regression gate — a variant-proxy subject that borrows a plain app `@Singleton` (the shape that
 /// reproduced the non-Sendable `_WireGraph` capture bug). Drives the variant proxy and asserts the facade
 /// compiles and behaves: the mock is reached with the borrowed store's value, the teardown runs, and a
 /// sibling sharing the seed is pruned.

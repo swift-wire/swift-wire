@@ -2,9 +2,9 @@ import Testing
 
 @testable import WireGenCore
 
-/// H2.2a gate (emission level) — the doubles-threaded contributor-proxy facade. A shipped variant emits
+/// gate (emission level) — the doubles-threaded contributor-proxy facade. A shipped variant emits
 /// only a seed-scope *facade* returning a scope struct, losing the teardown + per-root pruning an HTTP
-/// adapter reaches request scope through in production (the M5.4 proxy's `_wireEnterScope` thunk). This
+/// adapter reaches request scope through in production (the request scope proxy's `_wireEnterScope` thunk). This
 /// suite drives `renderContributorProxyFacade` over a doubles-threaded variant proxy and asserts the facade
 /// (a) threads the doubles into the `_wireEnterScope` thunk and sources a `@BindType`d binding from
 /// `doubles.<field>`, (b) prunes to the routed subject's reachable subgraph (a sibling subject sharing the

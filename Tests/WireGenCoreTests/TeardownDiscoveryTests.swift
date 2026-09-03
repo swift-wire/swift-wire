@@ -3,7 +3,7 @@ import Testing
 @testable import WireGenCore
 
 /// `@Teardown` discovery (iteration 6): the build plugin recognises and
-/// records teardown actions but emits no teardown calls (that's M4).
+/// records teardown actions but emits no teardown calls (the teardown walk does that).
 /// Covers the two recorded forms, the misuse diagnostics, and the
 /// inert-emission guarantee.
 @Suite("TeardownDiscovery")
@@ -271,7 +271,7 @@ struct TeardownDiscoveryTests {
         #expect(singletons(in: source).first?.teardown == nil)
     }
 
-    // MARK: - Emission (M4 emits the reverse-order teardown walk)
+    // MARK: - Emission (the teardown walk emits the reverse-order teardown walk)
 
     @Test func teardownActionsEmitReverseOrderCalls() throws {
         let scopeBound = DiscoveredBinding.scopeBound(
@@ -330,7 +330,7 @@ struct TeardownDiscoveryTests {
         // possibly-lifted stored property).
         #expect(output.contains("try await pool.teardown()"))
         // Reverse construction order — the later-constructed producer tears down before the earlier
-        // `pool` (dependents before dependencies). Since M7c.5 that order is carried at *runtime* rather
+        // `pool` (dependents before dependencies). Since partial teardown that order is carried at *runtime* rather
         // than by emission order: each action is recorded where its binding is built, so the emitted text
         // is in construction order and the fold walks it `.reversed()`. Recording where the binding exists
         // is what lets the same list serve a partial teardown after a failed init.

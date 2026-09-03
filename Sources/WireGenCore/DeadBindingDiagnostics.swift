@@ -11,8 +11,8 @@
 // `table: ConcreteTable`); that substituted edge lives in the resolved
 // graph's bindings, so feeding those in keeps the concrete producer live.
 //
-// **M7b.4 — this no longer judges a binding any graph's reachability
-// judged.** The first-order check here could not see that a binding
+// **This no longer judges a binding any graph's reachability has
+// already judged.** The first-order check here could not see that a binding
 // consumed solely by another *dead* binding is itself dead; reachability
 // is that fixed point by construction, so wherever a graph is pruned,
 // `prunedBindingDiagnostics` is the dead-code diagnostic and this pass
@@ -22,9 +22,9 @@
 // What is left is the partitions reachability does not judge: **seed
 // scopes**, which are built with `ReachabilityPolicy.none` because the
 // whole-scope façade still constructs every binding in a scope. Their
-// per-root pruning happens at emission instead (M5.4.6's
-// `reachableBindings(from:in:)`), so a scope's graph-level fixed point
-// arrives with M7d, when that façade goes. Within a seed scope the check
+// per-root pruning happens at emission instead
+// (`reachableBindings(from:in:)`), so a scope's graph-level fixed point
+// arrives only when that façade goes entirely. Within a seed scope the check
 // below therefore remains first-order, and that is now the whole of the
 // limitation rather than a property of the analysis everywhere.
 //
@@ -47,11 +47,11 @@
 /// live via its aggregate). Only the annotated binding counts — not the
 /// adapter's declared dependencies, whose use is the adapter's own opaque logic,
 /// so a binding provided solely for an adapter to use stays subject to the
-/// normal check. M1 adapters register in the default graph, so these apply to
+/// normal check. Adapters register in the default graph, so these apply to
 /// the default (`nil`) container.
 /// `judgedByReachability` are the identities some graph's reachability already decided — the retained and
 /// the pruned together, not just the pruned. They are excluded here rather than re-judged, which is what
-/// makes M7b.4 a fold rather than a suppression: a binding a pruned graph kept is live *because a root
+/// makes this a fold rather than a suppression: a binding a pruned graph kept is live *because a root
 /// reaches it*, and one it dropped is reported by `prunedBindingDiagnostics` in terms that say more. What
 /// this pass still judges is what reachability did not — seed-scope partitions.
 ///

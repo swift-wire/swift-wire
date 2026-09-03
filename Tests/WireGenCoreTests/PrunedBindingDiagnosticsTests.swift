@@ -2,7 +2,7 @@ import Testing
 
 @testable import WireGenCore
 
-/// M7b.3's migration diagnostic. Pruning the home module is the milestone's one behaviour change, and
+/// home-module pruning's migration diagnostic. Pruning the home module is the milestone's one behaviour change, and
 /// this is the only place a developer can see it happen — a binding read solely through `graph.x` is gone,
 /// and without a message the first sign would be a "has no member" error at the use site.
 @Suite("Pruned binding diagnostics")
@@ -138,7 +138,7 @@ struct PrunedBindingDiagnosticsTests {
 
     @Test("A binding reachability judged is not judged again by the dead-binding pass")
     func reachabilitySupersedesTheDeadBindingWarning() {
-        // M7b.4's fold. A pruned binding is reported here in terms that say more, and a *retained* one is
+        // The diagnostic fold. A pruned binding is reported here in terms that say more, and a *retained* one is
         // live because a root reaches it — so neither is re-judged by the first-order check. What that
         // check still covers is what reachability did not decide: seed-scope partitions.
         let binding = singleton("UserStore")
@@ -152,7 +152,7 @@ struct PrunedBindingDiagnosticsTests {
         #expect(deadBindingDiagnostics(across: [.default: [binding]]).count == 1)
     }
 
-    // MARK: - The fixed point (M7b.4)
+    // MARK: - The fixed point (the diagnostic fold)
 
     /// A graph built the way WireGen builds the default one, with `root` as the only declared root.
     private func prunedDiagnostics(

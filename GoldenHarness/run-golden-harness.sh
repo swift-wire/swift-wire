@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 #
-# Golden gate — the byte-identical invariant M7b and M8 both lean on.
+# Golden gate — the byte-identical invariant reachability pruning and
+# noncopyable bindings both lean on.
 #
 #   A graph in which every binding is already reachable from a root produces
-#   byte-identical generated output before and after M7b.
+#   byte-identical generated output before and after pruning.
 #
 # The corpus is `Tests/IntegrationTests` — ~70 example files covering containers,
 # seed scopes, contributor proxies, graph conformances, teardown, member

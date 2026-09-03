@@ -1,6 +1,6 @@
 import Testing
 
-/// H2.2a "B" gate — `@BindType` as a true complete-replacement. The eager `@BindType`'d binding (`any
+/// The complete-replacement gate — `@BindType` as a true complete-replacement. The eager `@BindType`'d binding (`any
 /// EagerWidget`, backed by `RealEagerWidget.init`'s side-effect) is DROPPED from the variant app graph, so
 /// `Wire.bootstrapEagerFixture_bindMock()` never constructs it; the keyless `Wire.bootstrap()` keeps it. The
 /// gate asserts the side-effect *directly* via a task-local-scoped init counter (`0` under the variant, `1`

@@ -49,7 +49,7 @@ struct AggregateProxyContributorTests {
         // …while the held peer on the same proxy IS the graph's own app-scoped singleton, not a rebuild.
         #expect(aggregate._wireSubject_AggregateReportController.store === graph.aggregateReportStore)
 
-        // Request-scope teardown (M5.4.5) runs per entry, through the aggregate's own thunk. Asserted
+        // Request-scope teardown (request-scope teardown) runs per entry, through the aggregate's own thunk. Asserted
         // against the seed, since every test in this process bootstraps the graph and they run in
         // parallel — a process-global construction count would be measuring the whole suite.
         #expect(await firstTeardown().isEmpty)
@@ -79,7 +79,7 @@ struct AggregateProxyContributorTests {
     }
 
     @Test func perRootReachabilitySurvivesTheAggregate() async throws {
-        // M5.4.6 — the aggregate's scope entry constructs only the subgraph reachable from its own
+        // per-root reachability — the aggregate's scope entry constructs only the subgraph reachable from its own
         // bridged subject, so a seed-scoped sibling the subject can't reach is never built.
         let graph = try await Wire.bootstrap()
         let entered =

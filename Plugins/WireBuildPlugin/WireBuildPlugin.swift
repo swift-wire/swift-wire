@@ -147,15 +147,15 @@ struct WireBuildPlugin: BuildToolPlugin {
 }
 
 /// Whether `module` can declare Wire bindings — the signal that replaced the hand-declared
-/// `_WireExports.swift` marker in M7b.5.
+/// `_WireExports.swift` marker.
 ///
 /// A target that declares bindings must `import Wire`, which requires a direct dependency on the `Wire`
 /// product, and SPM exposes a dependency target's own dependencies at plan time. So the predicate **cannot
 /// under-fire**: there is no way to write a binding without it being true.
 ///
 /// Over-firing is harmless, which is what makes this usable where the same predicate was not usable for
-/// M7a (there, a false positive declares a build input nothing produces, which is a hard failure). Here a
-/// scanned library that declares no bindings simply contributes none, and — since M7b — anything it does
+/// A manifest route is the opposite case (there, a false positive declares a build input nothing produces, which is a hard failure). Here a
+/// scanned library that declares no bindings simply contributes none, and — since pruning — anything it does
 /// declare that the consumer never reaches is pruned before it can cost anything or fail to resolve.
 ///
 /// Both dependency kinds are matched by name. Inside swift-wire's own package `Wire` is a *target*

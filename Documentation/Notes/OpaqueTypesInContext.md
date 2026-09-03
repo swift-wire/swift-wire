@@ -331,3 +331,7 @@ does not search conformers.
   dormant, useful as a design reference for the no-`dyn` container shape
 - [shaku (Rust)](https://docs.rs/shaku/latest/shaku/) — the counter-example: compile-time
   graph validation that still resolves through `Arc<dyn Interface>`
+
+---
+
+<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

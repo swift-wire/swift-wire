@@ -146,7 +146,7 @@ struct CrossLibraryValidationTests {
     }
 
     @Test func replacesSupersedesDependencyModuleBinding() throws {
-        // The spike-27 shape, end to end through discovery: module `AppServer`
+        // The test-target composition shape, end to end through discovery: module `AppServer`
         // binds `some Repo` with `RealRepo`; the `AppTests` consumer binds a
         // `FakeRepo` carrying a bare `@Replaces`. The merged graph resolves
         // to Fake — RealRepo is dropped, no duplicate-binding error.

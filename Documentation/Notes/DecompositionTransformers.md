@@ -54,7 +54,7 @@ The current bindings assume the input is a `RequestResponseMiddlewareBox` and de
 parameter, a header, a JSON body). But a **transforming** middleware can hand the terminal a *different*
 final box — the terminal's requirement is only *structural* (a `withPendingContents(request, context,
 reader, sender)` shape), **not** "the final box is a `RequestResponseMiddlewareBox`" (proven by
-[spike-21](../../../swift-wire-spikes/spike-21-wiremvc-transforming-rawroute/): `Box<Ctx>` →
+`spike-21`: `Box<Ctx>` →
 `Box<AuthContext>`, read by a raw terminal off the final box's `withPendingContents`). So the general
 form is **decomposition keyed by the input type the handler actually receives** — a transformer declares
 which input types it can decompose, and the generator dispatches on the handler's real input.
@@ -95,3 +95,7 @@ reached for the box roles (see [Archive/WireMVCCodegen.md](../Archive/WireMVCCod
   to a runtime resolver injected from the graph.
 - Registration ergonomics — one adapter-capability case for "declares a decomposition transformer," vs a
   richer descriptor.
+
+---
+
+<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

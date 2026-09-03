@@ -1,4 +1,4 @@
-// Contributor-proxy synthesis — the plugin half of the contributor proxy (M5.3, 3.1c).
+// Contributor-proxy synthesis — the plugin half of the contributor proxy.
 //
 // An adapter annotation declaring `.contributesProxy(to: key, proxyTypePrefix: prefix)` (e.g. WireMVC's
 // `@Controller`) does NOT contribute the annotated binding itself. Its macro generates a peer type
@@ -121,7 +121,7 @@ package func applyContributorProxies(
 
     let reattributed = reattributingInputEdges(useSites, toProxies: proxyBySubject, annotations: annotations)
     // The qualified names of the proxies synthesised here — the plugin renders each one's *structural*
-    // declaration (`renderContributorProxyDeclaration`) into the consumer graph file, since Phase A moves
+    // declaration (`renderContributorProxyDeclaration`) into the consumer graph file, since the plugin owns
     // proxy-type emission out of the adapter macro and into the plugin.
     return (result, reattributed, Set(proxyBySubject.values))
 }
@@ -292,7 +292,7 @@ package func scopeYieldHops(
 ///     seeded subject on an app-scoped proxy would be the cross-scope violation the bridge resolves, so
 ///     instead of the subject the proxy takes a **labelled** scope-entry thunk `(Seed) async throws ->
 ///     Subject` (`_wireEnterScope`) that constructs the subject fresh per request. Its producer is
-///     synthesised in M5.4.2; here we emit the field/dependency.
+///     synthesised by the scope-entry pass; here we emit the field/dependency.
 /// Either way the demanded factory dependencies are appended later by the factory-synthesis pass.
 func contributorProxyBinding(
     for subject: DiscoveredScopeBoundType,
@@ -378,17 +378,17 @@ func contributorProxyBinding(
 ///
 /// The capability's whole contract is that "the adapter's own codegen reads it" directly off the graph —
 /// WireMVC's `@WireMVCBootstrap` generates `let bootstrap = graph.<subject>` — and that read lives in
-/// *another tool's* output file, which M7c.1's retention scan never sees. The scan's own claim that it
+/// *another tool's* output file, which the retention scan never sees. The scan's own claim that it
 /// "cannot under-fire" holds only within swift-wire's own emission; across the adapter boundary it silently
 /// dropped the property, and the app failed to build in generated code it did not write.
 ///
-/// Rooted through `allowUnused` rather than a fourth root kind, because M7b.0 settled that roots are
+/// Rooted through `allowUnused` rather than a fourth root kind, because the roots model settled that roots are
 /// *declared* precisely because Wire reads syntax and never use, and an adapter annotation is a
 /// declaration of exactly that use. It also silences the dead-binding diagnostic, which is equally right:
 /// the binding is consumed, just not anywhere Wire looks.
 ///
 /// Mutated in place rather than rebuilt — a whole-struct rebuild is how `specialiseBinding` silently
-/// dropped this very field once already (M7c.1).
+/// dropped this very field once already.
 private func rootingAdapterReadSubject(
     _ identity: String,
     in bindings: [DiscoveredBinding]?

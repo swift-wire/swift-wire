@@ -369,6 +369,14 @@ extension WireGen {
     /// consumes a `@BindType`'d slot (a mocked `@Inject`). A factory reaching no mock is left alone (it carries
     /// through the proxy unchanged); a mock-consuming one is re-emitted as `_<Variant><FactoryType>` whose
     /// `create(doubles:)` sources the mocked deps from the doubles and holds only the non-mock deps.
+    ///
+    /// **Detection is one hop.** Only the factory's *direct* dependencies are inspected, so a factory that
+    /// reaches the mock through a non-mock intermediate is not classified as mock-consuming and would see the
+    /// real binding under a keyed suite. wire-mvc applies the same rule, so the two agree — and are incomplete
+    /// together rather than divergently. See #331.
+    ///
+    /// Two corners here have no fixture: a mock consumed *only* by a lifted factory and never reached by the
+    /// subject, and more than one mock-consuming factory on a single proxy. See #332.
     static func variantFactoryTransforms(
         proxy: DiscoveredScopeBoundType,
         factories: [SynthesizedFactory],
@@ -442,6 +450,9 @@ extension WireGen {
 /// **constraint** (`Backend: GenAppBackend` → the `GenAppBackend` slot); an existential/concrete dep names the
 /// slot directly (`any Repo` / `some Repo` → `Repo`). The field is named exactly as `applyBindTypeSubstitutions`
 /// does either way, so the factory and the subject share the one doubles field for a shared mock.
+///
+/// The keyed branch below has no fixture: no test drives a *factory* (as opposed to a controller) injecting a
+/// keyed slot, so the field name this derives is not confirmed to agree with wire-mvc's for that shape. See #329.
 private func mockedFactoryDependency(
     _ dependency: DependencyParameter,
     injectedConstraints: [String: String],

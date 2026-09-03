@@ -6,7 +6,7 @@ import WireTestLibrary
 /// each held or bridged independently. The forcing case is an adapter whose framework demands a single
 /// conformer for several user types (WireOpenAPI: `registerHandlers` is emitted once per document and
 /// registers every operation from one handler), so the aggregate is what lets a spec be split across
-/// controllers. Shape proven ahead of the synthesis by spike-29.
+/// controllers. Shape proven by a spike ahead of the synthesis.
 ///
 /// Three subject shapes on one proxy:
 ///   • `AggregateReportController` — app-scoped `@Singleton`, **held** (`_wireSubject_…`);
@@ -54,7 +54,7 @@ final class AggregateRequestResource: Sendable {
     func close() { AggregateConstructionLog.shared.record("teardown-\(seed.id)") }
 }
 
-/// A seed-scoped sibling the bridged subject cannot reach — per-root reachability (M5.4.6) means the
+/// A seed-scoped sibling the bridged subject cannot reach — per-root reachability (per-root reachability) means the
 /// aggregate's scope entry must not construct it.
 @Scoped(seed: AggregateRequestSeed.self, allowUnused: true)
 struct AggregateUnreachableSibling: Sendable {
@@ -74,7 +74,7 @@ struct AggregateTaskController: Sendable {
 
 // MARK: - held subjects
 
-// `allowUnused:` for its M7c.1 meaning rather than its diagnostic one: the aggregate reaches this
+// `allowUnused:` for its retention narrowing meaning rather than its diagnostic one: the aggregate reaches this
 // binding, so it is constructed either way — the annotation is what keeps it *stored* on the graph, which
 // is how `AggregateProxyContributorTests` asserts the aggregate holds the graph's own singleton.
 @Singleton(allowUnused: true)

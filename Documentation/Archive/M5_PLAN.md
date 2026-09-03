@@ -22,9 +22,9 @@ iteration runs end-to-end and has a validation gate.
 > (over the proposal's `HTTPServer`); `some ServerTransport` is **retained as an opt-in
 > adapter** (`WireMVCServerTransport`, behind a `ServerTransport` package trait) so
 > Hummingbird/Vapor mount the same controllers. Proven by
-> [spike-12](../../../swift-wire-spikes/spike-12-wiremvc-proposal-native/),
-> [spike-13](../../../swift-wire-spikes/spike-13-wiremvc-servertransport-bridge/), and
-> [spike-14](../../../swift-wire-spikes/spike-14-wiremvc-streaming/). Where sentences below still
+> `spike-12`,
+> `spike-13`, and
+> `spike-14`. Where sentences below still
 > read "the target is `some ServerTransport`," take that as the adapter path; the load-bearing
 > passages (the model paragraph, M5.0–M5.5, the open decisions) are updated inline.
 
@@ -55,7 +55,7 @@ streaming, SSE, proxying — falls into a catch-all route whose handler takes th
 raw primitives (`consuming sending Reader` / `ResponseSender`, the exact `RoutableHTTPServerBuilder`
 signature) and is registered verbatim, skipping decode/encode. Middleware can still wrap it.
 One catch-all, not a growing list of special-case annotations.
-[spike-14](../../../swift-wire-spikes/spike-14-wiremvc-streaming/) proves SSE streams through it
+`spike-14` proves SSE streams through it
 end-to-end — natively *and* through the `ServerTransport` adapter with real backpressure — so
 streaming needs no framework-specific adapter. **WebSocket is the exception:** an upgrade
 isn't a response body, so it's escape-to-framework (registered directly on the framework, with
@@ -104,15 +104,15 @@ WireMVC coexisting), not a WireMVC route — see the scope boundary.
   `@OpenAPIController`/`@HummingbirdController`. No new contract form.
 - **Graph-conformance emission** — `extension _WireGraph: TransportComposable`, emitted
   by Core knowing nothing about HTTP (M2.1, shipped). Reused verbatim.
-- **Type-level macro walking method-level annotations** — [spike-2](../../../swift-wire-spikes/spike-2-macro-member-walk/)
+- **Type-level macro walking method-level annotations** — `spike-2`
   PASSED: a type-level `@Controller` macro reading its members' `@Get`/`@Path`
   annotations is mechanically viable. M5 is contract/codegen design, not macro
   de-risking.
 - **The `BuilderKey`→opaque-member fold** — the shipped-but-unused-in-M2 emission
   (`var x: some P<…> { self.prop }`) is what the *global* standard-`Middleware`
   aggregation (M5.5, option iii) exercises. Parameterized-opaque lifting proven by
-  [spike-7](../../../swift-wire-spikes/spike-7-iteration-10-lifting/) Proof 2.
-- **Request-scope foundation** — [spike-8](../../../swift-wire-spikes/spike-8-hummingbird-request-scope/)
+  `spike-7` Proof 2.
+- **Request-scope foundation** — `spike-8`
   (request-scope entry), seeded-scope construction (`bootstrap<Seed>Scope`,
   iteration 4), the `@Inject weak var` back-reference pattern, and per-root
   reachability materialisation are M5.4's engine, carried forward from M2's
@@ -124,7 +124,7 @@ WireMVC's **typed core** covers request→response handlers with structured
 params and encoded bodies. Explicitly **out of the typed core, into the raw
 escape hatch (M5.2):** streaming responses, server-sent events, and proxying (all still
 request→response, so the raw `RoutableHTTPServerBuilder` handler carries them — proven by
-[spike-14](../../../swift-wire-spikes/spike-14-wiremvc-streaming/)). **WebSocket upgrades are
+`spike-14`). **WebSocket upgrades are
 neither typed-core nor raw-handler:** an upgrade isn't a request→response body, so it's
 escape-to-framework (registered on the framework directly, WireMVC coexisting), not a WireMVC
 route — the only case that could ever justify a framework-specific adapter. Explicitly **not
@@ -208,9 +208,9 @@ against a fixed shape.
   onto Hummingbird/Vapor. This **resolves** the OpenAPI-branded-dependency cost rather than
   accepting it: the core depends only on `swift-http-api-proposal`; OpenAPIRuntime is a
   dependency of the opt-in adapter alone. Proven by
-  [spike-12](../../../swift-wire-spikes/spike-12-wiremvc-proposal-native/) (native routing over
-  `HTTPServer.serve`), [spike-13](../../../swift-wire-spikes/spike-13-wiremvc-servertransport-bridge/)
-  (the bridge), and [spike-14](../../../swift-wire-spikes/spike-14-wiremvc-streaming/) (streaming
+  `spike-12` (native routing over
+  `HTTPServer.serve`), `spike-13`
+  (the bridge), and `spike-14` (streaming
   through both).
 - **Annotation vocabulary.** Fix the surface: `@Controller(path)`; verb annotations
   `@Get`/`@Post`/`@Put`/`@Delete`/`@Patch(subpath)`; param annotations
@@ -249,14 +249,14 @@ proposal server, `ServerTransport` as an opt-in adapter; dynamic dispatch with t
 route-descriptor table as portability layer; the `@Controller` / `@Get…` /
 `@Path`·`@Query`·`@JSONBody`·`@Header` / `@JSONResponse` / `@ResponseStatus` surface;
 `@JSONBody` content-type rules). Four spikes prove the target:
-[spike-11](../../../swift-wire-spikes/spike-11-wiremvc-servertransport/) hand-writes the decoded
+`spike-11` hand-writes the decoded
 witness and serves all six surface behaviors in-process (`@Path` decode, `@JSONBody`
 415/422/lenient, `@JSONResponse(status:)`, `@ResponseStatus(.noContent)` → 204) — establishing
-the decode/encode/status logic; [spike-12](../../../swift-wire-spikes/spike-12-wiremvc-proposal-native/)
+the decode/encode/status logic; `spike-12`
 moves the registration target to `builder.register` and serves on a real `NIOHTTPServer`;
-[spike-13](../../../swift-wire-spikes/spike-13-wiremvc-servertransport-bridge/) drives the same
+`spike-13` drives the same
 witness through `some ServerTransport` (the retained adapter); and
-[spike-14](../../../swift-wire-spikes/spike-14-wiremvc-streaming/) streams SSE through both. So
+`spike-14` streams SSE through both. So
 M5.1 codegen has a validated proposal-native target to emit against, and the `ServerTransport`
 adapter has a validated bridge.
 
@@ -331,7 +331,7 @@ hard cases have one uniform exit.
 **Validation gate:** an SSE or streaming example (`server-sent-events`,
 `response-body-processing`) ports via the raw handler and streams a response in-process — on
 the proposal server *and* through the `ServerTransport` adapter.
-[spike-14](../../../swift-wire-spikes/spike-14-wiremvc-streaming/) already discharges the shape
+`spike-14` already discharges the shape
 (a raw SSE handler streaming both ways, with real backpressure); the gate is met once the
 macro spelling and the adapter's streaming path land. **Not this gate:** `websocket-*`
 (escape-to-framework — see scope boundary) and `http2` (a transport concern, not a WireMVC
@@ -356,7 +356,7 @@ Controller- and route-scoped middleware as nested wrappers; the standard
 > *forwarding* conformances for the specialisations the folds surface. Concrete and
 > generic-dep-free middleware rest on generic `@Provides` factories with no Core change. The fold is
 > **witness-local concrete** codegen, *not* a `BuilderKey`/opaque fold —
-> [spike-15](../../../swift-wire-spikes/spike-15-wiremvc-opaque-middleware-fold/) found the opaque
+> `spike-15` found the opaque
 > graph-binding form isn't expressible (`Middleware` can't partial-bind its two primary associated
 > types), so there is nothing opaque to build. The one Core-codegen item the design reduces to is
 > the **generic-with-deps** tier: the middleware is declared `@Factory(key) @MiddlewareFactory` and
@@ -419,15 +419,15 @@ Controller- and route-scoped middleware as nested wrappers; the standard
 **Why now:** middleware is the first thing that makes the codegen more than a
 route-registration convenience. It precedes request scope only nominally — see M5.4.
 (The per-route chain is a **witness-local concrete** fold, not the `BuilderKey`→opaque-member fold —
-[spike-15](../../../swift-wire-spikes/spike-15-wiremvc-opaque-middleware-fold/) found the opaque form
+`spike-15` found the opaque form
 isn't expressible for `Middleware` and isn't needed here; see
 [Notes/WireMVCMiddleware.md](../Notes/WireMVCMiddleware.md), *What this rests on*. The `BuilderKey`
 opaque/erased fold remains relevant only to M5.5's *global* context-free aggregation.)
 
 **Validation gate:** `open-telemetry` ports (pure-interception tracing,
 `Input == NextInput`). The *type-transforming* property is proven at the **type level** by
-[spike-15](../../../swift-wire-spikes/spike-15-wiremvc-opaque-middleware-fold/) /
-[spike-21](../../../swift-wire-spikes/spike-21-wiremvc-transforming-rawroute/) (a middleware
+`spike-15` /
+`spike-21` (a middleware
 transforming the box — `Box<Ctx>` → `Box<AuthCtx>` — read by a *raw* terminal off the final
 box), **not** by a typed handler projecting a middleware-produced value off its parameters:
 the shipped terminal discards the `RequestContext` (`contextName: "_"`), so **handler-parameter

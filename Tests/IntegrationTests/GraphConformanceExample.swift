@@ -1,6 +1,6 @@
 import Wire
 
-// M2.1 end-to-end: a `WireGraphConformanceV1` makes the generated `_WireGraph`
+// graph conformance end-to-end: a `WireGraphConformanceV1` makes the generated `_WireGraph`
 // conform to an app-declared protocol, mapping a member to a `CollectedKey`'s
 // product. The protocol's associated `Context` is inferred from the witness's
 // element type — the load-bearing associated-type inference, exercised through the

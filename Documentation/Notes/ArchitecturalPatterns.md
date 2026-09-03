@@ -334,3 +334,7 @@ Wire's positioning extends naturally from "DI framework" to
 "graph-resolution framework where construction is computation";
 documenting the trajectory now preserves the option to claim
 that territory explicitly as adopter patterns make it concrete.
+
+---
+
+<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

@@ -6,7 +6,7 @@
 > (pre-1.0 polish, deferred features, post-M1 milestones) moved to
 > [ROADMAP.md](../../ROADMAP.md).
 
-This was the implementation plan for M1 of swift-wire — the milestone where the core graph, build plugin, validation, multi-module composition, and adapter-annotation contract land. M0's validation spikes have all passed (see [the spikes repo](../../../swift-wire-spikes)) and the design committed in [README.md](../../README.md) is ready to build against.
+This was the implementation plan for M1 of swift-wire — the milestone where the core graph, build plugin, validation, multi-module composition, and adapter-annotation contract land. M0's validation spikes have all passed (see the spikes repository) and the design committed in [README.md](../../README.md) is ready to build against.
 
 The plan is **iterative**, not waterfall. Each iteration builds on the previous and produces something that runs end-to-end. Iteration boundaries will move as implementation surfaces things the design didn't anticipate; the order is what matters.
 

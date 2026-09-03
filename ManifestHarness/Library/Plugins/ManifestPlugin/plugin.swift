@@ -1,7 +1,7 @@
 import Foundation
 import PackagePlugin
 
-/// The producer half: emits a per-library manifest into this target's plugin
+/// The producer half (see #338): emits a per-library manifest into this target's plugin
 /// work directory, alongside a generated Swift marker.
 ///
 /// The marker exists to keep the command *needed*. A build command whose only

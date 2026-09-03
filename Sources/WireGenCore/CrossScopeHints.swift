@@ -205,7 +205,7 @@ private func consumerTypeName(_ consumer: DiscoveredBinding) -> String {
 /// consumed key and has no declaration to annotate, and the template that *does* have one cannot take a
 /// scope macro either — `@Factory` is itself a lifetime, and lifetimes are alternatives. The message
 /// therefore names the template, states the constraint that actually bites, and offers only moves that
-/// can be written. See `PendingIssues/16`, where following the old advice took a reader from one error
+/// can be written. See #337, where following the old advice took a reader from one error
 /// to three.
 ///
 /// The fix-it message follows the Swift compiler's `note:` tone —

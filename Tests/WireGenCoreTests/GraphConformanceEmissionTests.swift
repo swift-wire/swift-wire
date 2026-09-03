@@ -2,7 +2,7 @@ import Testing
 
 @testable import WireGenCore
 
-/// M2.1: graph-conformance emission. Pins that a discovered
+/// graph conformance: graph-conformance emission. Pins that a discovered
 /// `WireGraphConformanceV1` emits `extension _WireGraph: <Protocol>`, mapping each
 /// member to the aggregate binding for its multibinding key — the member's type
 /// spelled from the aggregate's product type so the protocol's associated types

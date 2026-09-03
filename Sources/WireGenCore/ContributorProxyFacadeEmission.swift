@@ -1,8 +1,8 @@
 // Contributor-proxy facade emission — the test-graph variant's doubles-threaded reach into request scope.
 //
-// A shipped M6a variant emits only a seed-scope *facade* (`Wire.bootstrap<Variant>_<Seed>Scope`) returning
+// A shipped test-graph variant emits only a seed-scope *facade* (`Wire.bootstrap<Variant>_<Seed>Scope`) returning
 // a scope *struct*, which loses the teardown and the per-root pruning an HTTP adapter reaches request scope
-// through in production (the M5.4 contributor proxy's `_wireEnterScope(seed)` thunk). This file emits the
+// through in production (the contributor proxy's `_wireEnterScope(seed)` thunk). This file emits the
 // missing piece: for a bridging contributor proxy over a `@Scoped(seed:)` subject that a variant touches,
 // a *distinct* variant proxy (`_<Variant>_<ProductionProxy>`) whose `_wireEnterScope` thunk threads the
 // variant's `_<Key>Doubles` alongside the seed, plus a `Wire.bootstrap<Variant>_<Subject>Contributor`
@@ -17,7 +17,7 @@
 
 /// Render the `Wire.bootstrap<...>Contributor(wireGraph:)` facade for one doubles-threaded variant proxy —
 /// an `extension Wire` whose static method borrows the reused production graph, emits the proxy's
-/// doubles-threaded scope-entry thunk (the same tuple + per-root pruning + Phase-2 `@Scopable` cascade the
+/// doubles-threaded scope-entry thunk (the same tuple + per-root pruning + the `@Scopable` cascade the
 /// production thunk uses, driven from `scope`), and constructs the variant proxy. The app-singletons the
 /// thunk borrows — and the proxy's own lifted input edges (its `_wireFactory_<key>` / adapter dependencies)
 /// — are bound as `let <local> = _wireGraph.<local>` locals *outside* the `@Sendable` thunk, so the thunk

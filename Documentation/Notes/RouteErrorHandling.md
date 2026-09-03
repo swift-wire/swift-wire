@@ -220,3 +220,7 @@ the terminal the only sender-holder.
     (`@ErrorResponse(MyErrorHandler.self)` / a distinct annotation) and lifted via `.injectsFromGraph`,
     for a mapping that needs `@Inject`ed deps. This is the reserved home for the "form 2" ergonomics.
     Lands when an example forces injected deps in a mapping.
+
+---
+
+<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

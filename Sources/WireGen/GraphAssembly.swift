@@ -42,8 +42,8 @@ func orchestrateSeedScopes(
     }
 }
 
-/// The pruning policy for one container's app graph — drop every binding nothing reaches (M7b.3;
-/// M7b.2 spared the home-module half).
+/// The pruning policy for one container's app graph — drop every binding nothing reaches, home-module
+/// bindings included. (The first cut of reachability pruning spared the home-module half; this does not.)
 ///
 /// Conformances only on the default graph: that is where `appendAllGraphConformances` emits them, so a
 /// `@Container`'s aggregate is never the witness for a protocol member. The borrow set is this

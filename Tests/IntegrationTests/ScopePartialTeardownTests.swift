@@ -1,6 +1,6 @@
 import Testing
 
-/// PendingIssues/21's gate — a scope entry that throws unwinds what it had already built.
+/// #339's gate — a scope entry that throws unwinds what it had already built.
 ///
 /// Serialized because both scopes write to one module-scope recorder: a thrown entry returns nothing to
 /// hang a per-entry recorder off, which is the same constraint `PartialTeardownTests` works under.

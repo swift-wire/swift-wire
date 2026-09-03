@@ -7,7 +7,7 @@
 /// reference (`MyTests.testSetup`), from which the build plugin derives the
 /// variant's doubles-struct type name (`_MyTests_testSetupDoubles`).
 ///
-/// Declare one as a static member and attach `@BindType` (and, from Phase 2,
+/// Declare one as a static member and attach `@BindType` (and, for the cascade,
 /// `@Scopable`) to it to describe the substitutions the variant applies:
 ///
 ///     enum MyTests {
@@ -38,7 +38,7 @@
 /// build, so they cannot drift.
 ///
 /// No adapter dispatches on this yet — wire-mvc serves one key per target and
-/// rejects a second (`PendingIssues/11`), because serving several needs the
+/// rejects a second (#336), because serving several needs the
 /// per-key doubles model reworked, not this identity. The capture is here
 /// because it is the piece that would otherwise be missing, and it is free.
 ///

@@ -2,7 +2,7 @@ import Testing
 
 @testable import WireGenCore
 
-/// M5.5 front layer — the keyless contributor proxy (`.liftsPeersToProxy`). WireMVC's `@WireMVCBootstrap`
+/// The composition root's front layer — the keyless contributor proxy (`.liftsPeersToProxy`). WireMVC's `@WireMVCBootstrap`
 /// synthesises a proxy that lifts the composition root's global `@Middleware` factories onto itself
 /// (reattribution + factory synthesis, exactly as `@Controller` does) but contributes to **no** multibinding
 /// — a standalone, directly-addressable binding the front layer reads to fold the global tier. Confirms the

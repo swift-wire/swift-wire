@@ -9,7 +9,7 @@
 > chosen for still runs on M3's adapter.
 >
 > The M6d.0 gate was run on Swift 6.3.3 and the 6.4 snapshot, swift-openapi-generator 1.x, macOS —
-> [spike-28](../../../swift-wire-spikes/spike-28-openapi-plugin-coexistence/); results and the three
+> `spike-28`; results and the three
 > findings that shaped this note are in *Spike results*.
 >
 > **How to read it.** Where building changed a decision the original reasoning is kept and marked rather
@@ -330,7 +330,7 @@ M5 to match `ServerTransport`/OpenAPI path strings.
   (`_wireSubject_ReportController`) keeps today's emission byte-identical, leaves wire-mvc's 23
   references untouched, and keeps the 850 lines of existing proxy integration tests and the golden
   emission tests valid. New tests are then purely additive.
-- ~~Generic controllers — bound it~~ — **no restriction needed** ([spike-29](../../../swift-wire-spikes/spike-29-wire-aggregate-proxy/),
+- ~~Generic controllers — bound it~~ — **no restriction needed** (`spike-29`,
   finding 1). The design feared a generic-parameter union with collision renaming and proposed limiting
   v1 to one generic subject. The existing transitive-lift machinery already carries two independent
   ones: a binding depending on `SearchController<Backend>` and `AuditController<Sink>` emits
@@ -870,7 +870,7 @@ below can be judged against what actually happened rather than against what was 
   nothing and multi-controller support arrives with no second cutover. (Borne out: when the constraint
   was lifted in M6d.3, swift-wire needed no change at all — the aggregate already named a lone subject
   positionally and labelled each of several, deciding hold-vs-bridge per subject.)
-- **M6d.0c — the aggregate capability.** ✅ **De-risked** — [spike-29](../../../swift-wire-spikes/spike-29-wire-aggregate-proxy/)
+- **M6d.0c — the aggregate capability.** ✅ **De-risked** — `spike-29`
   proved the shape: one aggregate holding hold, bridge and generic subjects at once, with per-request
   identity, teardown and per-root pruning all intact, driven by a *real* plugin-emitted scope-entry
   thunk. Remaining work is the synthesis: one-per-group proxy building, the N-ary dependency list,
@@ -1018,7 +1018,7 @@ branch, so a break appears on the next update rather than in the PR that caused 
 ## Risks and open questions
 
 - ~~The aggregate capability is unpriced~~ — **priced and de-risked**: a sub-iteration, not a
-  milestone, and [spike-29](../../../swift-wire-spikes/spike-29-wire-aggregate-proxy/) removed its one
+  milestone, and `spike-29` removed its one
   unbounded tail (the generic union). The emission side is bounded to six known call sites; the
   synthesis side is new code with no unknowns left in it.
 - ~~Where scope entry lives~~ — **settled: the route terminal**, matching M5.4.3 (see *Request scope*).
@@ -1132,4 +1132,8 @@ module-qualified.
   WireOpenAPI becomes the second consumer of.
 - [AdapterModel.md](AdapterModel.md) — the capability contract.
 - `Sources/WireGenCore/ContributorProxyEmission.swift` — the body hole and its field-name contract.
-- [spike-28](../../../swift-wire-spikes/spike-28-openapi-plugin-coexistence/) — the M6d.0 gate.
+- `spike-28` — the M6d.0 gate.
+
+---
+
+<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

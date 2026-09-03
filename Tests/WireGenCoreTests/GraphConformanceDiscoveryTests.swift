@@ -2,7 +2,7 @@ import Testing
 
 @testable import WireGenCore
 
-/// M2.1: graph-conformance declarations. These pin that `WireGraphConformanceV1`
+/// graph conformance: graph-conformance declarations. These pin that `WireGraphConformanceV1`
 /// declarations are discovered anywhere in source with their protocol name and
 /// member-to-key mappings (read syntactically — the referenced types needn't
 /// exist), and that non-matching declarations are ignored.

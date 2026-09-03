@@ -1,6 +1,6 @@
 import SwiftSyntax
 
-// Contribution-alias resolution — the M2.3 replacement for the `_wireRegister`
+// Contribution-alias resolution — the replacement for the retired `_wireRegister`
 // side-effect. An adapter declares `WireAdapterAnnotationV1(annotation: "X",
 // capability: .contributes(to: key))`, meaning the attribute `@X` on a binding is an
 // alias for `@Contributes(to: key)`. Use-sites are captured name-agnostically (the

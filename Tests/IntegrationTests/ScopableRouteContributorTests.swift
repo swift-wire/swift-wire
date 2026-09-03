@@ -1,6 +1,6 @@
 import Testing
 
-/// Phase-1 gate — `@Scopable` extended to an app-scoped (`@Singleton`) route contributor. The variant app
+/// Seedless gate — `@Scopable` extended to an app-scoped (`@Singleton`) route contributor. The variant app
 /// graph drops `AppScopedController` (and its slot + hold proxy), so `Wire.bootstrap<Variant>()` never
 /// constructs it; the keyless `Wire.bootstrap()` keeps it. The seedless variant proxy rebuilds the controller
 /// on demand from the doubles alone — `_wireEnterScope(doubles)`, no seed — so the mock reaches it.

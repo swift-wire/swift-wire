@@ -4,7 +4,7 @@ import Testing
 
 @Suite("CodeEmission")
 struct CodeEmissionTests {
-    // M7c.1 — the fixture bindings below are built `allowUnused: true`, which makes each a *retention
+    // retention narrowing — the fixture bindings below are built `allowUnused: true`, which makes each a *retention
     // root* and so keeps it a stored property on the emitted graph. That is deliberate: these tests are
     // about construction order, naming, member injection and the lift machinery, and a graph whose
     // bindings are all unretained would express every one of those expectations through an
@@ -1158,7 +1158,7 @@ struct CodeEmissionTests {
                 singleton("Beta"),
                 collectedAggregate("ServiceKey.services", element: "any Service", contributors: ["Alpha", "Beta"]),
             ],
-            // M7c.1 — an aggregate is retained when its key is a root, which is the key-level form of the
+            // retention narrowing — an aggregate is retained when its key is a root, which is the key-level form of the
             // `allowUnused:` the other fixtures here carry. Without it the aggregate is still folded and
             // still introspected; it just stops being a stored property, which is not what this test is
             // about.

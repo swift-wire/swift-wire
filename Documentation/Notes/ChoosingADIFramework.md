@@ -425,3 +425,7 @@ Not exhaustive. Use as a starting point.
   maintainer) for readers evaluating production adoption.
 - Cross-references to Swift Server Workgroup recommendations once
   they exist for the DI space.
+
+---
+
+<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

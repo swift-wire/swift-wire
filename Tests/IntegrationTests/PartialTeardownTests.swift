@@ -1,6 +1,6 @@
 import Testing
 
-/// M7c.5's gate — a bootstrap that throws partway tears down what it had already built, in reverse, and
+/// partial teardown's gate — a bootstrap that throws partway tears down what it had already built, in reverse, and
 /// then rethrows the *original* error.
 ///
 /// Serialized because both containers write to one module-scope recorder: a failed bootstrap returns no

@@ -1,6 +1,6 @@
 // Factory role-mapping computation — the join of a `.mapsFactoryRoles` annotation (the adapter's
 // ordered role vocabulary) to a `@Factory` template, producing the per-parameter role assignment the
-// emitter uses to order the synthesised `create` (M5.3, 3.2). Domain-free: roles are opaque ordered
+// emitter uses to order the synthesised `create`. Domain-free: roles are opaque ordered
 // identifiers supplied by the adapter.
 
 /// A generic parameter is *injected* iff it appears in an `@Inject` dependency's type (bare, or as a

@@ -91,10 +91,10 @@ private func scopeEntryThunkLines(
     // (`MeController<CouchDBTodoRepository>`) instead of an unspellable `some P` closure-return type, and
     // the proxy's generic parameter is inferred from the passed closure. (`thunkType` still names the local
     // so the proxy's construction argument resolves to it by identity.)
-    // Per-root reachability (M5.4.6): construct — and, below, tear down — only the bindings reachable from
+    // Per-root reachability: construct — and, below, tear down — only the bindings reachable from
     // the routed controller, so two controllers sharing a seed don't build each other's subgraphs. `nil`
     // means no pruning (the scope carried no edges, or no root binding was found): whole-scope, the
-    // pre-M5.4.6 behaviour. Yields widen the root *set* rather than replacing it — a yielded binding and
+    // the unpruned behaviour. Yields widen the root *set* rather than replacing it — a yielded binding and
     // the subject are two independent entry points into the same scope, and the union is what both need.
     let reachable = reachableBindings(from: [subjectLocal] + yieldLocals, in: scope)
 
@@ -125,7 +125,7 @@ private func scopeEntryThunkLines(
         if scope.borrowedBindingPropertyNames.contains(name) { return false }
         return name != constructionExpression(for: binding)
     }
-    // M7c.6 — a request scope is scheduled on the same terms the bootstrap is, and for a better reason:
+    // A request scope is scheduled on the same terms the bootstrap is, and for a better reason:
     // this runs per request rather than once. The regions are computed over the *pruned* set, so two roots
     // into one scope can reach different plans, which is correct — each builds only what it needs.
     // A group binding that reads a *closure* local — the seed, `doubles`, or a borrowed singleton — would
@@ -155,7 +155,7 @@ private func scopeEntryThunkLines(
     // the borrowed singletons, which are torn down at app scope), pruned to the reachable set so a request
     // to one controller never tears down a sibling's binding. Captures the construction locals above, so it
     // runs against each binding's concrete instance. Returned alongside the subject; the witness runs it
-    // after the response (M5.4.5). Consistent with the graph's captured `_wireTeardown`.
+    // after the response. Consistent with the graph's captured `_wireTeardown`.
     body.append(
         contentsOf: tailIndent(
             torn
@@ -254,7 +254,7 @@ private func scopeConstructionLines(
     // No `_wireSendableChecks` here, deliberately: `#sourceLocation` is a top-of-file directive and
     // derails the parse from inside a closure. What is lost is the *located* half of the diagnostic; the
     // marker enum's own error still names the case, the type and — in a note — the user's declaration,
-    // which M7c.3 measured as the better of the two anyway.
+    // which was measured as the better of the two anyway.
     // Two levels, not one: these are emitted for module scope, where the graph's own declarations sit at
     // column zero, and here they are two levels in — inside the thunk closure, inside the bootstrap body.
     lines.append(

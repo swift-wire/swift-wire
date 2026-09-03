@@ -4,7 +4,7 @@
 /// `IntrospectionEmission.swift`; the shared `propertyName` helper lives there.
 ///
 /// The pair is emitted together because the struct's stored properties and the bootstrap's memberwise
-/// init have to agree exactly, and since M7c.1 neither is decided here — both are reserved as placeholder
+/// init have to agree exactly, and neither is decided here — both are reserved as placeholder
 /// lines and filled by `resolveStoragePatches` once the whole file exists. See `Retention.swift`.
 
 /// The inputs every graph struct in one generated file shares. The default graph, each `@Container`
@@ -25,8 +25,8 @@ struct GraphEmissionContext {
     let multibindingKeys: [DiscoveredMultibindingKey]
     let externalModules: Set<String>
 
-    /// The M7b root model for one graph — what it must construct even though nothing in it consumes
-    /// them, and since M7c.1 the core of what it *stores*. See `Retention.swift`.
+    /// The root model for one graph — what it must construct even though nothing in it consumes
+    /// them, and the core of what it *stores*. See `Retention.swift`.
     func roots(for order: [DiscoveredBinding], isDefaultOrVariant: Bool) -> Set<BindingIdentity> {
         declaredRoots(
             in: bindingsByIdentity(order),
@@ -191,7 +191,7 @@ func appendStruct(
     // gets a captured `_wireTeardown` property only when this is non-empty, the bootstrap builds
     // that closure from it, and `teardown()` delegates to it.
     let torn = topologicalOrder.reversed().filter { $0.teardown != nil }
-    // M7c.1 — which of these are *stored* depends on what the rest of the file reads off this graph, and
+    // Which of these are *stored* depends on what the rest of the file reads off this graph, and
     // that text does not exist yet. Reserve the slot and let `resolveStoragePatches` fill it once every
     // scope, facade and conformance has been emitted. Same for the memberwise-init call below, whose
     // argument list has to match the property list exactly.
@@ -234,7 +234,7 @@ func appendStruct(
         return
     }
 
-    // M7c.4 — a qualifying graph builds its prefix on the linear chain, schedules the region that can
+    // A qualifying graph builds its prefix on the linear chain, schedules the region that can
     // overlap, and returns to the chain for the suffix and the post-construction tail. See `schedulerPlan`.
     appendConstructionBody(
         structName: structName,
@@ -250,11 +250,11 @@ func appendStruct(
 
 /// The bootstrap's construction body, in whichever of the two shapes the plan calls for.
 ///
-/// **Without a plan** it is the linear `let` chain every graph took before M7c.2, byte for byte.
+/// **Without a plan** it is the linear `let` chain every graph took before scheduling existed, byte for byte.
 ///
 /// **With one** it is chain → group → seam → chain, and the *tail* — the member-injection block, the
 /// captured teardown closure and the memberwise init — is emitted once, the same lines either way, because
-/// the seam has already turned every scheduled binding back into a local. That is what keeps M7c.4 small:
+/// the seam has already turned every scheduled binding back into a local. That is what keeps the region split small:
 /// nothing after the drain has to know a scheduler exists. See
 /// [ConstructionScheduling.md](../../Documentation/Notes/ConstructionScheduling.md) § "The scheduled
 /// region".
@@ -272,7 +272,7 @@ private func appendConstructionBody(
     // threading it through would put the parameter list past what the linter allows.
     let torn = topologicalOrder.contains { $0.teardown != nil }
 
-    // M7c.5 — the construction lines, built before they are placed, because two decisions read them: the
+    // The construction lines, built before they are placed, because two decisions read them: the
     // `try` scan that decides whether a `catch` would be reachable, and the indent, which shifts by one
     // level if the body ends up inside a `do`.
     var body = constructionRegionLines(
@@ -295,12 +295,12 @@ private func appendConstructionBody(
     // Final return — memberwise init takes one argument per stored property in declaration order. Label is
     // the property name; value is the matching local. The captured teardown, when present, is the trailing
     // stored property and is passed last. Reserved here and patched once the whole file exists, because
-    // *what* is stored is decided by what the rest of the file reads off this graph (M7c.1).
+    // *what* is stored is decided by what the rest of the file reads off this graph.
     let returnPlaceholderOffset = body.count
     body.append(storagePlaceholder)
     if plan != nil { body.append(contentsOf: schedulerBootstrapClosingLines()) }
 
-    // M7c.5 — wrap in `do`/`catch` only when there is something to tear down *and* something that can
+    // Partial teardown: wrap in `do`/`catch` only when there is something to tear down *and* something that can
     // throw. A `do` block that cannot throw draws `'catch' block is unreachable`, and a graph with no
     // `@Teardown` binding has nothing to unwind, so both keep the body they always had.
     let unwinds = torn && canThrow
@@ -421,7 +421,7 @@ private func chainConstructionLines(
         // line the consumers share rather than a conversion repeated at each
         // argument site. See `ExistentialPromotion`.
         lines.append(contentsOf: existentialAliasLines(aliases.afterConstruction[binding.identity], boundTo: local))
-        // M7c.5 — record the teardown action here, where the binding is known to exist. On a later throw
+        // Record the teardown action here, where the binding is known to exist. On a later throw
         // the `catch` walks what was accumulated; on success the same list becomes `_wireTeardown`.
         if accumulatesTeardown {
             lines.append(contentsOf: teardownActionAppendLines(for: binding, indent: "    "))

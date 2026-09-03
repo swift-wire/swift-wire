@@ -1,7 +1,7 @@
 import Testing
 import Wire
 
-/// M4 end-to-end: the generated graph conforms to `Teardownable` and its `teardown()`
+/// The teardown walk, end-to-end: the generated graph conforms to `Teardownable` and its `teardown()`
 /// runs each `@Teardown` action in reverse construction order — dependents before the
 /// dependencies they hold. Drives the `TeardownExample` fixture through a real bootstrap.
 @Suite("Teardown (end-to-end)")

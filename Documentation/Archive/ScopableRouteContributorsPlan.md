@@ -4,7 +4,7 @@
 > reconstruction for app-scoped route contributors, including the generic subject and the generic
 > mock-consuming middleware factory (`create(doubles:)`), proven end-to-end by the wire-mvc-examples un-gate
 > (#32). Retained as implementation history; the "for review before building" framing and any "NEXT" notes
-> below are historical. See [../ROADMAP.md](../../ROADMAP.md) and [../PendingIssues](../../PendingIssues/README.md).
+> below are historical. See [../ROADMAP.md](../../ROADMAP.md) and [known gaps](../Notes/KnownGaps.md).
 
 > **Status:** design record for extending `@Scopable`'s reach from *singletons on a path to a seed-scoped
 > subject* to *app-scoped route contributors that are their own request entry point*. Builds on the variant

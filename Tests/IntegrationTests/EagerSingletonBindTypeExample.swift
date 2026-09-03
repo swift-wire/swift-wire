@@ -2,7 +2,7 @@ import Synchronization
 import Wire
 import WireTesting
 
-/// H2.2a "B" gate — an eager `@BindType`'d binding whose backing `init` runs a side-effect. It is
+/// The complete-replacement gate — an eager `@BindType`'d binding whose backing `init` runs a side-effect. It is
 /// constructed at app bootstrap (the `@Provides` is called by `_wireBootstrap()` because a `@Scoped(seed:)`
 /// consumer borrows it), but under a `@BindType` variant it must NOT be constructed (the wire-mvc overlay
 /// leak: a mocked CouchDB binding still connecting in its `init`). The variant app graph drops it; the

@@ -599,3 +599,7 @@ preserves the option to claim it explicitly later.
   1, the unified-resolution direction stays a documented
   possibility, the framework remains a clean DI library that
   happens to handle async cleanly. Equally valid landing.
+
+---
+
+<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

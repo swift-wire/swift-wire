@@ -624,3 +624,7 @@ explicit-key one, so building it earlier would wire the middleware twice (see
 
 See [`BuilderKeyDesign.md`](BuilderKeyDesign.md) for the
 coupling in full.
+
+---
+
+<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

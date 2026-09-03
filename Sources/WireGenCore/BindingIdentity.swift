@@ -6,7 +6,7 @@
 /// resolve to the same graph slot. `Router<X, Y>` and `Router<X,Y>`
 /// both canonicalise to `Router<X,Y>`; `Dictionary<String, [Int]>` and
 /// `Dictionary<String,[Int]>` both canonicalise to
-/// `Dictionary<String,[Int]>`. The M0 spike 3 finding: SwiftSyntax's
+/// `Dictionary<String,[Int]>`. The finding this rests on: SwiftSyntax's
 /// `trimmedDescription` preserves internal whitespace verbatim, so two
 /// users writing the same type with different formatting would
 /// previously fail to resolve against each other.

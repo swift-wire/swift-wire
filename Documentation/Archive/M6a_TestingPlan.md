@@ -2,7 +2,7 @@
 
 > ✅ **COMPLETE** — shipped as part of milestone **M6a (testing)**. Retained as implementation history; the
 > in-progress notes below (status lines, open items) are historical. See [../ROADMAP.md](../../ROADMAP.md) for the
-> milestone summary and [../PendingIssues](../../PendingIssues/README.md) for latent edge cases.
+> milestone summary and [known gaps](../Notes/KnownGaps.md) for latent edge cases.
 
 > **Status:** the **swift-wire** side of the M6a testing milestone — `@BindType`, `@Scopable`,
 > `TestingKey`, and the seed-threaded doubles. Design record: [Notes/TestingModel.md](../Notes/TestingModel.md).

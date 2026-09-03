@@ -141,7 +141,7 @@ package func droppingRemovedAggregateContributors(
     }
 }
 
-// MARK: - Phase 2 — the `@Scopable` cascade
+// MARK: - The `@Scopable` cascade
 
 /// One app-scoped hop on the path from a `@BindType`d binding up to a seeded-scope
 /// root that isn't marked `@TestScopable` — the guided-diagnostic subject.

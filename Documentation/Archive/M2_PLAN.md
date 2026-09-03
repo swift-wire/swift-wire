@@ -68,14 +68,14 @@ per-root materialisation are the **foundation M5 builds on**, not M2 work. See
 - **Multibindings** — `CollectedKey` (iteration 5) for routes + the `[any Service]`
   list. (`BuilderKey` for value folds exists but is unused in M2 — middleware, its
   intended use, is out of scope; see M2.4.)
-- **Bootstrap collation shape** — [spike-9](../../../swift-wire-spikes/spike-9-hummingbird-bootstrap/):
+- **Bootstrap collation shape** — `spike-9`:
   Router outside the graph; routes as `[any RouteContributor]` (context-free); middleware
   folded via `MiddlewareFixedTypeBuilder`; `some RouterMethods<Context>`; the
   `[any Service]` lifecycle ordering.
-- **Graph-conformance shape** — [spike-10](../../../swift-wire-spikes/spike-10-graph-conformance/):
+- **Graph-conformance shape** — `spike-10`:
   a graph conforming to an externally-declared protocol, `Context` inferred and the
   opaque middleware bound via an associated type, consumed generically.
-- **Parameterized-opaque lifting** — [spike-7](../../../swift-wire-spikes/spike-7-iteration-10-lifting/)
+- **Parameterized-opaque lifting** — `spike-7`
   Proof 2 (`some P<A,B,C>`), underneath the middleware `BuilderKey`.
 
 ## Scope boundary
@@ -325,7 +325,7 @@ Request scope leaves M2 entirely, because it needs routing Wire generates:
 - **"Adapter replaces the binding" is a shared Wire primitive** (the same shape
   `@Configuration` needs — replace `let port: Int` with a config-reading provider),
   built here in M5 and reused rather than reinvented per adapter.
-- **Foundation carried forward, not discarded:** [spike-8](../../../swift-wire-spikes/spike-8-hummingbird-request-scope/)
+- **Foundation carried forward, not discarded:** `spike-8`
   (request-scope entry, mechanism B), seeded-scope construction
   (`bootstrap<Seed>Scope`, iteration 4), and per-root reachability materialisation
   are exactly M5's engine.

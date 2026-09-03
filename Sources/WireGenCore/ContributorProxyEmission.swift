@@ -28,7 +28,7 @@ package let contributorProxySubjectFieldName = "_wireSubject"
 /// subject under a `.singleton` proxy). The thunk `(Seed) async throws -> Subject` constructs the
 /// subject fresh in the subject's scope; the domain witness body invokes it per request. Labelled,
 /// so the emitted proxy stores/inits it by this name (unlike the positional subject). Its producer is
-/// synthesised in M5.4.2; M5.4.1 emits the field.
+/// synthesised by the scope-entry pass, which also emits the field.
 package let contributorProxyScopeEntryFieldName = "_wireEnterScope"
 
 extension DiscoveredScopeBoundType {
@@ -216,7 +216,7 @@ package func renderContributorProxyDeclaration(_ proxy: DiscoveredScopeBoundType
 }
 
 /// Render the structural declaration for every synthesised contributor proxy, once each — the plugin's
-/// Phase-A emission into the consumer graph file. `proxyIdentities` are the qualified names
+/// Plugin-owned emission into the consumer graph file. `proxyIdentities` are the qualified names
 /// `applyContributorProxies` created; a proxy binding is registered in every partition that consumes it,
 /// so it's deduped by qualified name here (the *type* is declared once at module scope, like a factory
 /// type). Deterministic order by type name. Reads the proxy bindings *after* factory synthesis, so each

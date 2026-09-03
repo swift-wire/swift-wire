@@ -1,8 +1,8 @@
 import Testing
 
-/// M6a Phase 2 gate — the `@Scopable` cascade runtime chain: variant seed scope → the app-scoped
+/// The `@Scopable` cascade's gate — the `@Scopable` cascade runtime chain: variant seed scope → the app-scoped
 /// `@Singleton` consumer is lifted in and reconstructed per scope entry, so its **init-time** read of the
-/// `@BindType`d dependency sees the per-entry double. This is the distinguishing Phase-2 property over the
+/// `@BindType`d dependency sees the per-entry double. This is the cascade's distinguishing property over the
 /// per-call proxy alternative (which would miss the init read). Hand-builds the `doubles` (standing in for
 /// the not-yet-built adapter witness) and drives the generated `bootstrap…Scope(seed:wireGraph:doubles:)`.
 @Suite("ScopableCascade")

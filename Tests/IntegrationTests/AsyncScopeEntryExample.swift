@@ -2,7 +2,7 @@ import Synchronization
 import Wire
 import WireTestLibrary
 
-/// M7c.6 — an async **request scope**: the case the construction scheduler was built for and had never
+/// scheduled scope entry — an async **request scope**: the case the construction scheduler was built for and had never
 /// been pointed at.
 ///
 /// Every other scope in this corpus is wholly synchronous, which is a gap in the fixtures rather than a
