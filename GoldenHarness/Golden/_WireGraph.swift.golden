@@ -70,6 +70,30 @@ struct _WireAggregateContributor_beta: Sendable {
     }
 }
 
+struct _WireScopeEntry_ChainScopeController: Sendable, WireScopeEntry {
+    let _wireSubject: ChainScopeController
+    let _wireScopeTeardown: @Sendable () async -> [any Error]
+}
+
+struct _WireAggregateContributor_chainUnwind: Sendable {
+    let _wireEnterScope: @Sendable (ChainScopeSeed) async throws -> _WireScopeEntry_ChainScopeController
+    init(_wireEnterScope: @escaping @Sendable (ChainScopeSeed) async throws -> _WireScopeEntry_ChainScopeController) {
+        self._wireEnterScope = _wireEnterScope
+    }
+}
+
+struct _WireScopeEntry_GroupScopeController: Sendable, WireScopeEntry {
+    let _wireSubject: GroupScopeController
+    let _wireScopeTeardown: @Sendable () async -> [any Error]
+}
+
+struct _WireAggregateContributor_groupUnwind: Sendable {
+    let _wireEnterScope: @Sendable (GroupScopeSeed) async throws -> _WireScopeEntry_GroupScopeController
+    init(_wireEnterScope: @escaping @Sendable (GroupScopeSeed) async throws -> _WireScopeEntry_GroupScopeController) {
+        self._wireEnterScope = _wireEnterScope
+    }
+}
+
 struct _WireRouteContributor_AppScopedController: Sendable {
     let _wireSubject: AppScopedController
     let _wireFactory_AppScopedKeys_audit: _WireFactory_AppScopedKeys_audit
@@ -362,13 +386,21 @@ struct _WireProxyFixture_bindMock_WireRouteContributor_ProxyRouteController: Sen
 extension Wire {
     static func bootstrapWireProxyFixture_bindMock_ProxyRouteControllerContributor(wireGraph _wireGraph: _WireProxyFixture_bindMockWireGraph<some AggregateSearchBackend, some GenAppBackend, some GenBackend, some GenProxyRepository, some GenSomethingElse, some Greeting, some TeardownResource>) -> _WireProxyFixture_bindMock_WireRouteContributor_ProxyRouteController {
         let sendableProxyRequestSeedAnd_WireProxyFixture_bindMock_ProxyRouteControllerDoublesasyncthrows_WireScopeEntry_WireProxyFixture_bindMock_ProxyRouteController = { @Sendable (proxyRequestSeed: ProxyRequestSeed, doubles: _WireProxyFixture_bindMock_ProxyRouteControllerDoubles) async throws in
+            var _wireScopeTeardownActions: [@Sendable () async -> [any Error]] = []
             let anyProxyRepository = doubles.proxyRepository
             let proxyAccountController = ProxyAccountController(repository: anyProxyRepository)
             let proxySession = ProxySession(repository: anyProxyRepository)
-            let proxyRouteController = ProxyRouteController(controller: proxyAccountController, session: proxySession, proxyRequestSeed: proxyRequestSeed)
-            let _wireScopeTeardown: @Sendable () async -> [any Error] = {
+            _wireScopeTeardownActions.append({
                 let errors: [any Error] = []
                 proxySession.close()
+                return errors
+            })
+            let proxyRouteController = ProxyRouteController(controller: proxyAccountController, session: proxySession, proxyRequestSeed: proxyRequestSeed)
+            let _wireScopeTeardown: @Sendable () async -> [any Error] = { [_wireScopeTeardownActions] in
+                var errors: [any Error] = []
+                for action in _wireScopeTeardownActions.reversed() {
+                    errors.append(contentsOf: await action())
+                }
                 return errors
             }
             return _WireScopeEntry_WireProxyFixture_bindMock_ProxyRouteController(_wireSubject: proxyRouteController, _wireScopeTeardown: _wireScopeTeardown)
@@ -393,12 +425,20 @@ extension Wire {
     static func bootstrapBorrowFixture_bindMock_BorrowRouteControllerContributor(wireGraph _wireGraph: _BorrowFixture_bindMockWireGraph<some AggregateSearchBackend, some GenAppBackend, some GenBackend, some GenProxyRepository, some GenSomethingElse, some Greeting, some TeardownResource>) -> _BorrowFixture_bindMock_WireRouteContributor_BorrowRouteController {
         let borrowStore = _wireGraph.borrowStore
         let sendableBorrowRequestSeedAnd_BorrowFixture_bindMock_BorrowRouteControllerDoublesasyncthrows_WireScopeEntry_BorrowFixture_bindMock_BorrowRouteController = { @Sendable (borrowRequestSeed: BorrowRequestSeed, doubles: _BorrowFixture_bindMock_BorrowRouteControllerDoubles) async throws in
+            var _wireScopeTeardownActions: [@Sendable () async -> [any Error]] = []
             let anyBorrowRepository = doubles.borrowRepository
             let borrowSession = BorrowSession(repository: anyBorrowRepository)
-            let borrowRouteController = BorrowRouteController(store: borrowStore, repository: anyBorrowRepository, session: borrowSession, borrowRequestSeed: borrowRequestSeed)
-            let _wireScopeTeardown: @Sendable () async -> [any Error] = {
+            _wireScopeTeardownActions.append({
                 let errors: [any Error] = []
                 borrowSession.close()
+                return errors
+            })
+            let borrowRouteController = BorrowRouteController(store: borrowStore, repository: anyBorrowRepository, session: borrowSession, borrowRequestSeed: borrowRequestSeed)
+            let _wireScopeTeardown: @Sendable () async -> [any Error] = { [_wireScopeTeardownActions] in
+                var errors: [any Error] = []
+                for action in _wireScopeTeardownActions.reversed() {
+                    errors.append(contentsOf: await action())
+                }
                 return errors
             }
             return _WireScopeEntry_BorrowFixture_bindMock_BorrowRouteController(_wireSubject: borrowRouteController, _wireScopeTeardown: _wireScopeTeardown)
@@ -663,6 +703,8 @@ internal struct _WireGraph<T0: AggregateSearchBackend, T1: GenAppBackend, T2: Ge
     @available(*, unavailable, message: "'betaOnlyController' is constructed by the graph but not a direct property of it. To read it as 'graph.betaOnlyController', mark its binding at Tests/IntegrationTests/AggregateProxyContributorExample.swift:155 'allowUnused: true'.") internal var betaOnlyController: BetaOnlyController { fatalError() }
     let _WireAggregateContributor_beta: _WireAggregateContributor_beta
     let _WireAggregateContributor_async: _WireAggregateContributor_async
+    let _WireAggregateContributor_chainUnwind: _WireAggregateContributor_chainUnwind
+    let _WireAggregateContributor_groupUnwind: _WireAggregateContributor_groupUnwind
     @available(*, unavailable, message: "'anySendableKeyedWireTestAggregateKeysControllers' is constructed by the graph but not a direct property of it. To read it as 'graph.anySendableKeyedWireTestAggregateKeysControllers', mark its binding at Sources/WireTestLibrary/RouteControllerAdapter.swift:81 'allowUnused: true'.") internal var anySendableKeyedWireTestAggregateKeysControllers: [any Sendable] { fatalError() }
     @available(*, unavailable, message: "'soloAggregateOnlyController' is constructed by the graph but not a direct property of it. To read it as 'graph.soloAggregateOnlyController', mark its binding at Tests/IntegrationTests/AggregateProxyContributorExample.swift:116 'allowUnused: true'.") internal var soloAggregateOnlyController: SoloAggregateOnlyController { fatalError() }
     let _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests
@@ -790,7 +832,9 @@ internal struct _WireGraph<T0: AggregateSearchBackend, T1: GenAppBackend, T2: Ge
             BindingInfo(type: "BetaOnlyController", key: nil, kind: .singleton, scope: nil, dependencies: [], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/AggregateProxyContributorExample.swift", line: 155)),
             BindingInfo(type: "_WireAggregateContributor_beta", key: nil, kind: .singleton, scope: nil, dependencies: [DependencyEdge(type: "BetaOnlyController", key: nil)], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/AggregateProxyContributorExample.swift", line: 155)),
             BindingInfo(type: "_WireAggregateContributor_async", key: nil, kind: .singleton, scope: nil, dependencies: [DependencyEdge(type: "@Sendable (AsyncScopeSeed) async throws -> _WireScopeEntry_AsyncScopeController", key: nil)], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/AsyncScopeEntryExample.swift", line: 113)),
-            BindingInfo(type: "[any Sendable]", key: "WireTestAggregateKeys.controllers", kind: .aggregate, scope: nil, dependencies: [DependencyEdge(type: "_WireAggregateContributor_alpha<some AggregateSearchBackend>", key: nil), DependencyEdge(type: "_WireAggregateContributor_beta", key: nil), DependencyEdge(type: "_WireAggregateContributor_async", key: nil)], location: SourceLocation(module: "WireTestLibrary", file: "Sources/WireTestLibrary/RouteControllerAdapter.swift", line: 81)),
+            BindingInfo(type: "_WireAggregateContributor_chainUnwind", key: nil, kind: .singleton, scope: nil, dependencies: [DependencyEdge(type: "@Sendable (ChainScopeSeed) async throws -> _WireScopeEntry_ChainScopeController", key: nil)], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/ScopePartialTeardownExample.swift", line: 57)),
+            BindingInfo(type: "_WireAggregateContributor_groupUnwind", key: nil, kind: .singleton, scope: nil, dependencies: [DependencyEdge(type: "@Sendable (GroupScopeSeed) async throws -> _WireScopeEntry_GroupScopeController", key: nil)], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/ScopePartialTeardownExample.swift", line: 107)),
+            BindingInfo(type: "[any Sendable]", key: "WireTestAggregateKeys.controllers", kind: .aggregate, scope: nil, dependencies: [DependencyEdge(type: "_WireAggregateContributor_alpha<some AggregateSearchBackend>", key: nil), DependencyEdge(type: "_WireAggregateContributor_beta", key: nil), DependencyEdge(type: "_WireAggregateContributor_async", key: nil), DependencyEdge(type: "_WireAggregateContributor_chainUnwind", key: nil), DependencyEdge(type: "_WireAggregateContributor_groupUnwind", key: nil)], location: SourceLocation(module: "WireTestLibrary", file: "Sources/WireTestLibrary/RouteControllerAdapter.swift", line: 81)),
             BindingInfo(type: "SoloAggregateOnlyController", key: nil, kind: .singleton, scope: nil, dependencies: [], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/AggregateProxyContributorExample.swift", line: 116)),
             BindingInfo(type: "_WireSoloAggregateContributor_IntegrationTests", key: nil, kind: .singleton, scope: nil, dependencies: [DependencyEdge(type: "SoloAggregateOnlyController", key: nil)], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/AggregateProxyContributorExample.swift", line: 116)),
             BindingInfo(type: "[any Sendable]", key: "WireTestAggregateKeys.soloControllers", kind: .aggregate, scope: nil, dependencies: [DependencyEdge(type: "_WireSoloAggregateContributor_IntegrationTests", key: nil)], location: SourceLocation(module: "WireTestLibrary", file: "Sources/WireTestLibrary/RouteControllerAdapter.swift", line: 82)),
@@ -974,12 +1018,20 @@ private func _wireBootstrap() async throws -> _WireGraph<some AggregateSearchBac
         let someAggregateSearchBackend = AggregateSearchModule.backend()
         let aggregateSearchControllerOfSomeAggregateSearchBackend = AggregateSearchController(backend: someAggregateSearchBackend)
         let sendableAggregateRequestSeedasyncthrows_WireScopeEntry_AggregateTaskController = { @Sendable (aggregateRequestSeed: AggregateRequestSeed) async throws in
+            var _wireScopeTeardownActions: [@Sendable () async -> [any Error]] = []
             let aggregateRequestResource = AggregateRequestResource(seed: aggregateRequestSeed)
-            let aggregateSessionIdentity = AggregateSessionIdentity(seed: aggregateRequestSeed)
-            let aggregateTaskController = AggregateTaskController(identity: aggregateSessionIdentity, resource: aggregateRequestResource)
-            let _wireScopeTeardown: @Sendable () async -> [any Error] = {
+            _wireScopeTeardownActions.append({
                 let errors: [any Error] = []
                 aggregateRequestResource.close()
+                return errors
+            })
+            let aggregateSessionIdentity = AggregateSessionIdentity(seed: aggregateRequestSeed)
+            let aggregateTaskController = AggregateTaskController(identity: aggregateSessionIdentity, resource: aggregateRequestResource)
+            let _wireScopeTeardown: @Sendable () async -> [any Error] = { [_wireScopeTeardownActions] in
+                var errors: [any Error] = []
+                for action in _wireScopeTeardownActions.reversed() {
+                    errors.append(contentsOf: await action())
+                }
                 return errors
             }
             return _WireScopeEntry_AggregateTaskController(_wireSubject: aggregateTaskController, _wireScopeTeardown: _wireScopeTeardown)
@@ -988,71 +1040,197 @@ private func _wireBootstrap() async throws -> _WireGraph<some AggregateSearchBac
         let betaOnlyController = BetaOnlyController()
         let _WireAggregateContributor_beta = _WireAggregateContributor_beta(betaOnlyController)
         let sendableAsyncScopeSeedasyncthrows_WireScopeEntry_AsyncScopeController = { @Sendable (asyncScopeSeed: AsyncScopeSeed) async throws in
-            let asyncScopeClock = AsyncScopeClock()
-            let asyncScopeSession = AsyncScopeSession()
-
-            enum _WireScopeWireTaskResult: Sendable {
-                case asyncScopeFast(AsyncScopeFast)
-                case asyncScopeSlow(AsyncScopeSlow)
-            }
-
-            struct _WireScopeWireBuilding: ~Copyable {
-                let asyncScopeClock: AsyncScopeClock
-
-                var _wireState_asyncScopeFast: _WireBindingState<AsyncScopeFast> = .unmarked
-                var _wireState_asyncScopeDependent: _WireBindingState<AsyncScopeDependent> = .unmarked
-                var _wireState_asyncScopeSlow: _WireBindingState<AsyncScopeSlow> = .unmarked
-
-                mutating func _wireAdd_asyncScopeFast(_ _wireGroup: inout ThrowingTaskGroup<_WireScopeWireTaskResult, any Error>) throws {
-                    guard _wireState_asyncScopeFast.asPending() else { return }
-                    let asyncScopeClock = self.asyncScopeClock
-                    _wireGroup.addTask { .asyncScopeFast(try await AsyncScopeFast(clock: asyncScopeClock)) }
-                }
-
-                mutating func _wireAdd_asyncScopeDependent(_ _wireGroup: inout ThrowingTaskGroup<_WireScopeWireTaskResult, any Error>) throws {
-                    guard let asyncScopeFast = _wireState_asyncScopeFast.value() else { return }
-                    guard _wireState_asyncScopeDependent.asPending() else { return }
-                    let asyncScopeClock = self.asyncScopeClock
-                    _wireState_asyncScopeDependent.asResolved(AsyncScopeDependent(fast: asyncScopeFast, clock: asyncScopeClock))
-                }
-
-                mutating func _wireAdd_asyncScopeSlow(_ _wireGroup: inout ThrowingTaskGroup<_WireScopeWireTaskResult, any Error>) throws {
-                    guard _wireState_asyncScopeSlow.asPending() else { return }
-                    let asyncScopeClock = self.asyncScopeClock
-                    _wireGroup.addTask { .asyncScopeSlow(try await AsyncScopeSlow(clock: asyncScopeClock)) }
-                }
-
-                mutating func _wireUpdate(_ _wireResult: _WireScopeWireTaskResult, _ _wireGroup: inout ThrowingTaskGroup<_WireScopeWireTaskResult, any Error>) throws {
-                    switch _wireResult {
-                    case .asyncScopeFast(let _wireValue):
-                        _wireState_asyncScopeFast.asResolved(_wireValue)
-                        try _wireAdd_asyncScopeDependent(&_wireGroup)
-                    case .asyncScopeSlow(let _wireValue):
-                        _wireState_asyncScopeSlow.asResolved(_wireValue)
-                    }
-                }
-            }
-            return try await withThrowingTaskGroup(of: _WireScopeWireTaskResult.self) { _wireGroup in
-                var building = _WireScopeWireBuilding(asyncScopeClock: asyncScopeClock)
-                try building._wireAdd_asyncScopeFast(&_wireGroup)
-                try building._wireAdd_asyncScopeSlow(&_wireGroup)
-                while let _wireResult = try await _wireGroup.next() {
-                    try building._wireUpdate(_wireResult, &_wireGroup)
-                }
-                let asyncScopeFast = building._wireState_asyncScopeFast.take()
-                let asyncScopeDependent = building._wireState_asyncScopeDependent.take()
-                let asyncScopeSlow = building._wireState_asyncScopeSlow.take()
-                let asyncScopeController = AsyncScopeController(clock: asyncScopeClock, dependent: asyncScopeDependent, slow: asyncScopeSlow, session: asyncScopeSession, asyncScopeSeed: asyncScopeSeed)
-                let _wireScopeTeardown: @Sendable () async -> [any Error] = {
+            var _wireScopeTeardownActions: [@Sendable () async -> [any Error]] = []
+            do {
+                let asyncScopeClock = AsyncScopeClock()
+                let asyncScopeSession = AsyncScopeSession()
+                _wireScopeTeardownActions.append({
                     let errors: [any Error] = []
                     await asyncScopeSession.close()
                     return errors
+                })
+
+                enum _WireScopeWireTaskResult: Sendable {
+                    case asyncScopeFast(AsyncScopeFast)
+                    case asyncScopeSlow(AsyncScopeSlow)
                 }
-                return _WireScopeEntry_AsyncScopeController(_wireSubject: asyncScopeController, _wireScopeTeardown: _wireScopeTeardown)
+
+                struct _WireScopeWireBuilding: ~Copyable {
+                    let asyncScopeClock: AsyncScopeClock
+
+                    var _wireState_asyncScopeFast: _WireBindingState<AsyncScopeFast> = .unmarked
+                    var _wireState_asyncScopeDependent: _WireBindingState<AsyncScopeDependent> = .unmarked
+                    var _wireState_asyncScopeSlow: _WireBindingState<AsyncScopeSlow> = .unmarked
+
+                    mutating func _wireAdd_asyncScopeFast(_ _wireGroup: inout ThrowingTaskGroup<_WireScopeWireTaskResult, any Error>) throws {
+                        guard _wireState_asyncScopeFast.asPending() else { return }
+                        let asyncScopeClock = self.asyncScopeClock
+                        _wireGroup.addTask { .asyncScopeFast(try await AsyncScopeFast(clock: asyncScopeClock)) }
+                    }
+
+                    mutating func _wireAdd_asyncScopeDependent(_ _wireGroup: inout ThrowingTaskGroup<_WireScopeWireTaskResult, any Error>) throws {
+                        guard let asyncScopeFast = _wireState_asyncScopeFast.value() else { return }
+                        guard _wireState_asyncScopeDependent.asPending() else { return }
+                        let asyncScopeClock = self.asyncScopeClock
+                        _wireState_asyncScopeDependent.asResolved(AsyncScopeDependent(fast: asyncScopeFast, clock: asyncScopeClock))
+                    }
+
+                    mutating func _wireAdd_asyncScopeSlow(_ _wireGroup: inout ThrowingTaskGroup<_WireScopeWireTaskResult, any Error>) throws {
+                        guard _wireState_asyncScopeSlow.asPending() else { return }
+                        let asyncScopeClock = self.asyncScopeClock
+                        _wireGroup.addTask { .asyncScopeSlow(try await AsyncScopeSlow(clock: asyncScopeClock)) }
+                    }
+
+                    mutating func _wireUpdate(_ _wireResult: _WireScopeWireTaskResult, _ _wireGroup: inout ThrowingTaskGroup<_WireScopeWireTaskResult, any Error>) throws {
+                        switch _wireResult {
+                        case .asyncScopeFast(let _wireValue):
+                            _wireState_asyncScopeFast.asResolved(_wireValue)
+                            try _wireAdd_asyncScopeDependent(&_wireGroup)
+                        case .asyncScopeSlow(let _wireValue):
+                            _wireState_asyncScopeSlow.asResolved(_wireValue)
+                        }
+                    }
+                }
+                return try await withThrowingTaskGroup(of: _WireScopeWireTaskResult.self) { _wireGroup in
+                    var building = _WireScopeWireBuilding(asyncScopeClock: asyncScopeClock)
+                    try building._wireAdd_asyncScopeFast(&_wireGroup)
+                    try building._wireAdd_asyncScopeSlow(&_wireGroup)
+                    while let _wireResult = try await _wireGroup.next() {
+                        try building._wireUpdate(_wireResult, &_wireGroup)
+                    }
+                    let asyncScopeFast = building._wireState_asyncScopeFast.take()
+                    let asyncScopeDependent = building._wireState_asyncScopeDependent.take()
+                    let asyncScopeSlow = building._wireState_asyncScopeSlow.take()
+                    let asyncScopeController = AsyncScopeController(clock: asyncScopeClock, dependent: asyncScopeDependent, slow: asyncScopeSlow, session: asyncScopeSession, asyncScopeSeed: asyncScopeSeed)
+                    let _wireScopeTeardown: @Sendable () async -> [any Error] = { [_wireScopeTeardownActions] in
+                        var errors: [any Error] = []
+                        for action in _wireScopeTeardownActions.reversed() {
+                            errors.append(contentsOf: await action())
+                        }
+                        return errors
+                    }
+                    return _WireScopeEntry_AsyncScopeController(_wireSubject: asyncScopeController, _wireScopeTeardown: _wireScopeTeardown)
+                }
+            } catch {
+                for action in _wireScopeTeardownActions.reversed() {
+                    _ = await action()
+                }
+                throw error
             }
         }
         let _WireAggregateContributor_async = _WireAggregateContributor_async(_wireEnterScope: sendableAsyncScopeSeedasyncthrows_WireScopeEntry_AsyncScopeController)
-        let anySendableKeyedWireTestAggregateKeysControllers = [_WireAggregateContributor_alphaOfSomeAggregateSearchBackend, _WireAggregateContributor_beta, _WireAggregateContributor_async] as [any Sendable]
+        let sendableChainScopeSeedasyncthrows_WireScopeEntry_ChainScopeController = { @Sendable (chainScopeSeed: ChainScopeSeed) async throws in
+            var _wireScopeTeardownActions: [@Sendable () async -> [any Error]] = []
+            do {
+                let chainScopeResource = ChainScopeResource()
+                _wireScopeTeardownActions.append({
+                    let errors: [any Error] = []
+                    await chainScopeResource.close()
+                    return errors
+                })
+                let chainScopeController = try ChainScopeController(resource: chainScopeResource)
+                let _wireScopeTeardown: @Sendable () async -> [any Error] = { [_wireScopeTeardownActions] in
+                    var errors: [any Error] = []
+                    for action in _wireScopeTeardownActions.reversed() {
+                        errors.append(contentsOf: await action())
+                    }
+                    return errors
+                }
+                return _WireScopeEntry_ChainScopeController(_wireSubject: chainScopeController, _wireScopeTeardown: _wireScopeTeardown)
+            } catch {
+                for action in _wireScopeTeardownActions.reversed() {
+                    _ = await action()
+                }
+                throw error
+            }
+        }
+        let _WireAggregateContributor_chainUnwind = _WireAggregateContributor_chainUnwind(_wireEnterScope: sendableChainScopeSeedasyncthrows_WireScopeEntry_ChainScopeController)
+        let sendableGroupScopeSeedasyncthrows_WireScopeEntry_GroupScopeController = { @Sendable (groupScopeSeed: GroupScopeSeed) async throws in
+            var _wireScopeTeardownActions: [@Sendable () async -> [any Error]] = []
+            do {
+
+                enum _WireScopeWireTaskResult: Sendable {
+                    case groupScopeSignal(GroupScopeSignal)
+                    case groupScopeFailure(GroupScopeFailure)
+                }
+
+                struct _WireScopeWireBuilding: ~Copyable {
+                    var _wireState_groupScopeSignal: _WireBindingState<GroupScopeSignal> = .unmarked
+                    var _wireState_groupScopeResource: _WireBindingState<GroupScopeResource> = .unmarked
+                    var _wireState_groupScopeFailure: _WireBindingState<GroupScopeFailure> = .unmarked
+
+                    mutating func _wireAdd_groupScopeSignal(_ _wireGroup: inout ThrowingTaskGroup<_WireScopeWireTaskResult, any Error>) throws {
+                        guard _wireState_groupScopeSignal.asPending() else { return }
+                        _wireGroup.addTask { .groupScopeSignal(try await GroupScopeSignal()) }
+                    }
+
+                    mutating func _wireAdd_groupScopeResource(_ _wireGroup: inout ThrowingTaskGroup<_WireScopeWireTaskResult, any Error>) throws {
+                        guard let groupScopeSignal = _wireState_groupScopeSignal.value() else { return }
+                        guard _wireState_groupScopeResource.asPending() else { return }
+                        _wireState_groupScopeResource.asResolved(GroupScopeResource(signal: groupScopeSignal))
+                    }
+
+                    mutating func _wireAdd_groupScopeFailure(_ _wireGroup: inout ThrowingTaskGroup<_WireScopeWireTaskResult, any Error>) throws {
+                        guard _wireState_groupScopeFailure.asPending() else { return }
+                        _wireGroup.addTask { .groupScopeFailure(try await GroupScopeFailure()) }
+                    }
+
+                    mutating func _wireUpdate(_ _wireResult: _WireScopeWireTaskResult, _ _wireGroup: inout ThrowingTaskGroup<_WireScopeWireTaskResult, any Error>) throws {
+                        switch _wireResult {
+                        case .groupScopeSignal(let _wireValue):
+                            _wireState_groupScopeSignal.asResolved(_wireValue)
+                            try _wireAdd_groupScopeResource(&_wireGroup)
+                        case .groupScopeFailure(let _wireValue):
+                            _wireState_groupScopeFailure.asResolved(_wireValue)
+                        }
+                    }
+                }
+                return try await withThrowingTaskGroup(of: _WireScopeWireTaskResult.self) { _wireGroup in
+                    var building = _WireScopeWireBuilding()
+                    do {
+                        try building._wireAdd_groupScopeSignal(&_wireGroup)
+                        try building._wireAdd_groupScopeFailure(&_wireGroup)
+                        while let _wireResult = try await _wireGroup.next() {
+                            try building._wireUpdate(_wireResult, &_wireGroup)
+                        }
+                    } catch {
+                        if building._wireState_groupScopeResource.isResolved() {
+                            let groupScopeResource = building._wireState_groupScopeResource.take()
+                            _wireScopeTeardownActions.append({
+                                let errors: [any Error] = []
+                                await groupScopeResource.close()
+                                return errors
+                            })
+                        }
+                        throw error
+                    }
+                    let groupScopeSignal = building._wireState_groupScopeSignal.take()
+                    let groupScopeResource = building._wireState_groupScopeResource.take()
+                    let groupScopeFailure = building._wireState_groupScopeFailure.take()
+                    _wireScopeTeardownActions.append({
+                        let errors: [any Error] = []
+                        await groupScopeResource.close()
+                        return errors
+                    })
+                    let groupScopeController = GroupScopeController(resource: groupScopeResource, failure: groupScopeFailure)
+                    let _wireScopeTeardown: @Sendable () async -> [any Error] = { [_wireScopeTeardownActions] in
+                        var errors: [any Error] = []
+                        for action in _wireScopeTeardownActions.reversed() {
+                            errors.append(contentsOf: await action())
+                        }
+                        return errors
+                    }
+                    return _WireScopeEntry_GroupScopeController(_wireSubject: groupScopeController, _wireScopeTeardown: _wireScopeTeardown)
+                }
+            } catch {
+                for action in _wireScopeTeardownActions.reversed() {
+                    _ = await action()
+                }
+                throw error
+            }
+        }
+        let _WireAggregateContributor_groupUnwind = _WireAggregateContributor_groupUnwind(_wireEnterScope: sendableGroupScopeSeedasyncthrows_WireScopeEntry_GroupScopeController)
+        let anySendableKeyedWireTestAggregateKeysControllers = [_WireAggregateContributor_alphaOfSomeAggregateSearchBackend, _WireAggregateContributor_beta, _WireAggregateContributor_async, _WireAggregateContributor_chainUnwind, _WireAggregateContributor_groupUnwind] as [any Sendable]
         let soloAggregateOnlyController = SoloAggregateOnlyController()
         let _WireSoloAggregateContributor_IntegrationTests = _WireSoloAggregateContributor_IntegrationTests(soloAggregateOnlyController)
         let anySendableKeyedWireTestAggregateKeysSoloControllers = [_WireSoloAggregateContributor_IntegrationTests] as [any Sendable]
@@ -1206,11 +1384,19 @@ private func _wireBootstrap() async throws -> _WireGraph<some AggregateSearchBac
         let _WireFactory_GenAppKeys_auditOfSomeGenAppBackend = _WireFactory_GenAppKeys_audit(backend: someGenAppBackend)
         let _WireRouteContributor_AppScopedController = _WireRouteContributor_AppScopedController(appScopedController, _wireFactory_AppScopedKeys_audit: _WireFactory_AppScopedKeys_audit)
         let sendableBorrowRequestSeedasyncthrows_WireScopeEntry_BorrowRouteController = { @Sendable (borrowRequestSeed: BorrowRequestSeed) async throws in
+            var _wireScopeTeardownActions: [@Sendable () async -> [any Error]] = []
             let borrowSession = BorrowSession(repository: anyBorrowRepository)
-            let borrowRouteController = BorrowRouteController(store: borrowStore, repository: anyBorrowRepository, session: borrowSession, borrowRequestSeed: borrowRequestSeed)
-            let _wireScopeTeardown: @Sendable () async -> [any Error] = {
+            _wireScopeTeardownActions.append({
                 let errors: [any Error] = []
                 borrowSession.close()
+                return errors
+            })
+            let borrowRouteController = BorrowRouteController(store: borrowStore, repository: anyBorrowRepository, session: borrowSession, borrowRequestSeed: borrowRequestSeed)
+            let _wireScopeTeardown: @Sendable () async -> [any Error] = { [_wireScopeTeardownActions] in
+                var errors: [any Error] = []
+                for action in _wireScopeTeardownActions.reversed() {
+                    errors.append(contentsOf: await action())
+                }
                 return errors
             }
             return _WireScopeEntry_BorrowRouteController(_wireSubject: borrowRouteController, _wireScopeTeardown: _wireScopeTeardown)
@@ -1245,11 +1431,19 @@ private func _wireBootstrap() async throws -> _WireGraph<some AggregateSearchBac
         }
         let _WireRouteContributor_GenProxyRouteControllerOfSomeGenProxyRepository = _WireRouteContributor_GenProxyRouteController(_wireEnterScope: sendableGenProxyRequestSeedasyncthrows_WireScopeEntry_GenProxyRouteControllerOfSomeGenProxyRepository)
         let sendableProxyRequestSeedasyncthrows_WireScopeEntry_ProxyRouteController = { @Sendable (proxyRequestSeed: ProxyRequestSeed) async throws in
+            var _wireScopeTeardownActions: [@Sendable () async -> [any Error]] = []
             let proxySession = ProxySession(repository: anyProxyRepository)
-            let proxyRouteController = ProxyRouteController(controller: proxyAccountController, session: proxySession, proxyRequestSeed: proxyRequestSeed)
-            let _wireScopeTeardown: @Sendable () async -> [any Error] = {
+            _wireScopeTeardownActions.append({
                 let errors: [any Error] = []
                 proxySession.close()
+                return errors
+            })
+            let proxyRouteController = ProxyRouteController(controller: proxyAccountController, session: proxySession, proxyRequestSeed: proxyRequestSeed)
+            let _wireScopeTeardown: @Sendable () async -> [any Error] = { [_wireScopeTeardownActions] in
+                var errors: [any Error] = []
+                for action in _wireScopeTeardownActions.reversed() {
+                    errors.append(contentsOf: await action())
+                }
                 return errors
             }
             return _WireScopeEntry_ProxyRouteController(_wireSubject: proxyRouteController, _wireScopeTeardown: _wireScopeTeardown)
@@ -1306,7 +1500,7 @@ private func _wireBootstrap() async throws -> _WireGraph<some AggregateSearchBac
                 }
                 return errors
             }
-            return _WireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_alphaOfSomeAggregateSearchBackend: _WireAggregateContributor_alphaOfSomeAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireAggregateContributor_async: _WireAggregateContributor_async, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_BorrowRouteController: _WireRouteContributor_BorrowRouteController, _WireRouteContributor_FactoryProxyRouteController: _WireRouteContributor_FactoryProxyRouteController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _WireRouteContributor_GenPartialRouteControllerOfSomeGenProxyRepositoryAndSomeGenSomethingElse: _WireRouteContributor_GenPartialRouteControllerOfSomeGenProxyRepositoryAndSomeGenSomethingElse, _WireRouteContributor_GenProxyRouteControllerOfSomeGenProxyRepository: _WireRouteContributor_GenProxyRouteControllerOfSomeGenProxyRepository, _WireRouteContributor_ProxyRouteController: _WireRouteContributor_ProxyRouteController, _WireRouteContributor_SubjectAlphaController: _WireRouteContributor_SubjectAlphaController, _WireRouteContributor_SubjectBetaController: _WireRouteContributor_SubjectBetaController, _WireRouteContributor_SubjectPlainController: _WireRouteContributor_SubjectPlainController, _wireTeardown: _wireTeardown)
+            return _WireGraph(accountController: accountController, aggregateReportStore: aggregateReportStore, someAggregateSearchBackend: someAggregateSearchBackend, _WireAggregateContributor_alphaOfSomeAggregateSearchBackend: _WireAggregateContributor_alphaOfSomeAggregateSearchBackend, _WireAggregateContributor_beta: _WireAggregateContributor_beta, _WireAggregateContributor_async: _WireAggregateContributor_async, _WireAggregateContributor_chainUnwind: _WireAggregateContributor_chainUnwind, _WireAggregateContributor_groupUnwind: _WireAggregateContributor_groupUnwind, _WireSoloAggregateContributor_IntegrationTests: _WireSoloAggregateContributor_IntegrationTests, aggregateContributorHost: aggregateContributorHost, appName: appName, appNameKeyedAppNameAlternate: appNameKeyedAppNameAlternate, appNameKeyedAppNameBoundViaInit: appNameKeyedAppNameBoundViaInit, appScopedLog: appScopedLog, asyncToken: asyncToken, asyncMessage: asyncMessage, asyncInitConsumer: asyncInitConsumer, asyncTokenConsumer: asyncTokenConsumer, buildNumber: buildNumber, banner: banner, bannerService: bannerService, borrowStore: borrowStore, anyComposeWidget: anyComposeWidget, dataPoint: dataPoint, containerOfDataPoint: containerOfDataPoint, view: view, coordinator: coordinator, telemetry: telemetry, dashboard: dashboard, anyEagerWidget: anyEagerWidget, formatterRegistry: formatterRegistry, someGenAppBackend: someGenAppBackend, someGenBackend: someGenBackend, someGenProxyRepository: someGenProxyRepository, someGenSomethingElse: someGenSomethingElse, genericConsumer: genericConsumer, logger: logger, userRepository: userRepository, greeter: greeter, someGreeting: someGreeting, greetingAuditor: greetingAuditor, greetingReporter: greetingReporter, anyHookKeyedHookRegistryAll: anyHookKeyedHookRegistryAll, hookHost: hookHost, spoke: spoke, hub: hub, introspectionRoot: introspectionRoot, keyedConsumer: keyedConsumer, keyedInitConsumer: keyedInitConsumer, lazyResourceCallCount: lazyResourceCallCount, lazyOfLazyResource: lazyOfLazyResource, lazyResourceConsumer: lazyResourceConsumer, libraryService: libraryService, middlewareHost: middlewareHost, sensor: sensor, monitor: monitor, noteBoard: noteBoard, packageVisibleService: packageVisibleService, pluginHost: pluginHost, serviceGateHost: serviceGateHost, strategyHost: strategyHost, teardownDatabasePool: teardownDatabasePool, teardownHTTPClient: teardownHTTPClient, teardownConsumer: teardownConsumer, someTeardownResource: someTeardownResource, teardownOpaqueConsumerOfSomeTeardownResource: teardownOpaqueConsumerOfSomeTeardownResource, tickCounter: tickCounter, toolbelt: toolbelt, workshop: workshop, anyRouteThingOfRequestCtxKeyedThingKeysThings: anyRouteThingOfRequestCtxKeyedThingKeysThings, _WireFactory_FactoryProxyKeys_probe: _WireFactory_FactoryProxyKeys_probe, _WireRouteContributor_AppScopedController: _WireRouteContributor_AppScopedController, _WireRouteContributor_BorrowRouteController: _WireRouteContributor_BorrowRouteController, _WireRouteContributor_FactoryProxyRouteController: _WireRouteContributor_FactoryProxyRouteController, _WireRouteContributor_GenAppControllerOfSomeGenAppBackend: _WireRouteContributor_GenAppControllerOfSomeGenAppBackend, _WireRouteContributor_GenPartialRouteControllerOfSomeGenProxyRepositoryAndSomeGenSomethingElse: _WireRouteContributor_GenPartialRouteControllerOfSomeGenProxyRepositoryAndSomeGenSomethingElse, _WireRouteContributor_GenProxyRouteControllerOfSomeGenProxyRepository: _WireRouteContributor_GenProxyRouteControllerOfSomeGenProxyRepository, _WireRouteContributor_ProxyRouteController: _WireRouteContributor_ProxyRouteController, _WireRouteContributor_SubjectAlphaController: _WireRouteContributor_SubjectAlphaController, _WireRouteContributor_SubjectBetaController: _WireRouteContributor_SubjectBetaController, _WireRouteContributor_SubjectPlainController: _WireRouteContributor_SubjectPlainController, _wireTeardown: _wireTeardown)
         }
     } catch {
         for action in _wireTeardownActions.reversed() {

@@ -414,7 +414,8 @@ private func cascadeLines(
 func schedulerBootstrapOpeningLines(
     structName: String,
     regions: ConstructionRegions,
-    tornInGroup: [DiscoveredBinding]
+    tornInGroup: [DiscoveredBinding],
+    teardownAccumulator: String = "_wireTeardownActions"
 ) -> [String] {
     let names = Set(regions.group.map { propertyName(for: $0) })
     let arguments = regions.frontier
@@ -439,7 +440,13 @@ func schedulerBootstrapOpeningLines(
     lines.append("\(bodyIndent)while let \(resultParameterName) = try await \(groupParameterName).next() {")
     lines.append("\(bodyIndent)    try building._wireUpdate(\(resultParameterName), &\(groupParameterName))")
     lines.append("\(bodyIndent)}")
-    lines.append(contentsOf: groupTeardownRecoveryLines(tornInGroup: tornInGroup, indent: "        "))
+    lines.append(
+        contentsOf: groupTeardownRecoveryLines(
+            tornInGroup: tornInGroup,
+            indent: "        ",
+            accumulator: teardownAccumulator
+        )
+    )
     return lines
 }
 

@@ -113,9 +113,9 @@ private func scopeEntryThunkLines(
     // local name is the fixed `doubles`, matching those providers' access paths. `nil` is the production
     // thunk (seed only). The `doubles` type rides the thunk type, so it survives the `liftSpecialised`.
     let parameterList = doubles.map { "\(seedLocal): \(seed), doubles: \($0)" } ?? "\(seedLocal): \(seed)"
-    var lines: [String] = ["    let \(thunkLocal) = { @Sendable (\(parameterList)) async throws in"]
+    var body: [String] = []
     for alias in aliases.upFront {
-        lines.append(contentsOf: existentialAliasLines(alias, boundTo: alias.producerLocalName, indent: "        "))
+        body.append(contentsOf: existentialAliasLines(alias, boundTo: alias.producerLocalName, indent: "        "))
     }
     // What this thunk actually constructs: the reachable set, minus the borrowed singletons (which resolve
     // to the captured bootstrap local of the same name) and minus the seed's redundant `let seed = seed`.
@@ -135,8 +135,17 @@ private func scopeEntryThunkLines(
     // `schedulerPlan`'s; this one is the seam's, and it is the price of declaring the struct locally.
     let plan = schedulerPlan(for: constructed, seedScopes: [:], existentialPromotions: [])
         .flatMap { $0.crossingLocals.isEmpty ? $0 : nil }
-    lines.append(
-        contentsOf: scopeConstructionLines(plan: plan, constructed: constructed, aliases: aliases)
+    // Issue #21 — the scope's own `@Teardown` bindings, recorded as they are built so a thunk that throws
+    // partway can unwind them. Per *request*: the accumulator is declared inside the thunk, not beside it,
+    // because two requests entering the same scope share nothing.
+    let torn = constructed.contains { $0.teardown != nil }
+    body.append(
+        contentsOf: scopeConstructionLines(
+            plan: plan,
+            constructed: constructed,
+            aliases: aliases,
+            accumulatesTeardown: torn
+        )
     )
     // When the scope schedules, everything after the seam — the teardown closure and the entry struct —
     // lives inside the group closure, whose value *is* the entry. So the tail indents one level further and
@@ -147,9 +156,16 @@ private func scopeEntryThunkLines(
     // to one controller never tears down a sibling's binding. Captures the construction locals above, so it
     // runs against each binding's concrete instance. Returned alongside the subject; the witness runs it
     // after the response (M5.4.5). Consistent with the graph's captured `_wireTeardown`.
-    lines.append(
+    body.append(
         contentsOf: tailIndent(
-            scopeTeardownClosureLines(scope, local: scopeTeardownLocalName, reachable: reachable)
+            torn
+                ? accumulatedTeardownClosureLines(
+                    indent: "        ",
+                    local: scopeTeardownLocalName,
+                    type: scopeEntryTeardownType,
+                    accumulator: scopeTeardownAccumulator
+                )
+                : scopeTeardownClosureLines(scope, local: scopeTeardownLocalName, reachable: reachable)
         )
     )
     // The entry struct, constructed with labels. Its generic arguments are *inferred* from these values
@@ -161,11 +177,36 @@ private func scopeEntryThunkLines(
         + [(scopeTeardownLocalName, scopeTeardownLocalName)])
         .map { "\($0): \($1)" }
         .joined(separator: ", ")
-    lines.append(contentsOf: tailIndent(["        return \(descriptor.entryStructName)(\(arguments))"]))
-    if plan != nil { lines.append(contentsOf: indentedForGroupBody(schedulerBootstrapClosingLines())) }
+    body.append(contentsOf: tailIndent(["        return \(descriptor.entryStructName)(\(arguments))"]))
+    if plan != nil { body.append(contentsOf: indentedForGroupBody(schedulerBootstrapClosingLines())) }
+
+    // Same trigger as the bootstrap's: something to unwind, and something that can throw. A `do` whose body
+    // cannot throw is `'catch' block is unreachable`, in generated code.
+    var lines: [String] = ["    let \(thunkLocal) = { @Sendable (\(parameterList)) async throws in"]
+    // The accumulator is declared whenever there is anything to tear down, because the *happy* path folds
+    // it too. The `do`/`catch` is the narrower question: only a thunk that can throw has an unwind path,
+    // and a `do` whose body cannot throw is `'catch' block is unreachable` in generated code.
+    let unwinds = torn && constructionCanThrow(body)
+    if torn {
+        lines.append(
+            contentsOf: teardownAccumulatorLines(indent: "        ", name: scopeTeardownAccumulator)
+        )
+    }
+    if unwinds { lines.append("        do {") }
+    lines.append(contentsOf: unwinds ? indentedForGroupBody(body) : body)
+    if unwinds {
+        lines.append(
+            contentsOf: partialTeardownCatchLines(indent: "        ", accumulator: scopeTeardownAccumulator)
+        )
+    }
     lines.append("    }")
     return lines
 }
+
+/// The scope's accumulator name. Distinct from the bootstrap's so the two never collide when a thunk is
+/// emitted inside a bootstrap body that has one of its own — which is every scheduled graph with a
+/// `@Teardown` binding.
+let scopeTeardownAccumulator = "_wireScopeTeardownActions"
 
 /// One scope entry's construction body — the linear chain, or the prefix / group / suffix split when the
 /// scope has two async bindings that can overlap.
@@ -179,7 +220,8 @@ private func scopeEntryThunkLines(
 private func scopeConstructionLines(
     plan: ConstructionRegions?,
     constructed: [DiscoveredBinding],
-    aliases: ExistentialAliasPlan
+    aliases: ExistentialAliasPlan,
+    accumulatesTeardown: Bool
 ) -> [String] {
     func chain(_ bindings: [DiscoveredBinding], indent: String) -> [String] {
         var lines: [String] = []
@@ -193,12 +235,22 @@ private func scopeConstructionLines(
                     indent: indent
                 )
             )
+            if accumulatesTeardown {
+                lines.append(
+                    contentsOf: teardownActionAppendLines(
+                        for: binding,
+                        indent: indent,
+                        accumulator: scopeTeardownAccumulator
+                    )
+                )
+            }
         }
         return lines
     }
     guard let plan else { return chain(constructed, indent: "        ") }
 
     var lines = chain(plan.prefix, indent: "        ")
+    let tornInGroup = plan.group.filter { $0.teardown != nil }
     // No `_wireSendableChecks` here, deliberately: `#sourceLocation` is a top-of-file directive and
     // derails the parse from inside a closure. What is lost is the *located* half of the diagnostic; the
     // marker enum's own error still names the case, the type and — in a note — the user's declaration,
@@ -221,10 +273,28 @@ private func scopeConstructionLines(
     )
     lines.append(
         contentsOf: indentedForGroupBody(
-            schedulerBootstrapOpeningLines(structName: scopeSchedulerName, regions: plan, tornInGroup: [])
+            schedulerBootstrapOpeningLines(
+                structName: scopeSchedulerName,
+                regions: plan,
+                tornInGroup: accumulatesTeardown ? tornInGroup : [],
+                teardownAccumulator: scopeTeardownAccumulator
+            )
         )
     )
     lines.append(contentsOf: indentedForGroupBody(schedulerSeamLines(regions: plan)))
+    // A scheduled binding records its action after the seam, where it is a local again — the drain's own
+    // `catch` covers the case where the throw came first.
+    for binding in tornInGroup where accumulatesTeardown {
+        lines.append(
+            contentsOf: indentedForGroupBody(
+                teardownActionAppendLines(
+                    for: binding,
+                    indent: "        ",
+                    accumulator: scopeTeardownAccumulator
+                )
+            )
+        )
+    }
     lines.append(contentsOf: indentedForGroupBody(chain(plan.suffix, indent: "        ")))
     return lines
 }

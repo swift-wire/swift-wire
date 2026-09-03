@@ -127,20 +127,61 @@ private func seedlessScopeEntryThunkLines(
         .map { identifierName(forType: liftSpecialised($0.subject, in: .scopeBound(proxy)), key: nil) }
         ?? scope.topologicalOrder.last.map { propertyName(for: $0) } ?? ""
 
-    var lines: [String] = ["    let \(thunkLocal) = { @Sendable (doubles: \(doublesType)) async throws in"]
-    for binding in scope.topologicalOrder {
+    // Issue #21 — the same accumulator the seeded thunk uses. This path reconstructs per *test* rather
+    // than per request, so it is the colder of the two, but it has the identical shape: a `@Teardown`
+    // binding built before something that throws would otherwise be abandoned.
+    let constructed = scope.topologicalOrder.filter { binding in
         let name = propertyName(for: binding)
-        if scope.borrowedBindingPropertyNames.contains(name) { continue }
-        let construction = constructionExpression(for: binding)
-        if name == construction { continue }
-        lines.append("        let \(name) = \(construction)")
+        return !scope.borrowedBindingPropertyNames.contains(name)
+            && name != constructionExpression(for: binding)
     }
-    lines.append(
-        contentsOf: scopeTeardownClosureLines(scope, local: scopeTeardownLocalName, reachable: nil)
+    let torn = constructed.contains { $0.teardown != nil }
+    var body: [String] = []
+    for binding in constructed {
+        let name = propertyName(for: binding)
+        body.append("        let \(name) = \(constructionExpression(for: binding))")
+        if torn {
+            body.append(
+                contentsOf: teardownActionAppendLines(
+                    for: binding,
+                    indent: "        ",
+                    accumulator: scopeTeardownAccumulator
+                )
+            )
+        }
+    }
+    body.append(
+        contentsOf: torn
+            ? accumulatedTeardownClosureLines(
+                indent: "        ",
+                local: scopeTeardownLocalName,
+                type: scopeEntryTeardownType,
+                accumulator: scopeTeardownAccumulator
+            )
+            : scopeTeardownClosureLines(scope, local: scopeTeardownLocalName, reachable: nil)
     )
+    var lines: [String] = ["    let \(thunkLocal) = { @Sendable (doubles: \(doublesType)) async throws in"]
+    let unwinds = torn && constructionCanThrow(body)
+    if torn {
+        lines.append(
+            contentsOf: teardownAccumulatorLines(indent: "        ", name: scopeTeardownAccumulator)
+        )
+    }
+    if unwinds { lines.append("        do {") }
+    lines.append(contentsOf: unwinds ? indentedForGroupBody(body) : body)
     // Returns the same entry struct the seeded path does — a variant harness reads one shape, whichever
     // path built the subject, and the adapter's generated code needs no branch between them.
-    guard let descriptor = scopeEntry?.scopeEntry else { return lines }
+    guard let descriptor = scopeEntry?.scopeEntry else {
+        if unwinds {
+            lines.append(
+                contentsOf: partialTeardownCatchLines(
+                    indent: "        ",
+                    accumulator: scopeTeardownAccumulator
+                )
+            )
+        }
+        return lines
+    }
     let arguments =
         ([(scopeEntrySubjectFieldName, subjectLocal)]
         + descriptor.yields.map {
@@ -150,7 +191,13 @@ private func seedlessScopeEntryThunkLines(
         + [(scopeTeardownLocalName, scopeTeardownLocalName)])
         .map { "\($0): \($1)" }
         .joined(separator: ", ")
-    lines.append("        return \(descriptor.entryStructName)(\(arguments))")
+    let returnLine = "        return \(descriptor.entryStructName)(\(arguments))"
+    lines.append(unwinds ? "    " + returnLine : returnLine)
+    if unwinds {
+        lines.append(
+            contentsOf: partialTeardownCatchLines(indent: "        ", accumulator: scopeTeardownAccumulator)
+        )
+    }
     lines.append("    }")
     return lines
 }
