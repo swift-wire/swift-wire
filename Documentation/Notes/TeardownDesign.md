@@ -110,7 +110,8 @@ extends that check rather than opening it fresh.
 > exception, a scheduled binding, whose action the drain's own `catch` recovers from its cell. The design
 > is [ConstructionScheduling.md](ConstructionScheduling.md) § *Init-failure partial teardown*; the fixture
 > this section asks for is `Tests/IntegrationTests/PartialTeardownExample.swift`, in both construction
-> shapes.
+> shapes. **Per-request scope entry got the same treatment shortly after**, once M7c.6's own fixture made
+> that gap reachable — see [CompletedIssues/21](../../CompletedIssues/21-scope-entry-partial-teardown.md).
 
 
 Distinct from `graph.teardown()`: if an init throws **partway through bootstrap**, the

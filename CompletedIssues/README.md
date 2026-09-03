@@ -11,7 +11,10 @@ kind**: a *diagnostic* bug rather than a graph one, surfaced by Phase 3's `auth-
 naming `@Factory` as the lifetime it already was. **#18 is the pair to it**, from Phase 5 rather than the
 graph: a diagnostic that *reported* a real defect rather than being one. Trying to write `consuming` on
 `drain()` was refused, and the refusal was the bug report — the gap between the exclusive ownership #148
-delivered and the exactly-once draining it was argued on.
+delivered and the exactly-once draining it was argued on. **#21 is different again**: it was filed as latent by a survey
+done for another question, and had stopped being latent by the time it was implemented — the fixture that
+closed M7c.6 was itself what made the gap reachable, which is worth remembering as a way these entries go
+stale.
 
 | # | Title | Repo(s) | Resolution |
 |---|-------|---------|-----------|
@@ -22,5 +25,6 @@ delivered and the exactly-once draining it was argued on.
 | [10](10-bindtype-cannot-name-macro-generated-mock.md) | `@BindType` can't name a macro-generated mock directly | Swift compiler (example workaround) | Worked around — `@BindType` names a plain `typealias` onto the `@Smock`-generated mock, since a macro can't name another macro's output as its argument. |
 | [16](16-factory-template-scope-hint.md) | The cross-scope fix-it names a synthesised factory the user cannot annotate | swift-wire | Fixed — `@Factory` is diagnosed as a lifetime macro (dissolving the `invalid redeclaration of init` and the double discovery behind it), and the cross-scope note names the *template* and offers only moves that can be written. No source migration. |
 | [18](18-registry-drained-twice.md) | A typed terminal can drain the response-header registry twice | wire-mvc | Fixed — the buffered and streaming terminals take the registry `consuming` and drain it once between the handler and the wire, so `drain()` is `consuming` and generated code holds no registry to drain twice. |
+| [21](21-scope-entry-partial-teardown.md) | A scope entry that throws partway leaks the scope bindings it had already built | swift-wire | Fixed — the scope-entry and seedless-reconstruction thunks accumulate their `@Teardown` actions as each binding is built and unwind them in reverse before rethrowing, with a scheduled scope's group bindings recovered from their cells by the drain's own `catch`. |
 
 See [../PendingIssues/](../PendingIssues/README.md) for what's still outstanding.

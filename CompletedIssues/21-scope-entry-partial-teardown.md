@@ -1,10 +1,13 @@
 # 21 — A scope entry that throws partway leaks the scope bindings it had already built
 
 **Repo(s):** swift-wire
-**State:** 🟡 Latent — provably unhandled, but unreachable in any shipped shape: no construction on this
-path can throw yet, so nothing reaches the gap
-**Blocks:** nothing today. It becomes live the first time a `@Scoped(seed:)` binding has a throwing init in
-a scope that also carries a `@Teardown` binding.
+**State:** ✅ Fixed (2026-09) — `ScopeEntryEmission` and `SeedlessReconstructionEmission` accumulate the
+scope's `@Teardown` actions and unwind them on a throw, gated by
+`Tests/IntegrationTests/ScopePartialTeardownExample.swift` in both construction shapes
+**Was:** 🟡 Latent when filed — and **wrong by the time it was read again**. M7c.6's own
+`AsyncScopeEntryExample` added a scope entry that both constructs with `try` and carries a `@Teardown`
+binding, which made the gap reachable in the corpus: 1 of 20 per-request thunks, where the survey behind
+this entry had measured 0 of 19. It should have moved to 🔴 before it was fixed.
 **Surfaced by:** M7c.6's survey of the scope construction paths. The question asked was whether any of them
 should take the construction scheduler; the answer was no, and this is what the same survey found instead.
 
@@ -42,9 +45,22 @@ Two things to get right that the bootstrap did not have to:
 - Scope entry is pruned per root (M5.4.6), so the walk is over the *reachable* set for that root, exactly
   as `scopeTeardownClosureLines` already does.
 
-## Why it is not fixed now
+## How it was fixed
 
-No forcing case, and no population: the gate would be a fixture built for the mechanism rather than a
-graph that wants it, which is the trap M7c.2 recorded and M7c.4 was rewritten to avoid. It lands when an
-adopter has a throwing request-scoped init, which is the same trigger M4 set for the bootstrap half and
-which took until M7c.5 to fire.
+As predicted, and with the two things the entry called out both mattering. The accumulator is declared
+**inside** the thunk — per request, since two entries into one scope share nothing — and the walk is over
+what that entry actually constructed, which the pruned set already encodes.
+
+The scheduled case needed the hook M7c.6 left open. A scope binding built inside the group is constructed
+in a method of the thunk's building struct, where the accumulator is out of scope, so
+`schedulerBootstrapOpeningLines`' `tornInGroup` — passed as `[]` by the scope path until now, harmlessly,
+because there was no unwind path to feed — became the group's real torn set, and the drain's own `catch`
+recovers such a binding from its cell before rethrowing. `ScopePartialTeardownExample`'s second scope puts
+its `@Teardown` binding in the group region precisely to exercise that.
+
+One thing the plan got wrong: the accumulator's *declaration* was first gated on the same condition as the
+`do`/`catch`, but the happy path folds the same list, so a scope with teardown and no throwing
+construction emitted a fold over an undeclared variable. The declaration follows "has teardown"; only the
+`do`/`catch` follows "can throw".
+
+Verified discriminating rather than assumed: with the accumulation forced off, all three gate tests fail.

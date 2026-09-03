@@ -26,8 +26,8 @@
 /// One list serves both paths. On success it becomes the graph's `_wireTeardown`; on a throw the `catch`
 /// walks it in reverse and rethrows. That is deliberate — a second list for the failure path would be the
 /// same teardown call lines emitted twice, kept in step by hand.
-func teardownAccumulatorLines() -> [String] {
-    ["    var _wireTeardownActions: [@Sendable () async -> [any Error]] = []"]
+func teardownAccumulatorLines(indent: String = "    ", name: String = "_wireTeardownActions") -> [String] {
+    ["\(indent)var \(name): [@Sendable () async -> [any Error]] = []"]
 }
 
 /// One binding's action, appended where it is constructed.
@@ -35,7 +35,11 @@ func teardownAccumulatorLines() -> [String] {
 /// The closure closes over the binding's *local* — the same concrete-type capture the happy-path closure
 /// has always used, which is what lets `@Teardown` work on an `@Singleton(as:)` binding whose graph
 /// property is an opaque `some P`.
-func teardownActionAppendLines(for binding: DiscoveredBinding, indent: String) -> [String] {
+func teardownActionAppendLines(
+    for binding: DiscoveredBinding,
+    indent: String,
+    accumulator: String = "_wireTeardownActions"
+) -> [String] {
     guard binding.teardown != nil else { return [] }
     // `errors` is appended to only by a throwing member or a producer action. A non-throwing member never
     // touches it, and a `var` nothing mutates is a warning in the generated file.
@@ -46,7 +50,7 @@ func teardownActionAppendLines(for binding: DiscoveredBinding, indent: String) -
     case nil: mutatesErrors = false
     }
     return [
-        "\(indent)_wireTeardownActions.append({",
+        "\(indent)\(accumulator).append({",
         "\(indent)    \(mutatesErrors ? "var" : "let") errors: [any Error] = []",
     ]
         + teardownCallLines(for: binding, indent: "\(indent)    ")
@@ -64,11 +68,16 @@ func teardownActionAppendLines(for binding: DiscoveredBinding, indent: String) -
 ///
 /// `[_wireTeardownActions]` is a by-value capture list rather than the implicit one: the accumulator is a
 /// `var`, and an escaping `@Sendable` closure cannot capture a mutable local by reference.
-func accumulatedTeardownClosureLines(indent: String) -> [String] {
+func accumulatedTeardownClosureLines(
+    indent: String,
+    local: String = "_wireTeardown",
+    type: String = "@Sendable () async -> [any Error]",
+    accumulator: String = "_wireTeardownActions"
+) -> [String] {
     [
-        "\(indent)let _wireTeardown: @Sendable () async -> [any Error] = { [_wireTeardownActions] in",
+        "\(indent)let \(local): \(type) = { [\(accumulator)] in",
         "\(indent)    var errors: [any Error] = []",
-        "\(indent)    for action in _wireTeardownActions.reversed() {",
+        "\(indent)    for action in \(accumulator).reversed() {",
         "\(indent)        errors.append(contentsOf: await action())",
         "\(indent)    }",
         "\(indent)    return errors",
@@ -82,10 +91,10 @@ func accumulatedTeardownClosureLines(indent: String) -> [String] {
 /// `Wire.bootstrap()` is being told why the graph could not be built; a secondary failure while unwinding
 /// resources that are about to be abandoned is not the answer to that question. (Happy-path `teardown()`
 /// does the opposite and returns them, because there the errors *are* the result.)
-func partialTeardownCatchLines(indent: String) -> [String] {
+func partialTeardownCatchLines(indent: String, accumulator: String = "_wireTeardownActions") -> [String] {
     [
         "\(indent)} catch {",
-        "\(indent)    for action in _wireTeardownActions.reversed() {",
+        "\(indent)    for action in \(accumulator).reversed() {",
         "\(indent)        _ = await action()",
         "\(indent)    }",
         "\(indent)    throw error",
@@ -103,14 +112,24 @@ func partialTeardownCatchLines(indent: String) -> [String] {
 ///
 /// `take()` rather than a borrow: the cells are being abandoned, and it is the only way to move a payload
 /// out of one.
-func groupTeardownRecoveryLines(tornInGroup: [DiscoveredBinding], indent: String) -> [String] {
+func groupTeardownRecoveryLines(
+    tornInGroup: [DiscoveredBinding],
+    indent: String,
+    accumulator: String = "_wireTeardownActions"
+) -> [String] {
     guard !tornInGroup.isEmpty else { return [] }
     var lines = ["\(indent)} catch {"]
     for binding in tornInGroup {
         let local = propertyName(for: binding)
         lines.append("\(indent)    if building.\(stateCellName(for: binding)).isResolved() {")
         lines.append("\(indent)        let \(local) = building.\(stateCellName(for: binding)).take()")
-        lines.append(contentsOf: teardownActionAppendLines(for: binding, indent: "\(indent)        "))
+        lines.append(
+            contentsOf: teardownActionAppendLines(
+                for: binding,
+                indent: "\(indent)        ",
+                accumulator: accumulator
+            )
+        )
         lines.append("\(indent)    }")
     }
     lines.append("\(indent)    throw error")

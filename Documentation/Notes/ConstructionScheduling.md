@@ -737,12 +737,16 @@ seam first. **Every gate compiles the generated output**, per the `-typecheck`-i
   reuse the same helper, but it reconstructs per *test* rather than per request; it is a follow-on when
   something wants it, not a decision against.
 
-  The survey also found something it was not looking for, filed as
-  [PendingIssues/21](../../PendingIssues/21-scope-entry-partial-teardown.md): all 19 per-request
-  construction thunks carry a `_wireScopeTeardown` and none can throw yet, so M7c.5's partial teardown is
-  missing there and latent. M4's reasoning for deferring the bootstrap half — a failed bootstrap ends in
-  process exit, so the OS reclaims it — does not transfer to a path that runs per request in a process that
-  keeps serving.
+  The survey also found something it was not looking for: M7c.5's partial teardown was missing on this
+  path. Filed as issue 21 on the strength of "all 19 per-request thunks carry a `_wireScopeTeardown` and
+  none can throw yet" — and **the fixture above is what falsified that**, since it both constructs with
+  `try` and carries a `@Teardown` binding. **Fixed** (see
+  [CompletedIssues/21](../../CompletedIssues/21-scope-entry-partial-teardown.md)): the thunk accumulates its
+  actions as each binding is built and unwinds them before rethrowing, and the `tornInGroup: []` this step
+  passed became the group's real torn set, so a scheduled scope's binding is recovered from its cell by the
+  drain's own `catch`. M4's reasoning for deferring the bootstrap half — a failed bootstrap ends in process
+  exit, so the OS reclaims it — never transferred to a path that runs per request in a process that keeps
+  serving.
 
 The per-graph rule — scheduler if two of the graph's async bindings can be in flight at once, today's
 linear chain otherwise — is what protects the golden and what keeps this from being a per-binding

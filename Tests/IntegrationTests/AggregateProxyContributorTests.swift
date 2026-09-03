@@ -18,10 +18,11 @@ struct AggregateProxyContributorTests {
 
         // The multibinding receives ONE element for three annotated subjects — where `.contributesProxy`
         // would have contributed three separate proxies.
-        // A group per spec, each its own aggregate in the multibinding — "alpha" and "beta" here, plus
-        // `AsyncScopeEntryExample`'s "async", which declares its own group precisely so it composes with
-        // these rather than joining them.
-        #expect(graph.aggregateContributorHost.controllers.count == 3)
+        // A group per spec, each its own aggregate in the multibinding. Five across the corpus: "alpha" and
+        // "beta" here, `AsyncScopeEntryExample`'s "async", and `ScopePartialTeardownExample`'s
+        // "chainUnwind" and "groupUnwind" — each declaring its own group precisely so it composes with
+        // these rather than joining them, which is the property this count is asserting.
+        #expect(graph.aggregateContributorHost.controllers.count == 5)
         #expect(graph.aggregateContributorHost.soloControllers.count == 1)
     }
 
