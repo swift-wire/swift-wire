@@ -6,7 +6,7 @@
 > mock-consuming-factory cases. Read as a design record rather than as a plan; where it and the code
 > disagree, the code is right. Known gaps in what shipped are labelled on the tracker. These primitives know nothing about
 > HTTP or "request scope"; an adapter's test harness supplies the specifics (the WireMVC harness
-> is in [WireMVCTesting.md](WireMVCTesting.md)).
+> is in [WireMVCTesting.md](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/WireMVCTesting.md)).
 
 ## The problem
 
@@ -45,7 +45,7 @@ enum MyTests {
 
 ## The instance rides the seed
 
-A `@BindType` binding's instance is just an extra thing the scope is **entered with**. swift-wire already threads a **seed** into a seeded scope (`HTTPRequest` today); the test doubles ride the same channel — the scope-entry becomes `(seed, test-doubles)`, and a `@BindType` binding resolves directly to its double from the doubles part. No new value-source abstraction: the double is a seed input, threaded exactly as the seed is. The adapter supplies the doubles at scope entry ([WireMVCTesting.md](WireMVCTesting.md) does it from an HTTP-correlated store).
+A `@BindType` binding's instance is just an extra thing the scope is **entered with**. swift-wire already threads a **seed** into a seeded scope (`HTTPRequest` today); the test doubles ride the same channel — the scope-entry becomes `(seed, test-doubles)`, and a `@BindType` binding resolves directly to its double from the doubles part. No new value-source abstraction: the double is a seed input, threaded exactly as the seed is. The adapter supplies the doubles at scope entry ([WireMVCTesting.md](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/WireMVCTesting.md) does it from an HTTP-correlated store).
 
 ## The cascade — and why it's inherent
 
@@ -91,7 +91,3 @@ All of this lives in the **test graph** — the test target regenerates its own 
 
 - **Instance mocking:** Dagger-Hilt `@BindValue` / `@TestInstallIn`, Spring `@MockBean`, ASP.NET `ConfigureTestServices(_ => mock)`, NestJS `.overrideProvider().useValue()`. Common shape: the test holds the mock; the framework injects that instance; the scope collapses to it — nobody mocks "per request."
 - **Scoped resolution:** Spring scoped proxies (per-call resolution of a scoped bean injected into a singleton) — the alternative-with-a-gap above.
-
----
-
-<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

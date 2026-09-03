@@ -468,7 +468,3 @@ This note pins Wire to:
 These shapes are load-bearing for both 5α and 5β; landing them in
 this note before either iteration starts is the way to ensure
 they're internally consistent.
-
----
-
-<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

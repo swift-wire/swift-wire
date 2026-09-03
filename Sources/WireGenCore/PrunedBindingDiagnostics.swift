@@ -37,7 +37,7 @@
 ///
 /// Synthesised aggregates are skipped — the multibinding liveness diagnostics speak for a key that
 /// nothing consumes, and in the aggregate's own vocabulary. A *contributor* pruned along with its
-/// aggregate is reported, which is the case the ROADMAP singles out: a package-local contributor folded
+/// aggregate is reported, which is the interesting case: a package-local contributor folded
 /// into a `public` aggregate nothing consumes is genuinely dead, while the aggregate itself stays silent.
 package func prunedBindingDiagnostics(
     _ pruned: [DiscoveredBinding],

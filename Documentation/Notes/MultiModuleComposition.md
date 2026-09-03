@@ -198,7 +198,7 @@ generated `_WireGraph` is `internal` and its bindings are read as ordinary expre
 — from the home target's own code, which no discovery pass sees. Everything Wire *can* see is either an
 edge (`@Inject`, `@Contributes`) or a declaration, so a root has to be something declared. This section
 names the complete set with the failure mode for each, settled 2026-08 as M7b.0's gate; the walk is M7b.1
-and the restriction M7b.2/M7b.3. See [M7_PLAN.md](../M7_PLAN.md).
+and the restriction on which modules it prunes.
 
 **Roots are per graph, not per module.** Each `buildDependencyGraph` call is one graph — the default app
 graph, one per `@Container`, one per seed scope (`orchestrateSeedScope`), one per testing variant — and each
@@ -241,12 +241,12 @@ this note:
   consumer is the declared root and the resources it holds are torn down because they were constructed
   for it.
 - **A `public` key does not root its aggregate.** The earlier reading (the retirement-plan section above,
-  and the ROADMAP's "non-prunable exception") was that a public collection key can gain contributors
+  and the "non-prunable exception") was that a public collection key can gain contributors
   outside the analysed graph, so its aggregate survives with no local consumer. That is an argument about
   *contributors*, and pruning turns on *consumers*: contributions flow into an aggregate, they do not read
   it. Nothing outside this graph can read one — `_WireGraph` is `internal` to its module — so there is no
   downstream reader for the permissive tier to protect. **Visibility gates diagnostics; consumption gates
-  construction**, and the two questions had been run together. The ROADMAP's own wording is already the
+  construction**, and the two questions had been run together. The original wording is already the
   narrower one ("the aggregate stays *silent*"), which is the diagnostic and stays true. A public key
   whose product the app pulls out through `graph.x` roots it with `allowUnused:`, exactly as a binding
   does.
@@ -329,7 +329,7 @@ graph cannot see for itself:
 - **What a testing variant borrows.** Variants are derived from the production app graph's retained set,
   so they cannot borrow what production never constructs — see below.
 
-Measured on the ROADMAP's case, a 500-binding library where the consumer injects exactly one binding:
+Measured on the motivating case, a 500-binding library where the consumer injects exactly one binding:
 **1,525 lines, 501 stored properties and 501 eager constructions become 28 lines, 2 and 2.** That is the
 part that carries the win.
 
@@ -353,7 +353,7 @@ this one says more. **M7b.4 makes that a fold rather than a suppression** — th
 aside for every identity reachability *decided*, retained and pruned alike, and judges only what
 reachability did not. That discharges the limitation `DeadBindingDiagnostics` recorded from 5α: a binding
 consumed solely by another dead binding is unreachable too, so the fixed point comes by construction. It
-also gives the ROADMAP's subtlety for free — a package-local contributor folded into a `public` aggregate
+also gives the subtlety for free — a package-local contributor folded into a `public` aggregate
 nothing consumes is pruned and reported, while the aggregate itself stays silent.
 
 The limitation survives in exactly one place: a **seed scope** is built unpruned, because the whole-scope
@@ -530,7 +530,7 @@ key. Tracking single keys is a **behavioural change** (Wire would begin
 diagnosing them), so it's deliberately bundled here — landed *before*
 library behaviour expectations lock in, and on the same key-discovery
 work composition needs anyway. See
-[`ScopeAndKeyModelEvolution.md`](ScopeAndKeyModelEvolution.md).
+[`ScopeAndKeyModelEvolution.md`](../../Proposals/ScopeIdentityAndKeyModel.md).
 
 ## Summary
 

@@ -222,7 +222,7 @@ graph-held and consumer-held. The rule that falls out:
 The same rule at two levels, and it is already the shape M5.4 uses: `requestContext` is
 `consuming Builder.RequestContext`, `~Copyable & ~Escapable`, reachable only inside the register
 closure and never stored (see the archived
-[M5.4 plan](../Archive/M5_4_PLAN.md)). A `~Copyable` controller constructed in that same closure
+M5.4 plan). A `~Copyable` controller constructed in that same closure
 is the identical pattern one step up.
 
 It also means the support boundary falls on a split the framework already makes:
@@ -241,7 +241,7 @@ thunk, where noncopyable is fine. No new axis is needed.
    common than case 5 below, and satisfiable without any policy surface. Error when no order
    works. This is the one genuinely transplantable piece of pavex's model.
 4. **No consumers → the graph would have to hold it,** making `_WireGraph` noncopyable. The blast
-   radius is larger than it looks: [`TeardownDesign.md`](TeardownDesign.md) holds
+   radius is larger than it looks: [`TeardownDesign.md`](../Documentation/Notes/TeardownDesign.md) holds
    `let graph: any Teardownable`, and `apply` takes `some WireMVCComposable` — a move-only graph
    breaks the existential immediately. Two options, neither free:
    - **Reject.** Preferred. A `~Copyable` binding with no consumer has little reason to exist,
@@ -344,7 +344,7 @@ one binding can consume the seed.
 The failure mode is benign: a wrong inference fails to compile rather than misbehaving. That is
 the same posture as the `_check<T>` compiler assertions emitted as a backstop against
 reference-to-declaration matching brittleness (see
-[BuilderKeyDesign.md](BuilderKeyDesign.md)) — infer aggressively, let the compiler catch the
+[BuilderKeyDesign.md](../Documentation/Notes/BuilderKeyDesign.md)) — infer aggressively, let the compiler catch the
 miss.
 
 ### Emission form
@@ -428,7 +428,7 @@ Three places it could leak anyway:
   emit suppression only on parameters that actually bind a noncopyable type — unconditional
   suppression would be a silent widening with no user benefit.
 - **`Teardownable` — the genuine risk, and it lands in the storage-model work.**
-  [`TeardownDesign.md`](TeardownDesign.md) declares
+  [`TeardownDesign.md`](../Documentation/Notes/TeardownDesign.md) declares
   `public protocol Teardownable { func teardown() async -> [any Error] }`. If resolving
   noncopyable teardown (case 4 above) means changing that requirement, it breaks every conformer
   whether or not they use the feature — the one place the opt-in claim actually fails. **Treat
@@ -521,7 +521,7 @@ should land before the storage-model work.
 
 **A keyed noncopyable binding needs `BindingKey`/`Bind` suppression, and then hits the SILGen
 crash.** The worked case above uses `@Bind(Backend.data) data: consuming UniqueArray<UInt8>` — a
-property-wrapped noncopyable *parameter*, which is exactly the combination ROADMAP's
+property-wrapped noncopyable *parameter*, which is exactly the combination [tachyonics/wire-mvc#180](https://github.com/tachyonics/wire-mvc/issues/180)'s
 *Known blockers (1.0)* documents. Three stages, all verified on the 6.4 snapshot:
 
 1. **As declared today it fails at the constraint level, before any bug.**
@@ -533,10 +533,10 @@ property-wrapped noncopyable *parameter*, which is exactly the combination ROADM
 2. **With suppression added, the direct use crashes SILGen** —
    [swiftlang/swift#81624](https://github.com/swiftlang/swift/issues/81624), reproduced on
    `6.4-dev` snapshot 2026-08-01: *"While silgen emitFunction … for 'direct(data:)'"*. Confirms
-   the ROADMAP's finding that the bug is standing rather than a regression, and that it applies
+   the finding that the bug is standing rather than a regression, and that it applies
    to parameters.
 3. **The documented `_x.wrappedValue` workaround holds** for the `~Copyable` case and compiles
-   clean. ROADMAP's bug 2 ([#91473](https://github.com/swiftlang/swift/issues/91473)) needs
+   clean. Bug 2 ([swiftlang/swift#91473](https://github.com/swiftlang/swift/issues/91473)) needs
    `~Escapable` **and** a generic parameter, and `UniqueArray<UInt8>` is `~Copyable` but escapable
    and concrete — so keyed noncopyable bindings stay reachable.
 
@@ -577,20 +577,20 @@ graph does not pay.
 
 That is the honest caution. What argues the other way here: the diagnostics are better than that
 history suggests, the feature is opt-in per binding, and the blast radius is one scope rather
-than the graph. See [OpaqueTypesInContext.md](OpaqueTypesInContext.md) for the fuller comparison.
+than the graph. See [OpaqueTypesInContext.md](../Documentation/Notes/OpaqueTypesInContext.md) for the fuller comparison.
 
 ## References
 
 - wire-mvc's [`StreamingResponseTier.md`](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/StreamingResponseTier.md)
   — the verified `~Escapable` findings this note builds on: moving does not extend a lifetime,
   the container inherits the bound, `@_lifetime` vs `@lifetime`, and the `Lifetimes` flag name.
-- [`LinearSenderErrorModel.md`](LinearSenderErrorModel.md) — the linear (correctness-motivated)
+- [`LinearSenderErrorModel.md`](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/LinearSenderErrorModel.md) — the linear (correctness-motivated)
   `~Copyable` population, where duplication is forbidden by design.
-- [`TeardownDesign.md`](TeardownDesign.md) — `Teardownable` and the `any Teardownable` facade
+- [`TeardownDesign.md`](../Documentation/Notes/TeardownDesign.md) — `Teardownable` and the `any Teardownable` facade
   that a noncopyable graph would break.
-- [M5.4 plan](../Archive/M5_4_PLAN.md) — the register closure and the `consuming`,
+- M5.4 plan — the register closure and the `consuming`,
   `~Copyable & ~Escapable` `requestContext` this note generalises from.
-- [`ScopeAndKeyModelEvolution.md`](ScopeAndKeyModelEvolution.md) — where a per-seed
+- [`ScopeAndKeyModelEvolution.md`](ScopeIdentityAndKeyModel.md) — where a per-seed
   "concurrently entered" bit would live.
 - [SE-0527 — RigidArray and UniqueArray](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0527-rigidarray-uniquearray.md)
   — `~Copyable` for performance rather than correctness, and the `Clonable` future direction.

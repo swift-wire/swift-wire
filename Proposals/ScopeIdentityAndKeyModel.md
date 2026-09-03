@@ -175,7 +175,7 @@ But it's a **behavioral change** (Wire would start diagnosing single
 keys). **Decision: land it as an early foundation sitting of multi-module
 composition (iteration 7, sitting 7a)** — composition needs Wire to
 discover keys across the parse set anyway (see
-[`MultiModuleComposition.md`](MultiModuleComposition.md)), key tracking is
+[`MultiModuleComposition.md`](../Documentation/Notes/MultiModuleComposition.md)), key tracking is
 additive and single-module-testable, and doing it first lands the change
 *before library behaviour expectations lock in*. It is distinct from — and
 a prerequisite of — the value-level scope key (Axis B proper): the linchpin
@@ -196,7 +196,7 @@ The adapter-annotation contract (iteration 8) adds a fourth consumer of the
 keyed-reference foundation, alongside `@Inject(K)`, `@Provides(K)`, and scope
 inputs: an adapter use-site names the bindings its generated registration
 needs. (Written against the `_wireRegister` member of that iteration, retired by
-M2's contribution-alias contract — [AdapterModel.md](AdapterModel.md). The
+M2's contribution-alias contract — [AdapterModel.md](../Documentation/Notes/AdapterModel.md). The
 keyed-reference argument below is unaffected: it is about how a slot *names* a
 binding, not about what consumes it.)
 
@@ -259,7 +259,3 @@ additive when a real case appears.
 Building on the current seed model now forecloses nothing: the
 multibinding-key tracking already shipped is the same pattern this would
 extend, and the value-level scope key can absorb the seed later.
-
----
-
-<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

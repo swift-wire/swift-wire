@@ -160,7 +160,7 @@ composition root or a Tier-2 macro's `main`).
 - **Tier 2 — `@main @WireHummingbird`.** A composition-root type the macro reads;
   it generates `main` (bootstrap → build router → apply → construct → run). *(Retired:
   the Tier-2 macro shipped as the proposal-native `@WireMVCBootstrap` in M5.5, not a
-  Hummingbird-specific `@WireHummingbird` — see [ROADMAP.md](../../ROADMAP.md) M5.5. Tier 1
+  Hummingbird-specific `@WireHummingbird`. Tier 1
   above stays the idiomatic Hummingbird path.)*
 
 `apply` returns one ordered `[any Service]`: collected services (`@Contributes` into
@@ -353,7 +353,7 @@ step, matching Wire's JVM-DI on-ramp audience.
 
 ## Suggested sequencing
 
-See the archived [M2_PLAN.md](../Archive/M2_PLAN.md). In brief: **M2.1** Wire Core conformance emission +
+See the archived M2_PLAN.md. In brief: **M2.1** Wire Core conformance emission +
 `Wire.bootstrap()` (done) → **M2.2** context-free route slice + `@HummingbirdController`
 macro (done) → **M2.3** `@Contributes` alias (done) → **M2.4** middleware **out of
 scope** (app-owned) → **M2.5** `[any Service]` lifecycle → **M2.6** Tier-2 macro →

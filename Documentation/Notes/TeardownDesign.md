@@ -195,7 +195,7 @@ in isolation.
   pass (above): its `_wireBootstrap()` codegen is fixed by the construction scheduler, so it
   lands once against the final model rather than being written against the sequential chain
   and rewritten.
-- **M4.6 — docs.** This note; the `ROADMAP.md` M4 entry + the new M7c entry; the README
+- **Docs.** This note; the README
   status refresh (M1 inert → M4 app-scope emitted; request scope M5; init-failure M7c).
 
 ## References
@@ -204,6 +204,6 @@ in isolation.
   via service-lifecycle, failure handling, Service-vs-teardown).
 - [WireHummingbirdDesign.md](WireHummingbirdDesign.md) — the `[any Service]` lifecycle
   seam and the reserved graph-teardown-service prepend.
-- [WireOpenAPIDesign.md](WireOpenAPIDesign.md) — the `Introspectable` precedent this
+- [WireOpenAPIDesign.md](https://github.com/tachyonics/wire-open-api/blob/main/Documentation/Notes/WireOpenAPIDesign.md) — the `Introspectable` precedent this
   teardown surface mirrors (Core protocol + graph conformance + `some`-taking facade).
 - `TeardownDiscovery.swift` — the `TeardownAction` model M4 consumes (M1, inert).
