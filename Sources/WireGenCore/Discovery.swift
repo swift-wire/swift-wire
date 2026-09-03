@@ -193,7 +193,10 @@ package struct DiscoveredScopeBoundType: Sendable {
     package let contributions: [Contribution]
     /// `allowUnused: true` on the scope macro — silences the dead-binding
     /// warning for an intentionally-unconsumed binding (e.g. a graph root).
-    package let allowUnused: Bool
+    /// `var` for one reason: `ContributorProxySynthesis` marks a `.liftsPeersToProxy` subject a root
+    /// after discovery, and a whole-struct rebuild there is how `specialiseBinding` silently dropped this
+    /// very field once already (M7c.1).
+    package var allowUnused: Bool
     /// The owned-type teardown action from a `@Teardown` method on this
     /// type (member form), or `nil` when the type declares none. Recorded
     /// in M1 but inert — code emission ignores it; M4 emits the call in

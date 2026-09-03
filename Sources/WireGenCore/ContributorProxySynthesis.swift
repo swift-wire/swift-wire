@@ -63,6 +63,9 @@ package func applyContributorProxies(
             proxyBySubject[identity] = proxy.qualifiedTypeName
             let target = proxyPartition(directive.proxyScope, subjectPartition: partition)
             result[target, default: []].append(.scopeBound(proxy))
+            if directive.key == nil {
+                result[partition] = rootingAdapterReadSubject(identity, in: result[partition])
+            }
         }
     }
 
@@ -368,4 +371,32 @@ func contributorProxyBinding(
         allowUnused: true,
         originModule: subject.originModule
     )
+}
+
+/// Mark a `.liftsPeersToProxy` subject a **declared root**, which is what this pass is the declaration
+/// point for.
+///
+/// The capability's whole contract is that "the adapter's own codegen reads it" directly off the graph —
+/// WireMVC's `@WireMVCBootstrap` generates `let bootstrap = graph.<subject>` — and that read lives in
+/// *another tool's* output file, which M7c.1's retention scan never sees. The scan's own claim that it
+/// "cannot under-fire" holds only within swift-wire's own emission; across the adapter boundary it silently
+/// dropped the property, and the app failed to build in generated code it did not write.
+///
+/// Rooted through `allowUnused` rather than a fourth root kind, because M7b.0 settled that roots are
+/// *declared* precisely because Wire reads syntax and never use, and an adapter annotation is a
+/// declaration of exactly that use. It also silences the dead-binding diagnostic, which is equally right:
+/// the binding is consumed, just not anywhere Wire looks.
+///
+/// Mutated in place rather than rebuilt — a whole-struct rebuild is how `specialiseBinding` silently
+/// dropped this very field once already (M7c.1).
+private func rootingAdapterReadSubject(
+    _ identity: String,
+    in bindings: [DiscoveredBinding]?
+) -> [DiscoveredBinding]? {
+    bindings?.map { candidate in
+        guard case .scopeBound(var rooted) = candidate, candidate.aliasTargetIdentity == identity
+        else { return candidate }
+        rooted.allowUnused = true
+        return .scopeBound(rooted)
+    }
 }
