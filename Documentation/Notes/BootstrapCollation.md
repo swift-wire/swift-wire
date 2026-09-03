@@ -88,7 +88,7 @@ crate graph, resolves the whole graph, and generates the wiring. Same family as 
 a whole-program collector living outside macro expansion — and the only one of the three that
 gets *type* information rather than syntax. It pays by pinning to an unstable format. Wire's
 plugin re-parses sources instead, so it stays on a stable toolchain and gets no type
-information; see [ChoosingADIFramework.md](ChoosingADIFramework.md), *Macros vs. codegen*.
+information.
 
 **A build script plus a user-placed epilogue (lockjaw).** `build_script()` in `build.rs`
 collects; `epilogue!()` in `main.rs` validates and emits. Libraries skip the epilogue, binaries
@@ -138,8 +138,7 @@ Tier-2 is far off.
   router → apply → Application → run`) this generalises.
 - [WireMVCAbstraction.md](WireMVCAbstraction.md) — the cross-runtime adapters whose apply
   steps must collate.
-- [ChoosingADIFramework.md](ChoosingADIFramework.md), *Macros vs. codegen* — the source-parsing
-  vs. compiler-artefact trade the pavex comparison above turns on.
+
 - External, for the prior-art section: [pavex](https://docs.rs/pavex) and
   [its design post](https://www.lpalmieri.com/posts/a-taste-of-pavex-rust-web-framework/);
   [lockjaw](https://docs.rs/lockjaw) (`build_script()` + `epilogue!()`, and the

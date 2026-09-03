@@ -211,7 +211,7 @@ The exploration closed with four questions for M5's first sitting. For the recor
 - [AdapterModel.md](AdapterModel.md) — the contribution-alias contract that replaced `_wireRegister`.
 - [BootstrapCollation.md](BootstrapCollation.md) — how the apply steps collate, and what a Tier-1 app
   keeps doing by hand.
-- [ArchitecturalPatterns.md](ArchitecturalPatterns.md) — the hexagonal framing these tiers sit in.
+- `Wire`'s DocC article *Structuring an app with Wire* — the hexagonal framing these tiers sit in.
 
 ---
 

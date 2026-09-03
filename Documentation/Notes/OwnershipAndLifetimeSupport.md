@@ -239,8 +239,7 @@ thunk, where noncopyable is fine. No new axis is needed.
    for scoped ones.
 3. **N borrowing consumers plus at most one consuming consumer → order the borrows first.** More
    common than case 5 below, and satisfiable without any policy surface. Error when no order
-   works. This is the one genuinely transplantable piece of pavex's model (see
-   [ChoosingADIFramework.md](ChoosingADIFramework.md)).
+   works. This is the one genuinely transplantable piece of pavex's model.
 4. **No consumers → the graph would have to hold it,** making `_WireGraph` noncopyable. The blast
    radius is larger than it looks: [`TeardownDesign.md`](TeardownDesign.md) holds
    `let graph: any Teardownable`, and `apply` takes `some WireMVCComposable` — a move-only graph
@@ -578,8 +577,7 @@ graph does not pay.
 
 That is the honest caution. What argues the other way here: the diagnostics are better than that
 history suggests, the feature is opt-in per binding, and the blast radius is one scope rather
-than the graph. See [OpaqueTypesInContext.md](OpaqueTypesInContext.md) and
-[ChoosingADIFramework.md](ChoosingADIFramework.md) for the fuller comparison.
+than the graph. See [OpaqueTypesInContext.md](OpaqueTypesInContext.md) for the fuller comparison.
 
 ## References
 
