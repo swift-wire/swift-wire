@@ -422,6 +422,9 @@ package func renderFactoryDeclaration(_ factory: SynthesizedFactory) -> String {
 ///             AuditMiddleware(backend: doubles.backend)
 ///         }
 ///     }
+///
+/// The box-role form — the `create<Role…>(doubles:, _, _, _)` shape — is exercised end-to-end through
+/// wire-mvc rather than by a fixture here, so a break in it would leave this repository's suite green. See #333.
 package func renderVariantFactoryDeclaration(
     _ factory: SynthesizedFactory,
     typeName: String,

@@ -14,7 +14,7 @@
 // compiler reject the generated reference). The `externalModules` set is a
 // consumer-build property the plugin supplies (it knows `.product` deps
 // from `.target` siblings), not a per-binding fact, so it doesn't enter
-// the binding model or a future per-library manifest.
+// the binding model or a future per-library manifest (deferred — see #338).
 
 package func crossModuleVisibilityDiagnostics(
     bindings: [DiscoveredBinding],
