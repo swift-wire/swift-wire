@@ -68,10 +68,15 @@ and Linux support both matter.
 ### Composition
 
 - ``Container()``
-- ``Contributes(to:)-(CollectedKey<Element>)``
-- ``Contributes(to:)-(BuilderKey<Builder>)``
+<!-- The `Contributes` overloads need hash disambiguators rather than the type-signature form
+     (`-(CollectedKey<Element>)`), which only the 6.4 DocC understands and the 6.3.3 floor rejects.
+     The hashes derive from each symbol's USR, so changing one of these macro signatures changes its
+     hash and fails the documentation gate — take the replacement DocC suggests in the error. -->
+- ``Contributes(to:)-2dvt9``
+- ``Contributes(to:)-3elca``
 - ``Contributes(to:atKey:)``
-- ``Contributes(to:withOrder:)-(CollectedKey<Element>,Int)``
+- ``Contributes(to:withOrder:)-5diak``
+- ``Contributes(to:withOrder:)-8p702``
 - ``Replaces()``
 - ``GraphInputs()``
 
