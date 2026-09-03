@@ -1,10 +1,16 @@
 # Wire's visibility model — design notes
 
-> **Status:** 5α implemented — the declaration-too-private error, the
+> **Status:** **shipped.** 5α landed the declaration-too-private error, the
 > dead-binding warning (`DeadBindingDiagnostics.swift`, gated by
 > visibility, judged per container), and the `allowUnused:` silencer on
-> `@Singleton`/`@Scoped`/`@Provides`. Locks the conceptual model that 5β
-> (multibindings) + future container composition both build on.
+> `@Singleton`/`@Scoped`/`@Provides`; 5β (multibindings) landed on top of it.
+> Reachability pruning later gave the dead-binding question its fixed point —
+> `prunedBindingDiagnostics` supersedes the first-order check wherever a graph
+> is pruned. Container composition is still future work and still builds on
+> this model.
+>
+> One known gap: a *defaulted* member of a `public extension` reads as
+> `internal`, so an unconsumed key there can falsely warn — [#342](https://github.com/tachyonics/swift-wire/issues/342).
 
 > **See also:** the "must be at least `internal`" threshold below assumes
 > the bootstrap is generated into the *same* module. Multi-module

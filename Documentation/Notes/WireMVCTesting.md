@@ -2,9 +2,12 @@
 
 > **Status:** design record for the WireMVC HTTP test harness. It sits **on top of** swift-wire's
 > scope-agnostic testing primitives ([TestingModel.md](TestingModel.md) — `@BindType` / `@Scopable`
-> / `TestingKey` / the seed-threaded cascade). `withTestServer` is **built** (deliverable 1);
-> the suite trait, the store + correlation-id channel, `withBindValues`, and `TestClient` are
-> **unbuilt**. For review before building.
+> / `TestingKey` / the seed-threaded cascade).
+>
+> **All of it is built.** `withTestServer`, the `@Suite(.wiremvc(…))` trait, the `TestBindStore` +
+> `CorrelationID` channel and `TestClient` all shipped in M6a. **One name changed in the building:**
+> the doubles-supplying entry point is `withClient`, not the `withBindValues` this note proposes.
+> Read as a design record rather than as a plan.
 
 ## The problem
 

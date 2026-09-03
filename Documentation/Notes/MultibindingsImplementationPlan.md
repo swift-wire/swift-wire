@@ -1,6 +1,7 @@
 # Iteration 5β — multibindings implementation plan
 
-> **Status:** working implementation plan for iteration 5β. The *what*
+> **Status:** **shipped.** Iteration 5β landed `CollectedKey`, `MappedKey` and `BuilderKey` with their
+> fan-in, dedup and liveness rules; this is the plan it was built from. The *what*
 > and the validation gate live in [`M1_PLAN.md`](../Archive/M1_PLAN.md); the
 > design depth lives in [`BuilderKeyDesign.md`](BuilderKeyDesign.md),
 > [`VisibilityModel.md`](VisibilityModel.md) (dead/empty policy), and

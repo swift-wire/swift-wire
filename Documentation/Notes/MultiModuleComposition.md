@@ -1,7 +1,7 @@
 # Multi-module composition
 
-> **Status:** in progress. M1_PLAN iteration 7 implements multi-module
-> composition across sittings 7a–7g. Landed so far: single-`BindingKey`
+> **Status:** **shipped.** M1_PLAN iteration 7 implemented multi-module
+> composition across sittings 7a–7g, all of which landed: single-`BindingKey`
 > tracking (7a), origin-module metadata per binding (7b), same-package
 > cross-target source reading (7c), direct-dependency activation (7d),
 > cross-library validation + origin-module-aware ambiguity (7e), and the
@@ -381,7 +381,7 @@ templates and pre-specialisation bindings a variant legitimately needs.
 
 ## Naming — use SE-0491 module selectors
 
-> **Status: deferred past 7f / M1.** Working it through during iteration 7
+> **Status: deferred**, tracked as [#355](https://github.com/tachyonics/swift-wire/issues/355). Working it through during iteration 7
 > surfaced that `::` is *not* "mechanical once origin-module metadata
 > exists." Two bindings both named `Logger` from different modules have the
 > **same** textual `BindingIdentity` (`base: "Logger"`), so today they're a

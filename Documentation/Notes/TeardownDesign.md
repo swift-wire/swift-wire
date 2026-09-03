@@ -1,10 +1,16 @@
 # Teardown emission — design note (M4)
 
-> **Status:** the plan for M4, lifecycle orchestration. The *semantics* are already
-> specified in the README's **Lifecycle and teardown** section (reverse-dependency
-> order, app-scope-via-service-lifecycle, failure handling); M1 ships the `@Teardown`
-> annotation and **records** each action (`TeardownAction`) but **emits nothing**. M4
-> makes it live: the reverse-dependency teardown walk, the app-scope lifecycle seam,
+> **Status:** **shipped**, and since extended twice. M4 made the recorded `@Teardown` action live —
+> the reverse-dependency walk, the app-scope lifecycle seam, and request-scope teardown per route.
+> **Init-failure partial teardown shipped later with the construction scheduler** (M7c.5): the bootstrap
+> accumulates each action as its binding is built and unwinds in reverse before rethrowing, in both the
+> linear and the scheduled shapes. **Scope entry got the same treatment** afterwards
+> ([#339](https://github.com/tachyonics/swift-wire/issues/339)). The one gap left is the *call* on the
+> generated `@WireMVCBootstrap` path — the walk exists and nothing on that path stops the server —
+> tracked as [tachyonics/wire-mvc#177](https://github.com/tachyonics/wire-mvc/issues/177).
+>
+> The *semantics* are specified in the README's **Lifecycle and teardown** section (reverse-dependency
+> order, app-scope-via-service-lifecycle, failure handling). What M4 built:
 > and the failure semantics. This note is the implementation plan and the graph/adapter
 > surface — it does not re-specify the annotation (see the README).
 

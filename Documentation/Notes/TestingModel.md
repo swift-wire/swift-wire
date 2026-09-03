@@ -1,8 +1,10 @@
 # Wire testing model — design note (M6a)
 
-> **Status:** design record for swift-wire's **scope-agnostic** testing primitives. `@Replaces`
-> is **built**; `@BindType` / `@Scopable` / `TestingKey` and the seed-threaded cascade are
-> **unbuilt** — this note is for review before building. These primitives know nothing about
+> **Status:** **all built.** `@Replaces`, `@BindType`, `@Scopable`, `TestingKey` and the seed-threaded
+> cascade all shipped in M6a, along with a good deal this note did not anticipate — a variant app graph
+> per `TestingKey`, seedless per-request reconstruction (`@TestScopable`), and the generic-subject and
+> mock-consuming-factory cases. Read as a design record rather than as a plan; where it and the code
+> disagree, the code is right. Known gaps in what shipped are labelled on the tracker. These primitives know nothing about
 > HTTP or "request scope"; an adapter's test harness supplies the specifics (the WireMVC harness
 > is in [WireMVCTesting.md](WireMVCTesting.md)).
 

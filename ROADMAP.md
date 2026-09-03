@@ -185,7 +185,8 @@ consciously accepted — before a 1.0 tag.
 
 ### Property wrappers on non-copyable parameters (upstream)
 
-**Status:** two upstream bugs plus one evolution gap; workaround shipped. **Blocks:** the final shape of
+**Status:** two upstream bugs plus one evolution gap; workaround shipped. Tracked as
+[tachyonics/wire-mvc#180](https://github.com/tachyonics/wire-mvc/issues/180), which owns the status. **Blocks:** the final shape of
 WireMVC's lent request-body stream binding (`@RequestBinding(.bodyStream)`).
 
 **1. SILGen crash — [swiftlang/swift#81624](https://github.com/swiftlang/swift/issues/81624), open since
@@ -237,6 +238,13 @@ changes together.
 Features the README describes but M1 deliberately didn't commit to. Each is
 documented as a design space to build **when a concrete adopter use case forces
 it**, not on a fixed schedule — the *decision point* in each names the trigger.
+
+> **Each now has an issue, and the issue is the source of truth for its status.**
+> The design space stays here; whether a thing is scheduled, started or abandoned
+> is tracked on the tracker rather than by reading these sections for tense.
+> [#350](https://github.com/tachyonics/swift-wire/issues/350) `Resolver` · [#351](https://github.com/tachyonics/swift-wire/issues/351) `ContainerKey` ·
+> [#352](https://github.com/tachyonics/swift-wire/issues/352) `@Container(includes:)` · [#353](https://github.com/tachyonics/swift-wire/issues/353) `@Scoped(within:)` ·
+> [#354](https://github.com/tachyonics/swift-wire/issues/354) `Provider<T>` · [#356](https://github.com/tachyonics/swift-wire/issues/356) `BuilderKey`'s opaque fold
 Opaque-type support (once listed here) landed in iterations 9–10; the remaining
 candidates:
 

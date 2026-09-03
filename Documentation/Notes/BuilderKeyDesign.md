@@ -1,6 +1,7 @@
 # `BuilderKey<B>` — design notes
 
-> **Status:** working notes captured during iteration 4d / pre-
+> **Status:** `BuilderKey` shipped in its erased form; the **parameterized-opaque fold** did not, and is
+> tracked as [#356](https://github.com/tachyonics/swift-wire/issues/356). Working notes captured during iteration 4d / pre-
 > iteration-5 design discussions. Not the final form of any public-
 > facing doc; intended to preserve the design space before context
 > drifts. The concrete iteration-5 plan in `M1_PLAN.md` references

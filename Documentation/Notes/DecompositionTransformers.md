@@ -1,6 +1,8 @@
 # Decomposition transformers — pluggable parameter bindings, `@Configuration`, explicit `@RawRoute` roles
 
-> **Status:** forward-looking design, not implemented. This is the "Phase B" of the WireMVC codegen
+> **Status:** forward-looking design, not implemented; tracked as
+> [tachyonics/wire-mvc#187](https://github.com/tachyonics/wire-mvc/issues/187), which owns the status
+> and records why it lands in wire-mvc rather than here. This is the "Phase B" of the WireMVC codegen
 > foundation — the one thread that was designed but deliberately deferred while the macro→plugin move
 > (Phase A) landed. Phase A is **done** (the completed sequencing is archived in
 > [Archive/WireMVCCodegen.md](../Archive/WireMVCCodegen.md)); this builds directly on it, because the

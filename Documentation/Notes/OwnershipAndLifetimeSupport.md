@@ -1,6 +1,9 @@
 # Noncopyable and nonescapable bindings — design note
 
-> **Status:** design space, captured August 2026. Nothing here is committed; the point is to
+> **Status:** design space, captured August 2026. **[#341](https://github.com/tachyonics/swift-wire/issues/341) is the source of truth for M8's
+> status and carries the build plan**; this note is the *why* it reads from — the worked case, the two
+> motivating shapes, and the verified compiler behaviours. The M8.0 spikes ran and cleared the gate;
+> nothing after them is built. The point of this note is to
 > record what the two features would buy, what the framework would have to emit, and which
 > questions gate the work. **Every compiler claim below was verified by compiling to full SIL
 > (`swiftc -c -o /dev/null`), not `-typecheck`** — `-typecheck` is unsound for exactly these

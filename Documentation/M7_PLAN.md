@@ -151,7 +151,7 @@ set is bounded elsewhere. Nothing reads the result, so output is byte-identical 
 `Tests/WireGenCoreTests/ReachabilityTests.swift` covers the walk and every root rule.
 
 The guard the plan named had nothing to run over — **there is no `Fixtures/` directory in this repo**, and
-both this plan and M8_PLAN assumed one. It is now `GoldenHarness/`: 6,636 lines of recorded `_WireGraph`
+both this plan and M8 ([#341](https://github.com/tachyonics/swift-wire/issues/341)) assumed one. It is now `GoldenHarness/`: 6,636 lines of recorded `_WireGraph`
 plus its key checks, `--update` to re-record, and a CI job beside the other harnesses. Verified to catch
 drift and to survive the `swift-format --recursive` job (the recording carries a `.swift.golden`
 extension, so no tool reformats it).

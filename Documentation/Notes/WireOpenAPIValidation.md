@@ -1,6 +1,11 @@
 # Schema validation from the document — runtime assertions (M6d.7 design note)
 
-> **Status:** design, not yet implemented; **all five open questions closed empirically** against the
+> **Status:** **written but not reachable.** The runtime half (`SchemaValidation.swift`,
+> `ValidationChecks.swift`), the emitter (`WireOpenAPIGen/ValidationEmission.swift`) and its diagnostics
+> all exist in `wire-open-api` and are covered by tests — but nothing calls the emitter, so the document's
+> assertions are parsed and dropped and no generated code validates anything. Tracked as
+> [tachyonics/wire-open-api#49](https://github.com/tachyonics/wire-open-api/issues/49).
+> **All five open questions were closed empirically** against the
 > pinned generator fork (see *Closed by building the fixture*), and one pre-existing bug found in the
 > process. Extends
 > [WireOpenAPIAdvanced.md](WireOpenAPIAdvanced.md) (M6d) and rests on the `@ErrorResponse` model in

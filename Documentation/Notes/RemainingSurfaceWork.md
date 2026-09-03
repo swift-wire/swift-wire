@@ -995,7 +995,10 @@ Two M6d items that do not belong to either track and should not gate them:
 
 ## Deferred, with reasons
 
-Recorded so they are not re-proposed:
+Recorded so they are not re-proposed. The two with a shape rather than a decision now have issues that
+own their status — [tachyonics/wire-mvc-examples#74](https://github.com/tachyonics/wire-mvc-examples/issues/74)
+for `auth-jwt` and [tachyonics/wire-mvc#188](https://github.com/tachyonics/wire-mvc/issues/188) for the
+connection metadata `proxy-server` needs. The rest are declined rather than deferred:
 
 - **auth-jwt** — bearer-token scope construction beside the existing cookie one. Small delta, cheap, worth
   doing when convenient rather than scheduling.

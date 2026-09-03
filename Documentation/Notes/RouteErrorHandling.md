@@ -1,6 +1,8 @@
 # Route error handling — terminal-scoped `@ErrorResponse` (M5.4E design record)
 
-> **Status:** settled design, implementation in progress. Iteration **M5.4E** in
+> **Status:** **shipped.** Terminal-scoped `@ErrorResponse` serves in `wire-mvc` — a thrown error is
+> mapped to a status by the route's, then the controller's, then the `@WireMVCBootstrap` root's tier, and
+> an unmapped throw is written by the terminal rather than re-thrown. Iteration **M5.4E** in
 > [../M5_PLAN.md](../Archive/M5_PLAN.md), interleaved with M5.4. Extends the middleware/box model in
 > [WireMVCMiddleware.md](WireMVCMiddleware.md) and the M5.0 surface in
 > [WireMVCDesign.md](WireMVCDesign.md). Resolves the plan's "Response surface beyond

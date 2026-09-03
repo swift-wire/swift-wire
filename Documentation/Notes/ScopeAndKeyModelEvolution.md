@@ -1,9 +1,9 @@
 # Scope & key-model evolution — design exploration
 
-> **Status:** forward-looking design, not implemented. Captures an
-> exploration of three related extensions (scopable `@Provides`, a
-> value-level scope-input key, and unified key tracking) and the
-> sequencing decided for them. Nothing here is built; it exists so the
+> **Status:** **one of three built.** *Axis A* — scoping `@Provides` via a scope block — shipped;
+> see its own status below. *Axis B* (separating scope identity from scope input with a value-level
+> scope key) and the keyed adapter reference are **not built** and are tracked as [#349](https://github.com/tachyonics/swift-wire/issues/349),
+> which owns their status. The note captures the exploration and the sequencing decided for it, so the
 > reasoning isn't re-derived later.
 
 ## Where it started: two single-vs-multi inconsistencies
