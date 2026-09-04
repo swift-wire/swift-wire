@@ -1,6 +1,7 @@
 # `BuilderKey<B>` — design notes
 
-> **Status:** working notes captured during iteration 4d / pre-
+> **Status:** `BuilderKey` shipped in its erased form; the **parameterized-opaque fold** did not, and is
+> tracked as [#356](https://github.com/tachyonics/swift-wire/issues/356). Working notes captured during iteration 4d / pre-
 > iteration-5 design discussions. Not the final form of any public-
 > facing doc; intended to preserve the design space before context
 > drifts. The concrete iteration-5 plan in `M1_PLAN.md` references
@@ -435,7 +436,3 @@ coupling with OpaqueTypesSupport is real but doesn't block
 iteration 5: the common cases ship without it, the parameterized-
 opaque cases ship with it. Together they form the most expressive
 multibinding mechanism in any DI framework, Swift or otherwise.
-
----
-
-<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

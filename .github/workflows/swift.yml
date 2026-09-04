@@ -146,6 +146,35 @@ jobs:
         # IntegrationTests'.
         run: bash GraphInputsHarness/run-graph-inputs-harness.sh
 
+  Documentation:
+    name: Documentation (DocC gate, 6.4 pinned)
+    # Deliberately *not* on the 6.3.3 floor the other jobs pin. DocC's own syntax moves with the
+    # toolchain — 6.4 accepts type-signature disambiguation for overloads
+    # (`Contributes(to:)-(CollectedKey<Element>)`), which 6.3.3 rejects in favour of USR hashes.
+    # The catalog is written for the readable form, so the gate runs the toolchain that reads it.
+    # This is documentation, not shipped code: nothing a consumer builds depends on it.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Read the pinned toolchain
+        run: echo "SWIFT_SNAPSHOT=$(cat .swift-version)" >> "$GITHUB_ENV"
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev libsqlite3-dev libcurl4-openssl-dev
+      - name: Install Swiftly + the pinned toolchain
+        run: |
+          curl -L "https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz" | tar zxf -
+          ./swiftly init --assume-yes --skip-install
+          echo "$HOME/.local/share/swiftly/bin" >> "$GITHUB_PATH"
+          # No `--use`: the command below runs through `swiftly run`, which reads `.swift-version`
+          # itself. `--use` would rewrite that file and dirty the tree, which the swift-format job's
+          # `git diff --exit-code` guard then fails on.
+          "$HOME/.local/share/swiftly/bin/swiftly" install "$SWIFT_SNAPSHOT" --assume-yes
+      - name: Build documentation, failing on any warning
+        # The catalog's articles reference symbols by name, so a renamed or removed macro breaks a
+        # link rather than a build — silently, and only for a reader. `--warnings-as-errors` is what
+        # makes the articles a gate rather than prose.
+        run: swiftly run swift package generate-documentation --target Wire --warnings-as-errors
+
   GoldenHarness:
     name: Golden harness (generated-output gate)
     runs-on: ubuntu-24.04

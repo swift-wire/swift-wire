@@ -484,7 +484,7 @@ Tests do not need one anyway. For a test consumer the plugin generates a suite-t
 
 #### What the generated entry point does not do
 
-**App-scope `@Teardown` actions do not run on this path.** The generated `@main` serves and exits; it does not call the graph's `teardown()`. Request-scope teardown *does* run — it is emitted per route and fires when the request scope ends — and the Tier-1 path runs app-scope teardown through WireHummingbird's `teardownService`. So an app with a `@Teardown`-annotated `AWSClient` gets orderly shutdown under WireHummingbird and process-exit cleanup under `@WireMVCBootstrap`. Closing that is tracked in [ROADMAP.md](ROADMAP.md) and written up — with what actually blocks it and the upstream asks that would unblock it — in [tachyonics/wire-mvc#177](https://github.com/tachyonics/wire-mvc/issues/177); until it is, an app that needs deterministic app-scope shutdown should use the explicit form.
+**App-scope `@Teardown` actions do not run on this path.** The generated `@main` serves and exits; it does not call the graph's `teardown()`. Request-scope teardown *does* run — it is emitted per route and fires when the request scope ends — and the Tier-1 path runs app-scope teardown through WireHummingbird's `teardownService`. So an app with a `@Teardown`-annotated `AWSClient` gets orderly shutdown under WireHummingbird and process-exit cleanup under `@WireMVCBootstrap`. Closing that is written up — with what actually blocks it and the upstream asks that would unblock it — in [tachyonics/wire-mvc#177](https://github.com/tachyonics/wire-mvc/issues/177); until it is, an app that needs deterministic app-scope shutdown should use the explicit form.
 
 ### `@Provides` (and optionally `@Container`)
 
@@ -1100,10 +1100,19 @@ Beyond the DI category, swift-wire sits at a different layer from the libraries 
 
 ---
 
-## Roadmap
+## Status and roadmap
 
-Milestones are tied to what task-cluster needs next, not a fixed calendar. The full roadmap — milestone-by-milestone (M0–M7 and post-1.0), plus pre-1.0 polish, deferred features, and post-M1 design previews — lives in [ROADMAP.md](ROADMAP.md). M0–M6 are complete, and of M7 (performance) the reachability-pruning, construction-scheduling and façade passes have shipped; manifest-based discovery stays deferred ([#338](https://github.com/tachyonics/swift-wire/issues/338)). `RemainingSurfaceWork.md` is the named successor track for what M6 did not close.
+The core is built: the graph, macros and build plugin; multi-module composition with reachability
+pruning; request scope and teardown; dynamic construction scheduling; the WireMVC, WireOpenAPI and
+WireConfiguration adapters; and the keyed variant-graph testing story.
 
+**Work is tracked as [issues](https://github.com/tachyonics/swift-wire/issues), which are the source of truth.** Known gaps carry
+`known-broken`, `unverified` or `coverage-gap`; things scoped out deliberately carry `deferred` and
+name the trigger that would start them; anything waiting on a compiler or ecosystem fix carries
+`upstream`. Proposed architectural changes that are designed but unbuilt live in
+[`Proposals/`](Proposals/) — noncopyable and nonescapable bindings is the largest ([#341](https://github.com/tachyonics/swift-wire/issues/341)).
+
+Ordering follows what an adopter needs next rather than a fixed calendar.
 ---
 
 ## Risks (so I have to look at them)

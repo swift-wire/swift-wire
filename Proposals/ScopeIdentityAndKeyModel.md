@@ -1,9 +1,9 @@
 # Scope & key-model evolution — design exploration
 
-> **Status:** forward-looking design, not implemented. Captures an
-> exploration of three related extensions (scopable `@Provides`, a
-> value-level scope-input key, and unified key tracking) and the
-> sequencing decided for them. Nothing here is built; it exists so the
+> **Status:** **one of three built.** *Axis A* — scoping `@Provides` via a scope block — shipped;
+> see its own status below. *Axis B* (separating scope identity from scope input with a value-level
+> scope key) and the keyed adapter reference are **not built** and are tracked as [#349](https://github.com/tachyonics/swift-wire/issues/349),
+> which owns their status. The note captures the exploration and the sequencing decided for it, so the
 > reasoning isn't re-derived later.
 
 ## Where it started: two single-vs-multi inconsistencies
@@ -175,7 +175,7 @@ But it's a **behavioral change** (Wire would start diagnosing single
 keys). **Decision: land it as an early foundation sitting of multi-module
 composition (iteration 7, sitting 7a)** — composition needs Wire to
 discover keys across the parse set anyway (see
-[`MultiModuleComposition.md`](MultiModuleComposition.md)), key tracking is
+[`MultiModuleComposition.md`](../Documentation/Notes/MultiModuleComposition.md)), key tracking is
 additive and single-module-testable, and doing it first lands the change
 *before library behaviour expectations lock in*. It is distinct from — and
 a prerequisite of — the value-level scope key (Axis B proper): the linchpin
@@ -196,7 +196,7 @@ The adapter-annotation contract (iteration 8) adds a fourth consumer of the
 keyed-reference foundation, alongside `@Inject(K)`, `@Provides(K)`, and scope
 inputs: an adapter use-site names the bindings its generated registration
 needs. (Written against the `_wireRegister` member of that iteration, retired by
-M2's contribution-alias contract — [AdapterModel.md](AdapterModel.md). The
+M2's contribution-alias contract — [AdapterModel.md](../Documentation/Notes/AdapterModel.md). The
 keyed-reference argument below is unaffected: it is about how a slot *names* a
 binding, not about what consumes it.)
 
@@ -259,7 +259,3 @@ additive when a real case appears.
 Building on the current seed model now forecloses nothing: the
 multibinding-key tracking already shipped is the same pattern this would
 extend, and the value-level scope key can absorb the seed later.
-
----
-
-<sub>Milestone shorthand used in this note (M1, M5.4, M7b…) is defined in [ROADMAP.md](../../ROADMAP.md); outstanding gaps are indexed in [KnownGaps.md](KnownGaps.md).</sub>

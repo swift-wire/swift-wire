@@ -187,7 +187,7 @@ struct PrunedBindingDiagnosticsTests {
 
     @Test("A package-local contributor to an unconsumed public aggregate is reported; the aggregate is not")
     func packageLocalContributorToUnconsumedPublicKeyIsReported() {
-        // The subtlety the ROADMAP singles out. The aggregate stays silent — a public key is permissively
+        // The subtlety worth pinning. The aggregate stays silent — a public key is permissively
         // public and its own liveness diagnostic speaks for it — while the contributor folded into it is
         // genuinely dead and says so.
         let messages = prunedDiagnostics(

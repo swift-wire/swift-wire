@@ -38,7 +38,7 @@ Two consequences, and they compound:
   graphs that compile today.
 - **Noncopyable bindings (M8).** A generic parameter is implicitly `Copyable`, so a `~Copyable` binding
   cannot enter a cell at all — and M8.2's model is that such a binding is *not stored* anyway
-  ([M8_PLAN.md](../M8_PLAN.md), *the storage model*). [M8_PLAN.md](../M8_PLAN.md) § *Risks / interleaves*
+  ([#341](https://github.com/tachyonics/swift-wire/issues/341), *the storage model*). That issue's § *Risks / interleaves*
   already anticipates this and asks, at minimum, that noncopyable bindings take the sequential path.
 
 Neither partition ever closes — non-Sendable types stay legal, and M8 is *adding* noncopyable bindings —
@@ -463,7 +463,7 @@ is the thing a developer changes without meaning to.
 
 No diagnostic is proposed: a "this graph could have been scheduled" note is exactly the never-quiescing
 build warning M7c.1 already rejected once. The place this belongs is the **`_WireGraph.json` build-time
-dump** in the ROADMAP's *Pre-1.0 polish*, which already exists to answer "what did Wire decide about my
+dump** ([#344](https://github.com/tachyonics/swift-wire/issues/344)), which already exists to answer "what did Wire decide about my
 graph" and which M7b already gave the pruned set to say. It is recorded here so the connection is made
 when that lands rather than rediscovered.
 
@@ -754,6 +754,8 @@ predicate Wire cannot compute.
 
 ## The upstream ask, and what it would give
 
+> Tracked as [#348](https://github.com/tachyonics/swift-wire/issues/348), which owns the status of both asks below.
+
 One ask, well-formed and small: **`sending` results for task groups**, relaxing `ChildTaskResult:
 Sendable`. `async let` already produces non-Sendable results, so region isolation handles the transfer;
 the constraint is on the frozen struct declaration and nothing in the body depends on it.
@@ -812,7 +814,7 @@ case remains a deep async dependency chain worth optimising, or an adopter hitti
 coexists with a constructed `@Teardown` binding, which pulls M7c.5 forward on its own.
 
 If that second trigger arrives alone, the coupling argument for deferring partial teardown is weaker than
-the ROADMAP's wording suggests: the `do`/`catch`-plus-reverse-walk structure is the same under either
+the original wording suggested: the `do`/`catch`-plus-reverse-walk structure is the same under either
 scheduler, and only the "what resolved" predicate changes. Writing it against the linear chain and
 accepting the rewrite is a reasonable call at that point.
 
@@ -821,9 +823,9 @@ accepting the rewrite is a reasonable call at that point.
 - [EffectAwareResolution.md](EffectAwareResolution.md) — the levels model, the prior-art map, and the open
   semantic questions (error precedence, cancellation policy, user opt-out) this note does not settle.
 - [TeardownDesign.md](TeardownDesign.md) *§ Init-failure partial teardown* — the deferral this discharges.
-- [M8_PLAN.md](../M8_PLAN.md) *§ Risks / interleaves* — the noncopyable interleave, and *§ the storage
+- [#341](https://github.com/tachyonics/swift-wire/issues/341) *§ Risks / interleaves* — the noncopyable interleave, and *§ the storage
   model* for the frame-local model step 1 converges with.
-- [M7_PLAN.md](../M7_PLAN.md) — the milestone's build plan; M7b's shipped reachability is what makes the
+- Reachability pruning, shipped, is what makes the
   root set the right retention target.
 - `Sources/WireGenCore/CodeEmission.swift` — `appendStruct`'s construction body, the loop this replaces.
 - `Sources/Wire/BindingState.swift` — **the cell, shipped with M7c.2.** Library code rather than emitted:
