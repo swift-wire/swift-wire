@@ -53,11 +53,17 @@ and Linux support both matter.
 
 ### Getting started
 
+- <doc:AddingWireToAPackage>
+- <doc:ScopesAndLifetimes>
 - <doc:StructuringAnApp>
 - <doc:ChoosingAnAbstraction>
+- <doc:HowWireCompares>
 
 ### Declaring bindings
 
+- <doc:InjectionPoints>
+- <doc:ProvidingValues>
+- <doc:ResolutionAndKeys>
 - ``Singleton(allowUnused:)``
 - ``Provides(allowUnused:)``
 - ``Scoped(seed:allowUnused:)``
@@ -67,6 +73,8 @@ and Linux support both matter.
 
 ### Composition
 
+- <doc:ComposingAcrossModules>
+- <doc:WhatGetsBuilt>
 - ``Container()``
 - ``Contributes(to:)-(CollectedKey<Element>)``
 - ``Contributes(to:)-(BuilderKey<Builder>)``
@@ -78,6 +86,7 @@ and Linux support both matter.
 
 ### Multibindings
 
+- <doc:Multibindings>
 - ``BindingKey``
 - ``CollectedKey``
 - ``MappedKey``
@@ -86,12 +95,22 @@ and Linux support both matter.
 
 ### Lifecycle
 
+- <doc:LifecycleAndTeardown>
 - ``Teardown()``
 - ``Teardownable``
 - ``Lazy``
 
+### Concurrency
+
+- <doc:ConcurrencyAndIsolation>
+
+### Testing
+
+- <doc:TestingAGraph>
+
 ### Introspection
 
+- <doc:IntrospectingTheGraph>
 - ``Introspectable``
 - ``WiringModel``
 - ``BindingInfo``
@@ -101,6 +120,7 @@ and Linux support both matter.
 
 ### Writing an adapter
 
+- <doc:WritingAnAdapter>
 - ``WireAdapterCapability``
 - ``WireProviderSelector``
 - ``WireProxyScope``

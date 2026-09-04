@@ -33,8 +33,13 @@ public macro Singleton<T>(as: T.Type, allowUnused: Bool = false) =
 /// `@Scoped(seed: X.self)` types share a scope iff `X` is the same
 /// type. Bindings in the scope (including the seed value itself) are
 /// available to any `@Scoped(seed: X.self)` type inside it; the seed
-/// is implicitly bound when the scope is entered via
-/// `withScope(seeding:body:)`.
+/// is implicitly bound when the scope is entered, so it injects like
+/// any other binding there. The build plugin emits one scope facade
+/// per seed — `Wire.bootstrap<X>Scope(seed:wireGraph:)`, taking the
+/// seed value and the app graph the scope borrows singletons from.
+/// An adapter owning the seed (an HTTP request, a queue message)
+/// normally drives that entry per request; a program with no adapter
+/// can call it directly.
 ///
 /// The macro generates the same members as `@Singleton`: an `init(...)`
 /// from `@Inject`-marked properties (or the user's `@Inject`-marked
