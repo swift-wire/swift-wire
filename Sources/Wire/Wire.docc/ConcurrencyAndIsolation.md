@@ -53,14 +53,6 @@ Sendable checker is the second line of defence, for what the structural check ca
 
 ## Deliberately deferred
 
-- **Custom isolation domains as scope qualifiers.** "This dependency lives on `MyJobActor`" is
-  already expressible as `@MyJobActor` on the type. Wire respects that rather than inventing a
-  parallel spelling.
-- **Container-level isolation enforcement.** A container that constrains every binding inside it
-  to one isolation domain is a plausible direction for single-threaded subsystems, deferred
-  until per-type isolation is demonstrably insufficient. Adding it later is not a breaking
-  change.
-- **`~Copyable` bindings.** Singletons are shared by definition and non-copyable means
-  single-owner, so the semantics conflict. Wrap a move-only resource in a `Sendable` reference
-  type that manages access internally — the pattern the standard library itself uses for
-  `Mutex`. The full design question is written up in the package's proposals.
+- **`~Copyable, ~Escapable` bindings.** Singletons are shared by definition and non-copyable means
+  single-owner, so these types need additional constraints. There are use cases though,
+  such as a request-scoped data object that shouldn't be copied or outlive the request.

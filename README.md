@@ -91,6 +91,20 @@ public struct TodoRepository {
 }
 ```
 
+## Scopes
+
+`@Singleton` bindings live for the lifetime of the process. Everything else is declared with `@Scoped(seed:)`, where the seed is the type whose runtime value opens the scope — an HTTP request, a queue message, a tenant. The seed itself is injectable, like any other binding in that scope.
+
+```swift
+@Scoped(seed: HTTPRequest.self)
+struct RequestLogger {
+    @Inject var request: HTTPRequest   // the seed
+    @Inject var logger: Logger         // a singleton, injected across the boundary
+}
+```
+
+Scoped bindings see singletons; singletons don't see scoped bindings, and asking for one is a build-time error at the injection site rather than a runtime failure. Entering a scope per request or per message is the job of the adapter that owns the seed — [wire-mvc](https://github.com/tachyonics/wire-mvc) does this for HTTP requests.
+
 ## Designed for Swift
 
 swift-wire is designed to provide the convenience of a dependency injection framework while taking advantage of the features of the Swift language. One of its headline features in this area is its understanding of opaque types. A binding can be declared with an opaque identity and then promoted to the generic parameter of another binding.
@@ -109,19 +123,9 @@ public struct TodoRepository<Client: HTTPClient> {
 
 The generated graph struct will be generic itself with respect to HTTPClient, with its instantiation helper creating a concrete instance based on whatever type the compiler knows `provideHTTPClient()` returns.
 
-## Scopes
-
-`@Singleton` bindings live for the lifetime of the process. Everything else is declared with `@Scoped(seed:)`, where the seed is the type whose runtime value opens the scope — an HTTP request, a queue message, a tenant. The seed itself is injectable, like any other binding in that scope.
-
-```swift
-@Scoped(seed: HTTPRequest.self)
-struct RequestLogger {
-    @Inject var request: HTTPRequest   // the seed
-    @Inject var logger: Logger         // a singleton, injected across the boundary
-}
-```
-
-Scoped bindings see singletons; singletons don't see scoped bindings, and asking for one is a build-time error at the injection site rather than a runtime failure. Entering a scope per request or per message is the job of the adapter that owns the seed — [wire-mvc](https://github.com/tachyonics/wire-mvc) does this for HTTP requests.
+Currently all bindings need to be `Sendable` and `Copyable`, although it should be possible to relax this requirement with 
+some upstream changes. `~Copyable` and `~Escapable` bindings are potentially useful, particular within seeded scopes - 
+such as a large request-scoped data object that shouldn't be copied or outlive its request.
 
 ## Extending swift-wire
 

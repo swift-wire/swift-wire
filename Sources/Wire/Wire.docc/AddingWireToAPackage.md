@@ -5,11 +5,10 @@ annotation to a running graph.
 
 ## Overview
 
-Wire is a library and a SwiftPM build plugin, and both halves are load-bearing. The library
-gives you the attributes and key types to write; the plugin is what *reads* them, validates the
-graph and emits the wiring. A target that depends on `Wire` but does not apply the plugin
-compiles perfectly and produces no graph at all, which is the one setup mistake worth calling
-out up front.
+Wire is a library and a SwiftPM build plugin.. The library gives you the attributes and key
+types to write; the plugin is what *reads* them, validates the graph and emits the wiring.
+A target that depends on `Wire` but does not apply the plugin compiles perfectly and produces
+no graph at all, which is the one setup mistake worth calling out up front.
 
 ## The manifest
 
@@ -32,9 +31,7 @@ needs the plugin. A library shipping bindings for someone else to compose takes 
 and skips the plugin — its consumer's plugin re-parses its sources. See
 <doc:ComposingAcrossModules>.
 
-Wire requires Swift 6.3, and supports Linux and macOS. macOS needs 15 or later, because
-`Lazy`'s internal box uses `Mutex` from the `Synchronization` module; on Linux
-`Synchronization` ships with Swift 6.0 and up, so nothing is narrowed there.
+Wire requires Swift 6.3, and supports Linux and macOS. macOS needs 15 or later.
 
 ## Your first graph
 
@@ -51,16 +48,15 @@ struct UserService {
 }
 ```
 
-[`@Provides`](doc:Provides(allowUnused:)) declares a binding for a value the graph cannot
-construct on its own. [`@Singleton`](doc:Singleton(allowUnused:)) says `UserService` is a
-binding with process lifetime, and [`@Inject`](doc:Inject()) marks the dependency. You do not
-write `UserService`'s initialiser — the macro synthesises one taking a parameter per injection
-point, and the plugin emits the call.
+[`@Provides`](doc:Provides(allowUnused:)) declares a value available to bindings in the graph.
+[`@Singleton`](doc:Singleton(allowUnused:)) says `UserService` is a binding with process lifetime,
+and [`@Inject`](doc:Inject()) marks the dependency. You do not need to write `UserService`'s initialiser —
+the macro synthesises one taking a parameter per injection point, and the plugin emits the call.
 
-`allowUnused: true` is there because nothing in the graph injects `UserService` — you are going
+`allowUnused: true` is needed here because nothing in the graph injects `UserService` — you are going
 to read it off the graph yourself, and that read is an expression Wire cannot see. Without the
 mark it would be pruned as unreachable. A binding some other binding injects needs nothing.
-<doc:WhatGetsBuilt> is the whole story.
+<doc:WhatGetsBuilt> has more detail on what bindings actually get constructed.
 
 ## Bootstrapping
 
@@ -72,15 +68,13 @@ graph.userService.load()
 `bootstrap()` is `async throws` regardless of your graph, because any binding's `init` may be
 either, and the colour propagates through the whole construction chain.
 
-The graph's **roots** are its stored properties, named after their types. Everything else the
-graph constructs is a local inside the bootstrap, handed to whatever consumes it and never
-stored — so `graph.someInternalDependency` is a compile error telling you to mark that binding
-`allowUnused: true` if you really do want to read it.
+The graph's **roots** (including bindings marked `allowUnused: true`) are its stored properties, named
+after their types. Everything else the graph constructs is a local inside the bootstrap, handed
+to whatever consumes it and never stored — so `graph.someInternalDependency` is a compile error
+telling you to mark that binding `allowUnused: true` if you really do want to read it.
 
 The generated struct is `internal` to the module that composed it, so it is yours to read and
-nothing downstream can see it. That has one consequence worth knowing early: Wire cannot see
-`graph.userService` in your own code, because that is an expression rather than an annotation.
-A binding that only *you* read has to say so. See <doc:WhatGetsBuilt>.
+nothing downstream can see it.
 
 ## Values that come from outside
 

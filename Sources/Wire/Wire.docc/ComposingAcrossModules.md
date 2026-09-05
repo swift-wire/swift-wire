@@ -33,6 +33,9 @@ struct WorkerService {
 }
 ```
 
+When you activate a library, not every binding from it gets built. Only what your roots reach is emitted —
+see <doc:WhatGetsBuilt>.
+
 ## Why the manifest rather than a call
 
 Activation is a compile-time fact. The plugin has to know the activated set before it generates
@@ -58,20 +61,6 @@ The rule is uniform: **you activate the Wire-aware libraries your target directl
 The plugin still detects the *missing* case: if an activated library references a binding
 declared in a package you do not depend on, that is a missing-binding diagnostic naming the
 library, with a fix-it pointing at the dependency to add.
-
-## Activation is all-or-nothing
-
-An activated library contributes every one of its bindings: singletons available for injection,
-providers available, contributions joining their collections. A library is a unit, and depending
-on it takes all of it.
-
-The alternative — partial activation — has a silent failure mode worth avoiding: taking a
-library's singleton while its contribution partner stays invisible, with the type system happily
-blessing a graph that is missing behaviour the library was designed to provide as a coherent
-whole.
-
-Note that "every binding" is not "every binding built". Only what your roots reach is emitted —
-see <doc:WhatGetsBuilt>.
 
 ## Validation across the boundary
 

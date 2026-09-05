@@ -40,7 +40,7 @@ generic over the constraint. That is ordinary as a *language* pattern — Rust p
 `T: Repository` bounds through intervening types at ecosystem scale — but it is real work, and
 it compounds the further the chain runs.
 
-## `any P` — the workhorse
+## `any P` — abstraction with the box
 
 Strict port-and-adapter separation: the consumer depends on the port through an existential and
 knows nothing else. This is the standard shape, and the right default when the opaque form's
@@ -63,8 +63,8 @@ which is exactly why eliminating it is worth machinery here and would buy nothin
 ## Concrete — no abstraction at all
 
 The consumer knows the implementation type. Strictly this breaks the port-and-adapter separation
-for that binding, and it is frequently the right call anyway: when there is one canonical
-implementation and no plausible second, the abstraction costs more than it returns.
+for that binding, but is sometimes the right call: when there is one canonical
+implementation or within a module boundary where an abstraction provides nothing.
 
 A `Logger` is the usual example. So is any internal type that exists to be constructed by the
 graph and used in one place.

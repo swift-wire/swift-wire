@@ -138,6 +138,10 @@ rather than to a key because "is this safe to rebuild?" is a property of the def
 one test's substitutions. A generic type marks cleanly here, where a key-side metatype could not
 spell it.
 
+`@TestScopable` is an acknowledgement that it is fine to create a normally Singleton-scoped
+binding at every entry during testing. This is normally only an issue when the Singleton
+hold mutable state that is expected to persist across the application.
+
 You are not left to guess where it goes. The plugin knows the scope roots, computes the path,
 and errors on each unmarked hop naming exactly what to add:
 

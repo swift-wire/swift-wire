@@ -46,9 +46,8 @@ struct DatabasePool {
 `@Inject` on both an initialiser and a stored property is an error: the two would be competing
 declarations of the same thing, so you pick one source of truth.
 
-Keying a parameter needs a different attribute. `@Inject` is a peer macro, and Swift does not
-allow a macro attribute on a function parameter, so a parameter carries ``Bind`` instead — a
-property wrapper, which *can* attach there, and which is transparent at runtime:
+Keying a parameter needs a different attribute. A parameter carries ``Bind`` — a
+property wrapper, and which is transparent at runtime:
 
 ```swift
 @Singleton(as: TodoRepository.self)
