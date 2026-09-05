@@ -32,8 +32,9 @@ needs the plugin. A library shipping bindings for someone else to compose takes 
 and skips the plugin — its consumer's plugin re-parses its sources. See
 <doc:ComposingAcrossModules>.
 
-Wire requires Swift 6.3. Linux is the primary target; developing on macOS needs macOS 15 or
-later, because `Lazy`'s internal box uses `Mutex` from the `Synchronization` module.
+Wire requires Swift 6.3, and supports Linux and macOS. macOS needs 15 or later, because
+`Lazy`'s internal box uses `Mutex` from the `Synchronization` module; on Linux
+`Synchronization` ships with Swift 6.0 and up, so nothing is narrowed there.
 
 ## Your first graph
 
@@ -44,7 +45,7 @@ import Wire
 
 @Provides let logger = Logger(label: "MyApp")
 
-@Singleton
+@Singleton(allowUnused: true)
 struct UserService {
     @Inject var logger: Logger
 }
@@ -55,6 +56,11 @@ struct UserService {
 ``Inject()`` marks the dependency. You do not write `UserService`'s initialiser — the macro
 synthesises one taking a parameter per injection point, and the plugin emits the call.
 
+`allowUnused: true` is there because nothing in the graph injects `UserService` — you are going
+to read it off the graph yourself, and that read is an expression Wire cannot see. Without the
+mark it would be pruned as unreachable. A binding some other binding injects needs nothing.
+<doc:WhatGetsBuilt> is the whole story.
+
 ## Bootstrapping
 
 ```swift
@@ -63,8 +69,12 @@ graph.userService.load()
 ```
 
 `bootstrap()` is `async throws` regardless of your graph, because any binding's `init` may be
-either, and the colour propagates through the whole construction chain. Each binding is a
-stored property on the returned struct, named after its type.
+either, and the colour propagates through the whole construction chain.
+
+The graph's **roots** are its stored properties, named after their types. Everything else the
+graph constructs is a local inside the bootstrap, handed to whatever consumes it and never
+stored — so `graph.someInternalDependency` is a compile error telling you to mark that binding
+`allowUnused: true` if you really do want to read it.
 
 The generated struct is `internal` to the module that composed it, so it is yours to read and
 nothing downstream can see it. That has one consequence worth knowing early: Wire cannot see

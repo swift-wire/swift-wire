@@ -31,7 +31,7 @@ other language has.
 
 Worth answering before adopting anything. Wire suits a **flat-with-scopes** dependency
 structure — app-scoped singletons plus sibling scopes for a request, a job, a tenant — which is
-the shape most server applications have. It is built and tested Linux-first.
+the shape most server applications have. It is built and tested on both Linux and macOS.
 
 It is a poor fit, and something else is the better answer, when:
 

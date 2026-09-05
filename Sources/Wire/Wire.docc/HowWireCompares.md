@@ -6,12 +6,12 @@ the others is the better answer.
 ## Overview
 
 Wire's distinguishing claim is not "compile-time DI" — several Swift libraries offer that. It is
-a compile-time graph that **third-party packages can extend**, applied to server-side Swift on
-Linux. Everything below is downstream of that.
+a compile-time graph that **third-party packages can extend**, applied to server-side Swift.
+Everything below is downstream of that.
 
 ## The technical axes
 
-| Library | Compile-time graph | Linux-first | Macros | Scoping | Forces existentials? |
+| Library | Compile-time graph | Linux support | Macros | Scoping | Forces existentials? |
 |---|---|---|---|---|---|
 | swift-wire | Yes | Yes | Yes | Seeded scopes, type-checked | No |
 | SafeDI | Yes | Untested | Yes | Hierarchical, not framework-aware | No |

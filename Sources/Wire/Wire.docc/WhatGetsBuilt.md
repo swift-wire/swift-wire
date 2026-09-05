@@ -64,6 +64,25 @@ quiets the warning by keeping them in it — slightly wasteful, not wrong.
 A library that is only *consumed* never meets this: it does not apply the build plugin, so it
 has no graph of its own, and its consumer re-parses its sources.
 
+## Constructed is not the same as stored
+
+Reachability decides what is *built*. A second, narrower question decides what the graph
+**stores**: only its roots, plus whatever generated code reads off it. Everything else is a
+local inside the bootstrap — constructed, handed to the bindings that consume it, and never
+retained by the graph.
+
+That is why a binding can exist and still not be `graph.something`. Rather than leave you with a
+"has no member" error, the plugin emits an unavailable stub carrying the fix:
+
+```
+'reportBuilder' is constructed by the graph but not a direct property of it. To read it as
+'graph.reportBuilder', mark its binding at Sources/App/ReportBuilder.swift:12 'allowUnused: true'.
+```
+
+The stub stores nothing, so saying this costs the graph no retention — it is absent from the
+memberwise initialiser and from `Sendable` derivation alike, and an application that never reads
+the property never hears about it.
+
 ## Two errors get quieter, deliberately
 
 - A **missing dependency** inside a binding nothing reaches is not an error. That is what lets

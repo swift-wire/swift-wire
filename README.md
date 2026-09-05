@@ -49,14 +49,21 @@ targets: [
 ]
 ```
 
-swift-wire requires Swift 6.3. Developing on macOS needs macOS 15 or later.
+swift-wire requires Swift 6.3 and supports Linux and macOS. macOS needs 15 or later; Linux is unaffected.
 
-Bootstrapping the generated graph is one line, and each binding is a property on it.
+Bootstrapping the generated graph is one line, and the graph's roots are properties on it.
 
 ```swift
+@Singleton(allowUnused: true)          // read off the graph rather than injected — so, a root
+public struct AdministratorGrant: AccessPolicy { ... }
+
 let graph = try await Wire.bootstrap()
 graph.administratorGrant.check(...)
 ```
+
+Anything else the graph constructs is a local inside the bootstrap rather than a property — it is
+handed to whatever injects it and never stored. A binding you intend to read off the graph
+yourself is a root, and says so with `allowUnused: true`.
 
 ## How it works
 
