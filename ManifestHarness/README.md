@@ -5,7 +5,7 @@ dependency's build-tool-plugin output.** The design note had recorded this as
 impossible; a 2026-08 spike narrowed that to *impossible at plan time*, and
 showed it works at command-execution time given a declared `inputFiles` edge.
 That finding is what defers the manifest route rather than kills it, so it is worth a gate —
-see [#338](https://github.com/tachyonics/swift-wire/issues/338).
+see [#338](https://github.com/swift-wire/swift-wire/issues/338).
 
 ```
 ManifestHarness/

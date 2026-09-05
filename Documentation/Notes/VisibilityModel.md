@@ -10,7 +10,7 @@
 > this model.
 >
 > One known gap: a *defaulted* member of a `public extension` reads as
-> `internal`, so an unconsumed key there can falsely warn — [#342](https://github.com/tachyonics/swift-wire/issues/342).
+> `internal`, so an unconsumed key there can falsely warn — [#342](https://github.com/swift-wire/swift-wire/issues/342).
 
 > **See also:** the "must be at least `internal`" threshold below assumes
 > the bootstrap is generated into the *same* module. Multi-module

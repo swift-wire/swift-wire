@@ -14,7 +14,7 @@ no graph at all, which is the one setup mistake worth calling out up front.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/tachyonics/swift-wire.git", branch: "main"),
+    .package(url: "https://github.com/swift-wire/swift-wire.git", branch: "main"),
 ],
 targets: [
     .executableTarget(

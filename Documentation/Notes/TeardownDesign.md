@@ -5,9 +5,9 @@
 > **Init-failure partial teardown shipped later with the construction scheduler** (M7c.5): the bootstrap
 > accumulates each action as its binding is built and unwinds in reverse before rethrowing, in both the
 > linear and the scheduled shapes. **Scope entry got the same treatment** afterwards
-> ([#339](https://github.com/tachyonics/swift-wire/issues/339)). The one gap left is the *call* on the
+> ([#339](https://github.com/swift-wire/swift-wire/issues/339)). The one gap left is the *call* on the
 > generated `@WireMVCBootstrap` path — the walk exists and nothing on that path stops the server —
-> tracked as [tachyonics/wire-mvc#177](https://github.com/tachyonics/wire-mvc/issues/177).
+> tracked as [swift-wire/wire-mvc#177](https://github.com/swift-wire/wire-mvc/issues/177).
 >
 > The *semantics* are specified in the README's **Lifecycle and teardown** section (reverse-dependency
 > order, app-scope-via-service-lifecycle, failure handling). What M4 built:
@@ -117,7 +117,7 @@ extends that check rather than opening it fresh.
 > is [ConstructionScheduling.md](ConstructionScheduling.md) § *Init-failure partial teardown*; the fixture
 > this section asks for is `Tests/IntegrationTests/PartialTeardownExample.swift`, in both construction
 > shapes. **Per-request scope entry got the same treatment shortly after**, once M7c.6's own fixture made
-> that gap reachable — see [#339](https://github.com/tachyonics/swift-wire/issues/339).
+> that gap reachable — see [#339](https://github.com/swift-wire/swift-wire/issues/339).
 
 
 Distinct from `graph.teardown()`: if an init throws **partway through bootstrap**, the
@@ -204,6 +204,6 @@ in isolation.
   via service-lifecycle, failure handling, Service-vs-teardown).
 - [WireHummingbirdDesign.md](WireHummingbirdDesign.md) — the `[any Service]` lifecycle
   seam and the reserved graph-teardown-service prepend.
-- [WireOpenAPIDesign.md](https://github.com/tachyonics/wire-open-api/blob/main/Documentation/Notes/WireOpenAPIDesign.md) — the `Introspectable` precedent this
+- [WireOpenAPIDesign.md](https://github.com/swift-wire/wire-open-api/blob/main/Documentation/Notes/WireOpenAPIDesign.md) — the `Introspectable` precedent this
   teardown surface mirrors (Core protocol + graph conformance + `some`-taking facade).
 - `TeardownDiscovery.swift` — the `TeardownAction` model M4 consumes (M1, inert).
