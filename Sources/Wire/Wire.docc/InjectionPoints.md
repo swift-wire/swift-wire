@@ -1,7 +1,7 @@
 # Injection points
 
-The forms ``Inject()`` takes, which of them feed the generated initialiser, and which are
-delivered after construction.
+The forms [`@Inject`](doc:Inject()) takes, which of them feed the generated initialiser, and
+which are delivered after construction.
 
 ## Overview
 

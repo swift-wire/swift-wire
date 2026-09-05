@@ -7,7 +7,8 @@ all of them.
 
 Some dependencies are naturally a set rather than a single value — the services a lifecycle
 runs, a middleware chain, health checks, strategies by name. Wire handles them with keys that
-aggregate, and with ``Contributes(to:)-(CollectedKey<Element>)`` on the contributing side.
+aggregate, and with [`@Contributes`](doc:Contributes(to:)-(CollectedKey<Element>)) on the
+contributing side.
 
 Contribution is always **explicit**. Adding a type that happens to conform to a protocol never
 joins it to a collection; the contributor has to name the key. That rules out the most-cited
@@ -79,9 +80,9 @@ on contributing — a mismatched middleware fails from *your* signature, not fro
 
 ## `FactoryKey` — a namespace, not an aggregate
 
-``FactoryKey`` joins the family but is not typed to a produced value, because a ``Factory(_:)``
-template's product varies per consumer. It is a pure namespace token whose identity is the text
-of its declaring reference. See <doc:ScopesAndLifetimes>.
+``FactoryKey`` joins the family but is not typed to a produced value, because a
+[`@Factory`](doc:Factory(_:)) template's product varies per consumer. It is a pure namespace
+token whose identity is the text of its declaring reference. See <doc:ScopesAndLifetimes>.
 
 ## Ordering
 

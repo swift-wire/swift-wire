@@ -88,9 +88,9 @@ The in-module floor stays `internal`.
 
 Two mechanisms, at different scales. Depend on a different library — a mock package instead of
 the real one — and the production bindings are simply absent from that graph. Or keep the real
-library and supersede one of its bindings with ``Replaces()``, which is exactly the cross-module
-case that attribute exists for: a same-module duplicate is a plain conflict, so `@Replaces`
-requires the binding it replaces to live elsewhere.
+library and supersede one of its bindings with [`@Replaces`](doc:Replaces()), which is exactly
+the cross-module case that attribute exists for: a same-module duplicate is a plain conflict,
+so `@Replaces` requires the binding it replaces to live elsewhere.
 
 Depending on both a library and its mock is a duplicate-binding error, which is the intended
 outcome — pick one, or disambiguate with keys.

@@ -51,10 +51,11 @@ struct UserService {
 }
 ```
 
-``Provides(allowUnused:)`` declares a binding for a value the graph cannot construct on its own.
-``Singleton(allowUnused:)`` says `UserService` is a binding with process lifetime, and
-``Inject()`` marks the dependency. You do not write `UserService`'s initialiser — the macro
-synthesises one taking a parameter per injection point, and the plugin emits the call.
+[`@Provides`](doc:Provides(allowUnused:)) declares a binding for a value the graph cannot
+construct on its own. [`@Singleton`](doc:Singleton(allowUnused:)) says `UserService` is a
+binding with process lifetime, and [`@Inject`](doc:Inject()) marks the dependency. You do not
+write `UserService`'s initialiser — the macro synthesises one taking a parameter per injection
+point, and the plugin emits the call.
 
 `allowUnused: true` is there because nothing in the graph injects `UserService` — you are going
 to read it off the graph yourself, and that read is an expression Wire cannot see. Without the
@@ -84,7 +85,8 @@ A binding that only *you* read has to say so. See <doc:WhatGetsBuilt>.
 ## Values that come from outside
 
 Some values are not the graph's to construct — configuration read from the environment, CLI
-arguments, an externally-owned client. Declare them together as ``GraphInputs()``:
+arguments, an externally-owned client. Declare them together as
+[`@GraphInputs`](doc:GraphInputs()):
 
 ```swift
 @GraphInputs

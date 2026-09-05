@@ -5,11 +5,13 @@ configuration values, queue consumers — without a change to Wire itself.
 
 ## Overview
 
-The Wire core defines a fixed vocabulary: the lifetime macros, ``Inject()``, ``Bind``,
-``Provides(allowUnused:)``, ``Container()``, ``GraphInputs()``, ``Contributes(to:)-(CollectedKey<Element>)``,
-``Teardown()``, ``Replaces()``, ``Lazy``, and the key types. Every framework integration lives
-outside that, as an **adapter annotation**: a macro your package publishes that the build plugin
-recognises.
+The Wire core defines a fixed vocabulary: the lifetime macros, [`@Inject`](doc:Inject()),
+``Bind``, [`@Provides`](doc:Provides(allowUnused:)), [`@Container`](doc:Container()),
+[`@GraphInputs`](doc:GraphInputs()),
+[`@Contributes`](doc:Contributes(to:)-(CollectedKey<Element>)), [`@Teardown`](doc:Teardown()),
+[`@Replaces`](doc:Replaces()), ``Lazy``, and the key types. Every framework integration lives
+outside that, as an **adapter annotation**: a macro your package publishes that the build
+plugin recognises.
 
 The critical property is what an adapter annotation *is not*. It does not emit registration
 code, and Wire never learns what it means. It declares a **capability** — one edge Wire adds to
@@ -52,7 +54,7 @@ never what the value means.
 | `.contributesAggregateProxy(to:…, groupedByAttribute:)` | **Output, one proxy over many subjects**, partitioned by a use-site argument. For a framework demanding a single conformer where the user has several types. |
 | `.liftsPeersToProxy(…)` | A proxy synthesised and directly addressable, contributing to **no** key — your codegen emits onto it. |
 | `.injectsFromGraph` | **Input.** `@X(argument)` makes the binding depend on a graph value named by the argument. |
-| `.mapsFactoryRoles(roles:)` | Supplies the ordered role names for a ``Factory(_:)`` template's assisted generic parameters, read as opaque identifiers. |
+| `.mapsFactoryRoles(roles:)` | Supplies the ordered role names for a [`@Factory`](doc:Factory(_:)) template's assisted generic parameters, read as opaque identifiers. |
 | `.rewritesInjection(provider:selector:)` | The annotated *injection point* stops resolving by its own type and resolves instead to a binding Wire synthesises, which reads the value from a provider the graph supplies. |
 
 ### Proxies, and why they exist
@@ -163,9 +165,10 @@ one.
 
 Two stability tiers, and it is worth knowing which side of the line you are building on:
 
-- **Public API** — stable, and a breaking change means a major version: `WireAdapterAnnotationV1`
-  and ``WireAdapterCapability``, `WireGraphConformanceV1`, the key types, ``Introspectable`` and
-  the introspection model, ``Teardownable``, and ``Teardown()``.
+- **Public API** — stable, and a breaking change means a major version:
+  `WireAdapterAnnotationV1` and ``WireAdapterCapability``, `WireGraphConformanceV1`, the key
+  types, ``Introspectable`` and the introspection model, ``Teardownable``, and
+  [`@Teardown`](doc:Teardown()).
 - **SPI** — adapter authors only, and free to evolve within a major version: the names and
   internal shape of generated proxies, the generated bootstrap structure, plugin internals, and
   the scope-entry types your codegen reads.

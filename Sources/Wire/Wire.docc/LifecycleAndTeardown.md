@@ -1,7 +1,7 @@
 # Lifecycle and teardown
 
-Asynchronous construction comes free with Swift's initialisers. Shutdown is the asymmetric case,
-and ``Teardown()`` is how a binding declares it.
+Asynchronous construction comes free with Swift's initialisers. Shutdown is the asymmetric
+case, and [`@Teardown`](doc:Teardown()) is how a binding declares it.
 
 ## Overview
 
@@ -48,7 +48,8 @@ the right colour.
 
 ## The producer form
 
-For a type you did not write, attach the action to the ``Provides(allowUnused:)``:
+For a type you did not write, attach the action to the
+[`@Provides`](doc:Provides(allowUnused:)):
 
 ```swift
 @Provides

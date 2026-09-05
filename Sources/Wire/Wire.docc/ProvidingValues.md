@@ -1,7 +1,8 @@
 # Providing values
 
-``Provides(allowUnused:)`` for what the graph cannot build itself, ``Container()`` for grouping
-a graph, and ``Replaces()`` for substituting one binding in it.
+[`@Provides`](doc:Provides(allowUnused:)) for what the graph cannot build itself,
+[`@Container`](doc:Container()) for grouping a graph, and [`@Replaces`](doc:Replaces()) for
+substituting one binding in it.
 
 ## Overview
 
@@ -35,8 +36,8 @@ see <doc:ResolutionAndKeys>.
 
 ## `@Container`
 
-``Container()`` groups bindings under a named type, and generates a bootstrap of its own so the
-whole graph can be selected at the entry point:
+[`@Container`](doc:Container()) groups bindings under a named type, and generates a bootstrap
+of its own so the whole graph can be selected at the entry point:
 
 ```swift
 @Container
@@ -59,9 +60,9 @@ contribute; its bindings fall through to the default graph.
 
 ## `@Replaces`
 
-Where a container swaps an entire graph, ``Replaces()`` swaps one binding inside one. Attach it
-alongside a producer macro; the slot it supersedes is the one that producer already declares,
-so it takes no argument:
+Where a container swaps an entire graph, [`@Replaces`](doc:Replaces()) swaps one binding inside
+one. Attach it alongside a producer macro; the slot it supersedes is the one that producer
+already declares, so it takes no argument:
 
 ```swift
 @Singleton(as: Repo.self)

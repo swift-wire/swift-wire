@@ -22,9 +22,10 @@ on ports, never on adapters, and the implementations are plugged in at compositi
   application-service call. It sits at the edge, depends on protocols or generic parameters the
   application defines, and does its work by calling into the domain.
 
-- **A ``Provides(allowUnused:)`` binding typed as a protocol is an outbound port.** When you write
-  `@Provides func database(…) -> any DatabaseClient`, the consumer depends on the port —
-  `any DatabaseClient` — not on the concrete implementation the function constructs internally.
+- **A [`@Provides`](doc:Provides(allowUnused:)) binding typed as a protocol is an outbound
+  port.** When you write `@Provides func database(…) -> any DatabaseClient`, the consumer
+  depends on the port — `any DatabaseClient` — not on the concrete implementation the function
+  constructs internally.
 
 - **The concrete type the function returns is the outbound adapter.** It is named in one place,
   the provider, and nothing downstream of it knows what it is.
@@ -72,9 +73,11 @@ is no registration step and no import-triggered side effect.
 
 ## Scopes are the lifetime decision
 
-Wire's scope model is flat-with-siblings rather than nested: app-scoped ``Singleton(allowUnused:)`` bindings,
-plus a seeded ``Scoped(seed:allowUnused:)`` partition for each request, job or tenant. A request-scoped controller
-is constructed fresh per request and torn down at the end of it; an app-scoped one is built once.
+Wire's scope model is flat-with-siblings rather than nested: app-scoped
+[`@Singleton`](doc:Singleton(allowUnused:)) bindings, plus a seeded
+[`@Scoped`](doc:Scoped(seed:allowUnused:)) partition for each request, job or tenant. A
+request-scoped controller is constructed fresh per request and torn down at the end of it; an
+app-scoped one is built once.
 
 Choosing between them is a lifetime question, not an architectural one — and it is the decision
 most worth getting right early, because it is the one that shows up in the generated code and in

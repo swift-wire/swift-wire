@@ -15,9 +15,9 @@ supply, and in which injections the plugin will refuse. It is worth getting righ
 
 ## App lifetime: `@Singleton`
 
-``Singleton(allowUnused:)`` is process lifetime — constructed once during `bootstrap()` and
-shared by everything that injects it. Database pools, HTTP clients, configuration, the base
-logger.
+[`@Singleton`](doc:Singleton(allowUnused:)) is process lifetime — constructed once during
+`bootstrap()` and shared by everything that injects it. Database pools, HTTP clients,
+configuration, the base logger.
 
 ```swift
 @Singleton
@@ -28,9 +28,9 @@ struct ConnectionPool {
 
 ## Scope lifetime: `@Scoped(seed:)`
 
-``Scoped(seed:allowUnused:)`` gives a binding the lifetime of a scope, and the scope is
-identified by its **seed** — the type whose runtime value opens it. Two bindings share a scope
-if and only if they name the same seed type.
+[`@Scoped`](doc:Scoped(seed:allowUnused:)) gives a binding the lifetime of a scope, and the
+scope is identified by its **seed** — the type whose runtime value opens it. Two bindings share
+a scope if and only if they name the same seed type.
 
 ```swift
 @Scoped(seed: HTTPRequest.self)
@@ -52,9 +52,10 @@ nothing in your own code touches it. A program with no adapter can call the faca
 
 ### Declaring a scope's providers in one place
 
-Applied to a caseless enum, `@Scoped(seed:)` defines a **scope block**: every ``Provides(allowUnused:)``
-inside it is routed into that seed's scope without repeating the seed on each one. It is the
-scope-axis sibling of ``Container()``.
+Applied to a caseless enum, `@Scoped(seed:)` defines a **scope block**: every
+[`@Provides`](doc:Provides(allowUnused:)) inside it is routed into that seed's scope without
+repeating the seed on each one. It is the scope-axis sibling of
+[`@Container`](doc:Container()).
 
 ```swift
 @Scoped(seed: RequestSeed.self)
@@ -70,9 +71,9 @@ scope, and the plugin says so.
 
 ## No lifetime at all: `@Factory`
 
-``Factory(_:)`` is the third lifetime macro and the one that names no scope. It marks a generic
-type as a *template*, identified by a ``FactoryKey``, whose generic parameters are supplied per
-use site rather than resolved from the graph.
+[`@Factory`](doc:Factory(_:)) is the third lifetime macro and the one that names no scope. It
+marks a generic type as a *template*, identified by a ``FactoryKey``, whose generic parameters
+are supplied per use site rather than resolved from the graph.
 
 Two objects are involved and they have different lifetimes, which is the part worth spelling
 out:

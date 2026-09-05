@@ -33,10 +33,10 @@ graph.reportBuilder.run()          // the read Wire cannot see
 //    Your routes and services reach their framework this way, so nothing extra is needed.
 ```
 
-``GraphInputs()`` properties are roots automatically: a value the caller supplied is live by
-definition. Everything else is *reached* rather than declared — a contributor through its
-collection, a request-scoped controller through its proxy, a resource through whatever injects
-it.
+[`@GraphInputs`](doc:GraphInputs()) properties are roots automatically: a value the caller
+supplied is live by definition. Everything else is *reached* rather than declared — a
+contributor through its collection, a request-scoped controller through its proxy, a resource
+through whatever injects it.
 
 ## When Wire prunes something you wanted
 

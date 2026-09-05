@@ -10,8 +10,8 @@ question of whether the test needs to hold a handle on the double.
 
 | | Swaps | Test holds the double? | Reach |
 |---|---|---|---|
-| ``Container()`` | the whole graph | n/a | one bootstrap |
-| ``Replaces()`` | one binding, by type | no — Wire constructs it | whole test target |
+| [`@Container`](doc:Container()) | the whole graph | n/a | one bootstrap |
+| [`@Replaces`](doc:Replaces()) | one binding, by type | no — Wire constructs it | whole test target |
 | `@BindType` | one slot, to a named mock type | **yes** — you pass the instance | per `TestingKey`, per scope entry |
 | Depending on a mock package | every binding the package declares | no | the test target's manifest |
 
@@ -42,7 +42,7 @@ Selecting a container swaps everything at once, and it is the bluntest of the fo
 ## A stateless fake: `@Replaces`
 
 When the double is a hand-written type you can annotate, and the test does not need a handle on
-it, ``Replaces()`` is the least machinery:
+it, [`@Replaces`](doc:Replaces()) is the least machinery:
 
 ```swift
 @Singleton(as: TodoRepository.self)

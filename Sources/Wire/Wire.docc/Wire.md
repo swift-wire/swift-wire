@@ -21,7 +21,8 @@ func userStore(_ db: Database) -> any UserStore { PostgresUserStore(db) }
 
 Two features go beyond that baseline, and both are designed around Swift's type system
 specifically rather than ported from a JVM container. **Opaque binding identities**
-(``Provides(allowUnused:)`` returning `some P`, ``Singleton(allowUnused:)`` with `as:`) let an abstract dependency resolve
+([`@Provides`](doc:Provides(allowUnused:)) returning `some P`,
+[`@Singleton`](doc:Singleton(allowUnused:)) with `as:`) let an abstract dependency resolve
 without existential boxing or witness-table indirection, preserving concrete type identity
 through the graph. **``BuilderKey``** folds multibinding contributors through a user-defined
 `@resultBuilder`, which lets a consumer express composition semantics that need machinery no

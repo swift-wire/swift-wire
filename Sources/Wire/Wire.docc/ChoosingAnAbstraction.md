@@ -11,10 +11,11 @@ is free.
 
 ## `some P` — abstraction without the box
 
-A ``Provides(allowUnused:)`` function returning `some P`, or a ``Singleton(allowUnused:)`` declared with `as:`, gives the
-consumer an abstract dependency whose **concrete type identity is preserved through the graph**.
-The consumer references only the protocol, through a generic constraint; the compiler still
-knows what the type is.
+A [`@Provides`](doc:Provides(allowUnused:)) function returning `some P`, or a
+[`@Singleton`](doc:Singleton(allowUnused:)) declared with `as:`, gives the consumer an abstract
+dependency whose **concrete type identity is preserved through the graph**. The consumer
+references only the protocol, through a generic constraint; the compiler still knows what the
+type is.
 
 ```swift
 @Provides
@@ -71,9 +72,9 @@ graph and used in one place.
 ## Choosing
 
 Ask what the abstraction is *for*. If the answer is "so a test can substitute it", note that
-Wire substitutes bindings at the graph level — ``Replaces()`` and the `@BindType` testing
-primitives work on concrete bindings too — so a protocol introduced only for testability may not
-be earning its cost.
+Wire substitutes bindings at the graph level — [`@Replaces`](doc:Replaces()) and the
+`@BindType` testing primitives work on concrete bindings too — so a protocol introduced only
+for testability may not be earning its cost.
 
 If the answer is "because there really are several implementations", the question becomes
 whether the consumer can be generic. If it can, `some P` is strictly better than `any P`. If it

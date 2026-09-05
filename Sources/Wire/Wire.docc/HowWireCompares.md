@@ -61,9 +61,9 @@ Not a roadmap — these are decisions, and knowing them is part of deciding whet
   scope interaction and profile inheritance with them, and none of that has earned its keep for
   server cases: multi-tenancy is a scope problem, profile selection picks one of several flat
   containers at startup, and plugins compose at the package level.
-- **No fine-grained override across containers.** Selecting a ``Container()`` swaps the whole
-  graph rather than overlaying the default. Substituting one binding is what ``Replaces()`` is
-  for.
+- **No fine-grained override across containers.** Selecting a [`@Container`](doc:Container())
+  swaps the whole graph rather than overlaying the default. Substituting one binding is what
+  [`@Replaces`](doc:Replaces()) is for.
 - **No transitive or hidden activation.** Only the Wire-aware libraries your target directly
   depends on are composed — never a dependency of a dependency, and never a bare `import`. The
   surprise this rules out is classpath autoconfiguration, where a transitively-dragged package

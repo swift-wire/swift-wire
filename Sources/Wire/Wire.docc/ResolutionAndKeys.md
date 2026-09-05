@@ -30,9 +30,10 @@ will either. Whitespace inside a type expression is normalised before matching, 
 `Router<X, Y>` and `Router<X,Y>` are the same identity — but that is the extent of the
 interpretation.
 
-When you *want* an abstract identity, say so on the producing side. ``Singleton(allowUnused:)``
-with `as:` sets a type's graph identity to the opaque form, and a ``Provides(allowUnused:)``
-function can return `some P` directly:
+When you *want* an abstract identity, say so on the producing side.
+[`@Singleton`](doc:Singleton(allowUnused:)) with `as:` sets a type's graph identity to the
+opaque form, and a [`@Provides`](doc:Provides(allowUnused:)) function can return `some P`
+directly:
 
 ```swift
 @Singleton(as: TodoRepository.self)
@@ -55,9 +56,9 @@ one annotation at the place the ambiguity actually exists.
 
 ## Keys
 
-Every ``Singleton(allowUnused:)`` and ``Scoped(seed:allowUnused:)`` generates a
-`static let key: BindingKey<Self>`, so the disambiguating key usually already exists and you
-only have to name it:
+Every [`@Singleton`](doc:Singleton(allowUnused:)) and
+[`@Scoped`](doc:Scoped(seed:allowUnused:)) generates a `static let key: BindingKey<Self>`, so
+the disambiguating key usually already exists and you only have to name it:
 
 ```swift
 @Inject(CouchDBTodoRepository.key) var repository: any TodoRepository
