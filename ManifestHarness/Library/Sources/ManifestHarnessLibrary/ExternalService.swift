@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 /// Stands in for a binding a real Wire-aware library would publish. The gate
 /// asserts the *manifest describing it* crosses the package boundary through
 /// the plugin-output channel, not that the type does (the type crosses by

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Factory-template discovery — the producer side of the factory model.
 //
 // A `@Factory(key)` type is a factory *template*: a generic Wire component

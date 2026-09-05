@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import Foundation
 
 // Stands in for WireGen's contributor half: scans the library's own sources and

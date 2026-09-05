@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import SwiftSyntax
 
 // Iteration 5β validation diagnostics (Step 3). One per-declaration

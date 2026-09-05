@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Test-graph variant construction — turning a `TestingKey`'s `@BindType`
 // substitutions into doubles-sourced bindings and the `_<Key>Doubles` struct the
 // scope is entered with.

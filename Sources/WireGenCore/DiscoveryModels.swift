@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Small standalone discovery-result models. Each is a plain value type
 // captured during the parse and consumed at validation time.
 

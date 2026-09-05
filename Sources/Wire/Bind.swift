@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 /// Name the keyed binding an `@Inject init` parameter should resolve to.
 ///
 /// `@Inject(Key)` keys a *property* (`@Inject(Database.primary) var db: Database`), but `@Inject` is a

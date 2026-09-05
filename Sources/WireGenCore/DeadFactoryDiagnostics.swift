@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Dead-factory warning: a `@Factory(key)` template declared but consumed by
 // nothing in the build — no use-site references its key. The factory analogue of
 // the dead-binding warning, and visibility-gated like it but tighter: only

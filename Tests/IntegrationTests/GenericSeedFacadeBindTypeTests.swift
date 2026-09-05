@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import Testing
 
 /// Seed-façade generic gate — a generic `@Scoped(seed:)` subject over an opaque `@BindType`'d

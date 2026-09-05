@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 /// Emission of one graph *struct* and its `_wireBootstrap` free function — the shape the default graph,
 /// every `@Container` graph and every testing-variant app graph all share. Split out of
 /// `CodeEmission.swift` (file-length) but part of the same `renderWireGraph` pipeline, alongside

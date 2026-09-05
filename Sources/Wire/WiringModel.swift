@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 /// A read-only, framework-agnostic view of a generated Wire graph, returned by the
 /// graph's `introspect()`. The data is baked in at codegen — Wire is compile-time DI,
 /// so the wiring is fully known without runtime reflection. `Codable`, so adapters can

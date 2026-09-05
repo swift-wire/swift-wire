@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import Testing
 
 /// The complete-replacement gate — `@BindType` as a true complete-replacement. The eager `@BindType`'d binding (`any

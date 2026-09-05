@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // How much of one graph the task group spans.
 //
 // The scheduling trigger decides *whether* a graph is scheduled and says nothing about how much of it is,

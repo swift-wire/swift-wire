@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import Wire
 
 /// A binding that lives two packages away from the consumer. The consumer never depends on this package,

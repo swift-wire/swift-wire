@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import Wire
 
 // Fixture for IntrospectionTests: a leaf and a root that consumes it, giving the

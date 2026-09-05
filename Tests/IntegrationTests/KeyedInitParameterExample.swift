@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import Wire
 
 /// End-to-end fixture for keyed injection through an `@Inject init` *parameter* rather than a stored

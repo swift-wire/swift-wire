@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import Testing
 
 /// partial teardown's gate — a bootstrap that throws partway tears down what it had already built, in reverse, and

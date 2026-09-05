@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import SwiftSyntax
 
 // Contribution-alias resolution — the replacement for the retired `_wireRegister`

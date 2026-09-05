@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Scope-entry linking — what lets a *bridging* contributor proxy sort correctly.
 //
 // A `.singleton` proxy over a `@Scoped(seed:)` subject carries a `_wireEnterScope` thunk that

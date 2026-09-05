@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Multibinding key markers — the producer-side declarations that a
 // `@Contributes(to:)` contribution and an aggregate `@Inject` consumer
 // reference. Like `BindingKey<Value>`, these are phantom-typed: they

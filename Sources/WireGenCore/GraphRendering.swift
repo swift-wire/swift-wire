@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 /// Render the topological order as a numbered human-readable list,
 /// suitable for diagnostics and the discovery report. The same order
 /// is what code emission iterates over to construct each binding.

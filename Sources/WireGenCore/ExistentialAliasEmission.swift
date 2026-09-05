@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Existential-alias emission for the graph bootstrap and scope bodies — split out of
 // CodeEmission.swift to keep that file under the file-length cap. Same module (WireGenCore).
 

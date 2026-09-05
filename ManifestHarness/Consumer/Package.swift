@@ -1,4 +1,7 @@
 // swift-tools-version: 6.3
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import PackageDescription
 
 // The consumer half of the plugin-output gate. It depends on the library

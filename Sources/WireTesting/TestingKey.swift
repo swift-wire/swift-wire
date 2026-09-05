@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 /// A namespace identifier for a *test-graph variant* — the config a test target
 /// selects to substitute bindings under test.
 ///

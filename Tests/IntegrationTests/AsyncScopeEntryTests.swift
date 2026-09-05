@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import Testing
 
 /// scheduled scope entry's gate — a request scope's two independent async bindings are in flight at once.

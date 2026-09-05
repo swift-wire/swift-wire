@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // The value types graph validation and discovery surface as errors, hints, and
 // diagnostics. `GraphResult` and the construction pipeline live in `Graph.swift`;
 // these are the data they carry.

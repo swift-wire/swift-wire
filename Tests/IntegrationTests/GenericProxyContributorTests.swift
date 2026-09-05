@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import Testing
 
 /// Generic-subject gate — shape 1 (full concretization). Drives the variant proxy for a

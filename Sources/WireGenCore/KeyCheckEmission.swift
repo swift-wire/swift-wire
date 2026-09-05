@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Emit `_WireKeyChecks.swift` — compile-time type assertions that unify each
 // keyed binding's `BindingKey<T>` against the consuming type.
 

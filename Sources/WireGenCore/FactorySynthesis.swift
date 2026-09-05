@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Factory synthesis — the factory-key half of the `.injectsFromGraph` capability's dispatch (the by-type
 // and keyed-binding halves are in `SynthesizedDependencies`).
 //

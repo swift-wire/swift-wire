@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import Testing
 
 /// Per-subject doubles — each routed subject's `_wireEnterScope` takes a `_<Variant>_<Subject>Doubles`

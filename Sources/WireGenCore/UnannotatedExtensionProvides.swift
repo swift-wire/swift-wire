@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 /// One `@Provides` site found inside an unannotated extension.
 /// Carried through discovery as a candidate; the build plugin
 /// resolves it into a `Diagnostic` after the module-wide

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import Wire
 
 // The graph-inputs gate: values the caller constructs and hands to `Wire.bootstrap(inputs:)`, the

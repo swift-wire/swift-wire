@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Validation for scope yields — the bindings a bridged subject's scope entry hands back because its route
 // parameters name them.
 //

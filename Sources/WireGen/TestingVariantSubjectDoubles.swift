@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import WireGenCore
 
 // Per-subject doubles — `_<Variant>_<Subject>Doubles`, carrying only the fields a given routed subject

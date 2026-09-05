@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Uniform read access over `DiscoveredBinding`'s three cases — the accessors
 // the graph, code emission, and diagnostics read without switching on the case
 // themselves.

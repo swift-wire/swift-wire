@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 public import Wire
 
 /// The harness adapter's provider — the binding a rewritten site reads its value out of. A dictionary,

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import SwiftSyntax
 
 // Discovery for `@Teardown` — the explicit teardown annotation. Two forms:

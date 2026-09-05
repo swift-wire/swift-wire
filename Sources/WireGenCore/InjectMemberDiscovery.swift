@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import SwiftSyntax
 
 /// Output of a one-pass walk over a `@Singleton` / `@Scoped` type's

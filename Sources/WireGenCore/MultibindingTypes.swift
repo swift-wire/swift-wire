@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Discovery data types for iteration 5β multibindings — the key
 // declarations and the contributions that fan into them. The
 // `contributions` fields and accessor live on the producer types in
