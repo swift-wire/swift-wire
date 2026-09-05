@@ -165,3 +165,12 @@ source of truth for what is built, what is known-broken, and what is deliberatel
 ## Why "wire"?
 
 It's what the library does, it's short, it's available on the package index, and it has prior art (Google's `wire` is the Go ecosystem's compile-time DI library — the design lineage is honest about itself).
+
+## Licence
+
+Apache-2.0. See [LICENSE](LICENSE).
+
+**Generated output is yours.** Code that this package generates into your build — whatever its build
+plugin writes, and the expansion of its macros — is not a derivative work of this package and carries
+no licence obligation to it. Use it as you would code you wrote yourself. Nothing this package emits
+carries a licence header for that reason.
