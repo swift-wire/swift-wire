@@ -38,7 +38,7 @@ Two consequences, and they compound:
   graphs that compile today.
 - **Noncopyable bindings (M8).** A generic parameter is implicitly `Copyable`, so a `~Copyable` binding
   cannot enter a cell at all — and M8.2's model is that such a binding is *not stored* anyway
-  ([#341](https://github.com/tachyonics/swift-wire/issues/341), *the storage model*). That issue's § *Risks / interleaves*
+  ([#341](https://github.com/swift-wire/swift-wire/issues/341), *the storage model*). That issue's § *Risks / interleaves*
   already anticipates this and asks, at minimum, that noncopyable bindings take the sequential path.
 
 Neither partition ever closes — non-Sendable types stay legal, and M8 is *adding* noncopyable bindings —
@@ -463,7 +463,7 @@ is the thing a developer changes without meaning to.
 
 No diagnostic is proposed: a "this graph could have been scheduled" note is exactly the never-quiescing
 build warning M7c.1 already rejected once. The place this belongs is the **`_WireGraph.json` build-time
-dump** ([#344](https://github.com/tachyonics/swift-wire/issues/344)), which already exists to answer "what did Wire decide about my
+dump** ([#344](https://github.com/swift-wire/swift-wire/issues/344)), which already exists to answer "what did Wire decide about my
 graph" and which M7b already gave the pruned set to say. It is recorded here so the connection is made
 when that lands rather than rediscovered.
 
@@ -741,7 +741,7 @@ seam first. **Every gate compiles the generated output**, per the `-typecheck`-i
   path. Filed as issue 21 on the strength of "all 19 per-request thunks carry a `_wireScopeTeardown` and
   none can throw yet" — and **the fixture above is what falsified that**, since it both constructs with
   `try` and carries a `@Teardown` binding. **Fixed** (see
-  [#339](https://github.com/tachyonics/swift-wire/issues/339)): the thunk accumulates its
+  [#339](https://github.com/swift-wire/swift-wire/issues/339)): the thunk accumulates its
   actions as each binding is built and unwinds them before rethrowing, and the `tornInGroup: []` this step
   passed became the group's real torn set, so a scheduled scope's binding is recovered from its cell by the
   drain's own `catch`. M4's reasoning for deferring the bootstrap half — a failed bootstrap ends in process
@@ -754,7 +754,7 @@ predicate Wire cannot compute.
 
 ## The upstream ask, and what it would give
 
-> Tracked as [#348](https://github.com/tachyonics/swift-wire/issues/348), which owns the status of both asks below.
+> Tracked as [#348](https://github.com/swift-wire/swift-wire/issues/348), which owns the status of both asks below.
 
 One ask, well-formed and small: **`sending` results for task groups**, relaxing `ChildTaskResult:
 Sendable`. `async let` already produces non-Sendable results, so region isolation handles the transfer;
@@ -823,7 +823,7 @@ accepting the rewrite is a reasonable call at that point.
 - [EffectAwareResolution.md](EffectAwareResolution.md) — the levels model, the prior-art map, and the open
   semantic questions (error precedence, cancellation policy, user opt-out) this note does not settle.
 - [TeardownDesign.md](TeardownDesign.md) *§ Init-failure partial teardown* — the deferral this discharges.
-- [#341](https://github.com/tachyonics/swift-wire/issues/341) *§ Risks / interleaves* — the noncopyable interleave, and *§ the storage
+- [#341](https://github.com/swift-wire/swift-wire/issues/341) *§ Risks / interleaves* — the noncopyable interleave, and *§ the storage
   model* for the frame-local model step 1 converges with.
 - Reachability pruning, shipped, is what makes the
   root set the right retention target.

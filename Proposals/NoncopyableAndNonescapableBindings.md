@@ -1,6 +1,6 @@
 # Noncopyable and nonescapable bindings — design note
 
-> **Status:** design space, captured August 2026. **[#341](https://github.com/tachyonics/swift-wire/issues/341) is the source of truth for M8's
+> **Status:** design space, captured August 2026. **[#341](https://github.com/swift-wire/swift-wire/issues/341) is the source of truth for M8's
 > status and carries the build plan**; this note is the *why* it reads from — the worked case, the two
 > motivating shapes, and the verified compiler behaviours. The M8.0 spikes ran and cleared the gate;
 > nothing after them is built. The point of this note is to
@@ -16,7 +16,7 @@
 
 ## The two features answer different questions
 
-wire-mvc's [`StreamingResponseTier.md`](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/StreamingResponseTier.md)
+wire-mvc's [`StreamingResponseTier.md`](https://github.com/swift-wire/wire-mvc/blob/main/Documentation/Notes/StreamingResponseTier.md)
 already records the distinction, and it is the thing to hold onto:
 
 - **`~Copyable` is about ownership** — how many owners a value may have.
@@ -521,7 +521,7 @@ should land before the storage-model work.
 
 **A keyed noncopyable binding needs `BindingKey`/`Bind` suppression, and then hits the SILGen
 crash.** The worked case above uses `@Bind(Backend.data) data: consuming UniqueArray<UInt8>` — a
-property-wrapped noncopyable *parameter*, which is exactly the combination [tachyonics/wire-mvc#180](https://github.com/tachyonics/wire-mvc/issues/180)'s
+property-wrapped noncopyable *parameter*, which is exactly the combination [swift-wire/wire-mvc#180](https://github.com/swift-wire/wire-mvc/issues/180)'s
 *Known blockers (1.0)* documents. Three stages, all verified on the 6.4 snapshot:
 
 1. **As declared today it fails at the constraint level, before any bug.**
@@ -581,10 +581,10 @@ than the graph. See [OpaqueTypesInContext.md](../Documentation/Notes/OpaqueTypes
 
 ## References
 
-- wire-mvc's [`StreamingResponseTier.md`](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/StreamingResponseTier.md)
+- wire-mvc's [`StreamingResponseTier.md`](https://github.com/swift-wire/wire-mvc/blob/main/Documentation/Notes/StreamingResponseTier.md)
   — the verified `~Escapable` findings this note builds on: moving does not extend a lifetime,
   the container inherits the bound, `@_lifetime` vs `@lifetime`, and the `Lifetimes` flag name.
-- [`LinearSenderErrorModel.md`](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/LinearSenderErrorModel.md) — the linear (correctness-motivated)
+- [`LinearSenderErrorModel.md`](https://github.com/swift-wire/wire-mvc/blob/main/Documentation/Notes/LinearSenderErrorModel.md) — the linear (correctness-motivated)
   `~Copyable` population, where duplication is forbidden by design.
 - [`TeardownDesign.md`](../Documentation/Notes/TeardownDesign.md) — `Teardownable` and the `any Teardownable` facade
   that a noncopyable graph would break.

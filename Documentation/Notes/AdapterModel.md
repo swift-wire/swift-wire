@@ -15,7 +15,7 @@ adapter ships applies the collated products to a framework object (a Hummingbird
 `Router`, a `some ServerTransport`) that stays *outside* the graph. The DI core does
 the collation and knows nothing about the framework; the contract is the published,
 versioned surface adapters build against. (See [WireHummingbirdDesign.md](WireHummingbirdDesign.md)
-and [WireOpenAPIDesign.md](https://github.com/tachyonics/wire-open-api/blob/main/Documentation/Notes/WireOpenAPIDesign.md) for the two shipped adapters.)
+and [WireOpenAPIDesign.md](https://github.com/swift-wire/wire-open-api/blob/main/Documentation/Notes/WireOpenAPIDesign.md) for the two shipped adapters.)
 
 ## The contract
 
@@ -54,7 +54,7 @@ about routing, HTTP, or middleware.
 - **`.injectsFactoryOnArgument`** — an **input** edge to a *synthesised factory*. The
   consumer-side half of the factory model: `@X(key)` on a binding declares that the
   binding requires the factory for `key` — synthesised from the matching `@Factory(key)`
-  template (see [WireMVCMiddleware.md](https://github.com/tachyonics/wire-mvc/blob/main/Documentation/Notes/WireMVCMiddleware.md), *Generic middleware: the
+  template (see [WireMVCMiddleware.md](https://github.com/swift-wire/wire-mvc/blob/main/Documentation/Notes/WireMVCMiddleware.md), *Generic middleware: the
   `@Factory` template + `@MiddlewareFactory` mapping*) — to be injected. Discovery
   discriminates the argument per use-site: a `FactoryKey` reference demands template
   synthesis and injects that factory; a `Type.self` reference is the concrete case,

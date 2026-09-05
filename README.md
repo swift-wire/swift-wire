@@ -1,14 +1,14 @@
 <p align="center">
-  <a href="https://github.com/tachyonics/swift-wire/actions/workflows/swift.yml">
-    <img src="https://github.com/tachyonics/swift-wire/actions/workflows/swift.yml/badge.svg" alt="Build">
+  <a href="https://github.com/swift-wire/swift-wire/actions/workflows/swift.yml">
+    <img src="https://github.com/swift-wire/swift-wire/actions/workflows/swift.yml/badge.svg" alt="Build">
   </a>
-  <a href="https://swiftpackageindex.com/tachyonics/swift-wire">
+  <a href="https://swiftpackageindex.com/swift-wire/swift-wire">
     <img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Ftachyonics%2Fswift-wire%2Fbadge%3Ftype%3Dswift-versions" alt="Swift versions">
   </a>
-  <a href="https://codecov.io/gh/tachyonics/swift-wire">
-    <img src="https://codecov.io/gh/tachyonics/swift-wire/graph/badge.svg" alt="Code coverage">
+  <a href="https://codecov.io/gh/swift-wire/swift-wire">
+    <img src="https://codecov.io/gh/swift-wire/swift-wire/graph/badge.svg" alt="Code coverage">
   </a>
-  <a href="https://swiftpackageindex.com/tachyonics/swift-wire">
+  <a href="https://swiftpackageindex.com/swift-wire/swift-wire">
     <img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Ftachyonics%2Fswift-wire%2Fbadge%3Ftype%3Dplatforms" alt="Platforms">
   </a>
   <a href="https://www.apache.org/licenses/LICENSE-2.0">
@@ -38,7 +38,7 @@ Add the package, depend on the `Wire` library, and apply the build plugin to eve
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/tachyonics/swift-wire.git", branch: "main"),
+    .package(url: "https://github.com/swift-wire/swift-wire.git", branch: "main"),
 ],
 targets: [
     .executableTarget(
@@ -103,7 +103,7 @@ struct RequestLogger {
 }
 ```
 
-Scoped bindings see singletons; singletons don't see scoped bindings, and asking for one is a build-time error at the injection site rather than a runtime failure. Entering a scope per request or per message is the job of the adapter that owns the seed — [wire-mvc](https://github.com/tachyonics/wire-mvc) does this for HTTP requests.
+Scoped bindings see singletons; singletons don't see scoped bindings, and asking for one is a build-time error at the injection site rather than a runtime failure. Entering a scope per request or per message is the job of the adapter that owns the seed — [wire-mvc](https://github.com/swift-wire/wire-mvc) does this for HTTP requests.
 
 ## Designed for Swift
 
@@ -129,7 +129,7 @@ such as a large request-scoped data object that shouldn't be copied or outlive i
 
 ## Extending swift-wire
 
-swift-wire is also designed to be extensible and provides a number of extension points that allow third-party libraries to extend the core library. One such example of this is [wire-configuration](https://github.com/tachyonics/wire-configuration). This library takes advantage of an extension point that allows re-writing an injection point.
+swift-wire is also designed to be extensible and provides a number of extension points that allow third-party libraries to extend the core library. One such example of this is [wire-configuration](https://github.com/swift-wire/wire-configuration). This library takes advantage of an extension point that allows re-writing an injection point.
 
 ```swift
 @Provides(CouchDB.client)
@@ -148,7 +148,7 @@ package func provideCouchDBClient(
 }
 ```
 
-Another library that takes extensive advantage of the library's extension points is [wire-mvc](https://github.com/tachyonics/wire-mvc), a declarative web framework.
+Another library that takes extensive advantage of the library's extension points is [wire-mvc](https://github.com/swift-wire/wire-mvc), a declarative web framework.
 
 ## Documentation and status
 
@@ -157,7 +157,7 @@ The API reference and articles live in the DocC catalog and build with
 in [`Documentation/Notes`](Documentation/Notes); changes that are designed but not yet built are
 in [`Proposals`](Proposals).
 
-Work is tracked as [issues](https://github.com/tachyonics/swift-wire/issues), which are the
+Work is tracked as [issues](https://github.com/swift-wire/swift-wire/issues), which are the
 source of truth for what is built, what is known-broken, and what is deliberately deferred.
 
 ---

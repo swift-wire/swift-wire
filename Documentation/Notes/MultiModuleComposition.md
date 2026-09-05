@@ -79,7 +79,7 @@ the `withOrder:` cross-module note below.)
 > depends on the `Wire` product", the predicate the retirement plan below argued for, and every marker
 > file in the repository has been deleted. The section is kept because the *reasoning* it records — why a
 > plugin-generated marker was impossible, and why retirement had to wait for reachability — is what makes
-> the current design legible, and because [#338](https://github.com/tachyonics/swift-wire/issues/338) still leans on it for M7a.
+> the current design legible, and because [#338](https://github.com/swift-wire/swift-wire/issues/338) still leans on it for M7a.
 
 `_WireExports.swift` does exactly one thing: signal Wire-awareness so a consumer
 re-parses (later: references) a direct dependency. It is **not** a future readable
@@ -90,7 +90,7 @@ confirmed the consequence directly: emitting `_WireExports.swift` from the contr
 plugin instead of hand-declaring it made the dependency **invisible** to the consumer's
 `sourceFiles` scan — the build succeeded but the dependency's bindings silently dropped
 out of the graph. So there is no plugin-generated export file a consumer can read **at plan
-time** — a 2026-08 spike (see [#338](https://github.com/tachyonics/swift-wire/issues/338))
+time** — a 2026-08 spike (see [#338](https://github.com/swift-wire/swift-wire/issues/338))
 narrowed that: a consumer's *build command* can read one at **execution** time, given a declared
 `inputFiles` edge on a derived path. Neither helps the marker, which must be readable while
 `createBuildCommands` runs; it does change M7a, below. Composition works by re-parsing committed sources for the data and
@@ -160,7 +160,7 @@ cost and on a predicate SPM cannot supply:
   point plus a path derived by string surgery over an undocumented layout — the lockjaw hazard
   this note twice declines. Full evidence, the closure that would make the predicate exact (and
   the surface it would cost), and the upstream asks are in
-  [#338](https://github.com/tachyonics/swift-wire/issues/338).
+  [#338](https://github.com/swift-wire/swift-wire/issues/338).
 
   **The third route is answered: no (2026-08).** rustdoc-JSON's Swift analogue was the open
   question. `swift-synthesize-interface` does work on a binary `.swiftmodule` without library
@@ -381,7 +381,7 @@ templates and pre-specialisation bindings a variant legitimately needs.
 
 ## Naming — use SE-0491 module selectors
 
-> **Status: deferred**, tracked as [#355](https://github.com/tachyonics/swift-wire/issues/355). Working it through during iteration 7
+> **Status: deferred**, tracked as [#355](https://github.com/swift-wire/swift-wire/issues/355). Working it through during iteration 7
 > surfaced that `::` is *not* "mechanical once origin-module metadata
 > exists." Two bindings both named `Logger` from different modules have the
 > **same** textual `BindingIdentity` (`base: "Logger"`), so today they're a
