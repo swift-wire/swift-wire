@@ -11,10 +11,11 @@ is free.
 
 ## `some P` — abstraction without the box
 
-A ``Provides(allowUnused:)`` function returning `some P`, or a ``Singleton(allowUnused:)`` declared with `as:`, gives the
-consumer an abstract dependency whose **concrete type identity is preserved through the graph**.
-The consumer references only the protocol, through a generic constraint; the compiler still
-knows what the type is.
+A [`@Provides`](doc:Provides(allowUnused:)) function returning `some P`, or a
+[`@Singleton`](doc:Singleton(allowUnused:)) declared with `as:`, gives the consumer an abstract
+dependency whose **concrete type identity is preserved through the graph**. The consumer
+references only the protocol, through a generic constraint; the compiler still knows what the
+type is.
 
 ```swift
 @Provides
@@ -39,7 +40,7 @@ generic over the constraint. That is ordinary as a *language* pattern — Rust p
 `T: Repository` bounds through intervening types at ecosystem scale — but it is real work, and
 it compounds the further the chain runs.
 
-## `any P` — the workhorse
+## `any P` — abstraction with the box
 
 Strict port-and-adapter separation: the consumer depends on the port through an existential and
 knows nothing else. This is the standard shape, and the right default when the opaque form's
@@ -62,8 +63,8 @@ which is exactly why eliminating it is worth machinery here and would buy nothin
 ## Concrete — no abstraction at all
 
 The consumer knows the implementation type. Strictly this breaks the port-and-adapter separation
-for that binding, and it is frequently the right call anyway: when there is one canonical
-implementation and no plausible second, the abstraction costs more than it returns.
+for that binding, but is sometimes the right call: when there is one canonical
+implementation or within a module boundary where an abstraction provides nothing.
 
 A `Logger` is the usual example. So is any internal type that exists to be constructed by the
 graph and used in one place.
@@ -71,9 +72,9 @@ graph and used in one place.
 ## Choosing
 
 Ask what the abstraction is *for*. If the answer is "so a test can substitute it", note that
-Wire substitutes bindings at the graph level — ``Replaces()`` and the `@BindType` testing
-primitives work on concrete bindings too — so a protocol introduced only for testability may not
-be earning its cost.
+Wire substitutes bindings at the graph level — [`@Replaces`](doc:Replaces()) and the
+`@BindType` testing primitives work on concrete bindings too — so a protocol introduced only
+for testability may not be earning its cost.
 
 If the answer is "because there really are several implementations", the question becomes
 whether the consumer can be generic. If it can, `some P` is strictly better than `any P`. If it

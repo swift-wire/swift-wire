@@ -7,8 +7,11 @@
 /// reference (`MyTests.testSetup`), from which the build plugin derives the
 /// variant's doubles-struct type name (`_MyTests_testSetupDoubles`).
 ///
-/// Declare one as a static member and attach `@BindType` (and, for the cascade,
-/// `@Scopable`) to it to describe the substitutions the variant applies:
+/// Declare one as a static member and attach a `@BindType` per slot the variant
+/// substitutes. The cascade is marked elsewhere: an app-scoped consumer that has to
+/// be rebuilt per scope entry to see a double carries `@TestScopable` on its own
+/// declaration, since whether a singleton is safe to rebuild is a property of the
+/// type rather than of any one variant.
 ///
 ///     enum MyTests {
 ///         @BindType(BackendRepository.self, MockBackendRepository.self)

@@ -21,7 +21,8 @@ func userStore(_ db: Database) -> any UserStore { PostgresUserStore(db) }
 
 Two features go beyond that baseline, and both are designed around Swift's type system
 specifically rather than ported from a JVM container. **Opaque binding identities**
-(``Provides(allowUnused:)`` returning `some P`, ``Singleton(allowUnused:)`` with `as:`) let an abstract dependency resolve
+([`@Provides`](doc:Provides(allowUnused:)) returning `some P`,
+[`@Singleton`](doc:Singleton(allowUnused:)) with `as:`) let an abstract dependency resolve
 without existential boxing or witness-table indirection, preserving concrete type identity
 through the graph. **``BuilderKey``** folds multibinding contributors through a user-defined
 `@resultBuilder`, which lets a consumer express composition semantics that need machinery no
@@ -31,7 +32,7 @@ other language has.
 
 Worth answering before adopting anything. Wire suits a **flat-with-scopes** dependency
 structure — app-scoped singletons plus sibling scopes for a request, a job, a tenant — which is
-the shape most server applications have. It is built and tested Linux-first.
+the shape most server applications have. It is built and tested on both Linux and macOS.
 
 It is a poor fit, and something else is the better answer, when:
 
@@ -53,11 +54,17 @@ and Linux support both matter.
 
 ### Getting started
 
+- <doc:AddingWireToAPackage>
+- <doc:ScopesAndLifetimes>
 - <doc:StructuringAnApp>
 - <doc:ChoosingAnAbstraction>
+- <doc:HowWireCompares>
 
 ### Declaring bindings
 
+- <doc:InjectionPoints>
+- <doc:ProvidingValues>
+- <doc:ResolutionAndKeys>
 - ``Singleton(allowUnused:)``
 - ``Provides(allowUnused:)``
 - ``Scoped(seed:allowUnused:)``
@@ -67,6 +74,8 @@ and Linux support both matter.
 
 ### Composition
 
+- <doc:ComposingAcrossModules>
+- <doc:WhatGetsBuilt>
 - ``Container()``
 - ``Contributes(to:)-(CollectedKey<Element>)``
 - ``Contributes(to:)-(BuilderKey<Builder>)``
@@ -78,6 +87,7 @@ and Linux support both matter.
 
 ### Multibindings
 
+- <doc:Multibindings>
 - ``BindingKey``
 - ``CollectedKey``
 - ``MappedKey``
@@ -86,12 +96,22 @@ and Linux support both matter.
 
 ### Lifecycle
 
+- <doc:LifecycleAndTeardown>
 - ``Teardown()``
 - ``Teardownable``
 - ``Lazy``
 
+### Concurrency
+
+- <doc:ConcurrencyAndIsolation>
+
+### Testing
+
+- <doc:TestingAGraph>
+
 ### Introspection
 
+- <doc:IntrospectingTheGraph>
 - ``Introspectable``
 - ``WiringModel``
 - ``BindingInfo``
@@ -101,6 +121,7 @@ and Linux support both matter.
 
 ### Writing an adapter
 
+- <doc:WritingAnAdapter>
 - ``WireAdapterCapability``
 - ``WireProviderSelector``
 - ``WireProxyScope``
