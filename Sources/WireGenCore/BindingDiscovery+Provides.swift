@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import SwiftSyntax
 
 // `@Provides` extraction — the producer half of discovery. A `@Provides` property or function is a binding

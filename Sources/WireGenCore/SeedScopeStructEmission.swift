@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Seed-scope struct + bootstrap emission — the `_<Suffix>WireScope` value type a `@Scoped(seed:)` graph
 // builds per request, and the `_wireBootstrap<Suffix>Scope` free function that constructs it. Split out of
 // `CodeEmission` to keep that file within the line budget; the shared per-binding emitters

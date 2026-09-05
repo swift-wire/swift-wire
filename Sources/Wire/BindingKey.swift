@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 /// A typed marker identifying a binding in the dependency graph.
 ///
 /// `BindingKey<Value>` is a phantom-typed marker. It carries no runtime

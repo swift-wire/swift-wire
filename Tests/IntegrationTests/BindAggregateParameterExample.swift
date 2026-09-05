@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import Wire
 
 /// End-to-end fixture for injecting a **multibinding aggregate through a parameter** rather than a

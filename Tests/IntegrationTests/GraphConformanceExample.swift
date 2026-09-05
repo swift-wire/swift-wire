@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import Wire
 
 // graph conformance end-to-end: a `WireGraphConformanceV1` makes the generated `_WireGraph`

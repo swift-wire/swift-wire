@@ -1,4 +1,7 @@
 // swift-tools-version: 6.3
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import PackageDescription
 
 // The third package in the composition harness: Wire-aware, but only ever a *transitive* dependency of

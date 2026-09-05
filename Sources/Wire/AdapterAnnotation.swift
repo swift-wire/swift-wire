@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Public carrier for an adapter-annotation definition.
 //
 // An adapter package declares one per annotation it publishes (e.g. `@RoutedBy`,

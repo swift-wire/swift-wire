@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import WireGenCore
 
 // The two steps between a variant's accumulated scopes and its rendered output: computing the variant app

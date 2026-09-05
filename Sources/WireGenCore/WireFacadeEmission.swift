@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // The `Wire` bootstrap façade — every graph's entry point as a static method on
 // one non-generic `internal enum Wire`, so the call site (`Wire.bootstrap()`)
 // reads as a deliberate entry point and stays uniform whether or not the

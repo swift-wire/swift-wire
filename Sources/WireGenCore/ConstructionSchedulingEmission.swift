@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // The construction state struct, driven by a `ThrowingTaskGroup`.
 //
 // The cell itself is `Wire._WireBindingState`, not something emitted here: generated code already names

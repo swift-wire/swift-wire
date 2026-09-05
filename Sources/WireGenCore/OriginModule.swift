@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Origin-module metadata on the DiscoveredBinding enum (iteration 7b).
 // The per-struct `originModule` fields live on the binding/key models
 // themselves. Load-bearing for SE-0491 cross-module qualification and

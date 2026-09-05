@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import Testing
 
 @testable import WireTesting
@@ -32,7 +35,7 @@ import Testing
     /// produces a value equal to the declared key. This is exactly what a generated `switch` over variants
     /// relies on, and it is why the generator must reproduce the *call site* of `TestingKey()`.
     @Test func anExplicitlyReconstructedKeyMatchesItsDeclaration() {
-        let reconstructed = TestingKey(fileID: #fileID, line: 14)
+        let reconstructed = TestingKey(fileID: #fileID, line: 17)
         #expect(reconstructed == Keys.first)
         #expect(reconstructed != Keys.second)
     }
@@ -48,8 +51,8 @@ import Testing
     /// A generator that recorded the declaration's line would emit a dispatch that silently matches nothing
     /// for any key written this way, so this pins the rule down.
     @Test func theLineIsTheInitCallNotTheDeclaration() {
-        let atInitCall = TestingKey(fileID: #fileID, line: 44)
-        let atDeclaration = TestingKey(fileID: #fileID, line: 43)
+        let atInitCall = TestingKey(fileID: #fileID, line: 47)
+        let atDeclaration = TestingKey(fileID: #fileID, line: 46)
         #expect(atInitCall == SplitKeys.split)
         #expect(atDeclaration != SplitKeys.split)
     }

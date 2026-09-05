@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Missing-key diagnostic for single-binding keys — the behavioural half
 // of iteration 7a. Now that Wire tracks `BindingKey` declarations
 // (`BindingKeyScanning`), a `@Inject(K)` / `@Provides(K)` reference whose

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // MARK: - @Replaces resolution
 
 /// The outcome of resolving `@Replaces` overrides and splitting duplicates: either a

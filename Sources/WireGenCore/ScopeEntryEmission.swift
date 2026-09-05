@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Scope-entry thunk emission — the closure a bridging contributor proxy carries.
 //
 // A `.singleton` proxy over a `@Scoped(seed:)` subject takes a `_wireEnterScope` thunk. `appendStruct`

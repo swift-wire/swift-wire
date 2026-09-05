@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 /// Shared emission for visibility-driven diagnostics raised at discovery
 /// time. The model these diagnostics enforce — which binding surfaces
 /// must be reachable from Wire's generated bootstrap, and why — is

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 /// Cross-reference `UnannotatedExtensionProvides` candidates collected
 /// during discovery against the module-wide `@Container`-name set.
 /// Each candidate whose extended type matches a discovered

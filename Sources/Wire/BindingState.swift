@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 /// Per-binding construction state — the cell the generated bootstrap builds a graph out of.
 ///
 /// A graph that Wire schedules is not a chain of `let`s but a `~Copyable` state struct owned by the

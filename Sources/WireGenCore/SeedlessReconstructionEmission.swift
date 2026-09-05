@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Seedless reconstruction emission — the on-demand rebuild an app-scoped (`@Singleton`) route contributor
 // gets under a `@BindType` variant when it's `@Scopable`'d.
 //

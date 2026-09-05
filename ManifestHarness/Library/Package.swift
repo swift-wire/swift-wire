@@ -1,4 +1,7 @@
 // swift-tools-version: 6.3
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import PackageDescription
 
 // The producer half of the plugin-output gate. It deliberately does *not*

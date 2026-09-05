@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 /// Render the `_WireGraph.swift` source the build plugin writes
 /// alongside the consumer target. The generated file contains:
 ///

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Cross-module visibility threshold (iteration 7f). A binding composed
 // from another module is referenced by the consumer's generated graph,
 // which lives in the consumer module — so its access level must clear a

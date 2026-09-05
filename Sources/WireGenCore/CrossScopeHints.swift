@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 /// Walk a `GraphResult`'s missing-binding errors and attach a
 /// `CrossScopeHint` to each one whose dependency type is bound in
 /// another partition. Returns the same `GraphResult` shape with the

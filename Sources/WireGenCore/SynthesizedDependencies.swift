@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Synthesising an INPUT edge onto a binding — the symmetric complement of `appendingContributions`
 // (which appends synthetic OUTPUTS / `@Contributes`). An adapter annotation that reads a type argument
 // can declare "the annotated binding depends on this type," and the plugin appends that dependency here,

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import Testing
 
 /// Regression gate — a variant-proxy subject that borrows a plain app `@Singleton` (the shape that

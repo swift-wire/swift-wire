@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import Testing
 
 /// The direct `@BindType` case's gate — the runtime chain for a `@BindType` doubles substitution: variant seed scope →

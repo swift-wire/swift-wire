@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 /// Emission of the graph's `introspect() -> WiringModel` method — the compile-time-baked,
 /// read-only view of the graph (Wire is compile-time DI, so there's no runtime reflection).
 /// Split out of `CodeEmission.swift` (file-length) but part of the same `renderWireGraph`

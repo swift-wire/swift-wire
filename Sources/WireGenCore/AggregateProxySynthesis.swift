@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Aggregate contributor-proxy synthesis — one proxy over a *group* of subjects.
 //
 // `.contributesProxy` synthesises a proxy per subject and decides hold-vs-bridge once per proxy.

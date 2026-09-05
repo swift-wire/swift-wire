@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 /// A namespace identifier for a `@Factory` template binding.
 ///
 /// `FactoryKey` joins Wire's key family (`BindingKey<Value>` / `CollectedKey` /

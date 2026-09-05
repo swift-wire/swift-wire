@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Emission of graph conformances — `extension _WireGraph: <Protocol>` for each
 // discovered `WireGraphConformanceV1` declaration. Each member maps to the
 // aggregate binding for its multibinding key; the aggregate's product type is

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 /// Emission of the graph's `@Teardown` orchestration — the `teardown()` method on the graph
 /// struct, the captured `_wireTeardown` closure built in the bootstrap body, and the per-binding
 /// call lines they share. Split out of `CodeEmission.swift` (file-length) but part of the same

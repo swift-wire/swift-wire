@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import Testing
 
 /// The `@Scopable` cascade's gate — the `@Scopable` cascade runtime chain: variant seed scope → the app-scoped

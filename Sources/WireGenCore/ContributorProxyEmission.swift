@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Contributor-proxy emission — the *structural half* of a plugin-generated contributor proxy.
 //
 // `ContributorProxySynthesis` builds the proxy *binding* (how the graph constructs the proxy: a

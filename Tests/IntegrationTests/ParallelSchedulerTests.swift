@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import Testing
 
 /// The scheduling trigger's gate — a dependent of a fast async binding is constructed before a slow, independent async

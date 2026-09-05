@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Fan-in: synthesise one aggregate binding per declared multibinding key
 // by collecting the contributions that target it. The aggregate is an
 // ordinary `DiscoveredBinding` with a `(collectionType, keyReference)`

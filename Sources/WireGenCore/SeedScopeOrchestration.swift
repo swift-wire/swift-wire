@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 /// One per-seed scope graph after orchestration: the seed's
 /// canonical type expression, the identifier suffix used in the
 /// generated `_<suffix>WireScope` struct name and bootstrap function

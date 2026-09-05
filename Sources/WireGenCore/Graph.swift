@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // MARK: - Graph result
 
 /// The outcome of running graph construction over a set of discovered

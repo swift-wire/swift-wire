@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Contributor-proxy facade emission — the test-graph variant's doubles-threaded reach into request scope.
 //
 // A shipped test-graph variant emits only a seed-scope *facade* (`Wire.bootstrap<Variant>_<Seed>Scope`) returning

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Iteration 5α dead-binding warning: a binding declared but consumed by
 // nothing in Wire's visible build. Visibility-gated — `internal`/`package`
 // warn (Wire sees all consumers at that scope), `public`/`open` stay

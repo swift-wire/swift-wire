@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 /// The binding-identity and optional-matching layer: how a dependency's
 /// type is canonicalised into a graph slot, and how a dependency is
 /// matched to a producer under asymmetric optional promotion.

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Retention — what the generated graph *stores*, as opposed to what it constructs.
 //
 // Reachability answered "which bindings does this graph build?"; this file answers the different question

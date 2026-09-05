@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 /// A generated graph that can tear down its resources. The build plugin conforms every
 /// graph struct to this protocol so a facade (e.g. WireHummingbird's shutdown service)
 /// can drive teardown via `some Teardownable` without naming the internal, concrete

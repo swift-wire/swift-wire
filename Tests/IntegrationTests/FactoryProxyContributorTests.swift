@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 import Testing
 
 /// factory-carrying-proxy gate — a variant proxy whose subject carries a lifted `@Factory` (via

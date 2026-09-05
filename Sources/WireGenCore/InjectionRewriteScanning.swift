@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 // Recognition and synthesis for `.rewritesInjection` annotations — the pass behind `@ConfigProperty` and
 // anything shaped like it (`@Secret`, `@FeatureFlag`, `@Clock`).
 //

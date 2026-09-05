@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 the swift-wire project authors
+
 /// The shape a bridging contributor proxy's scope-entry thunk returns — the constructed subject, anything
 /// its scope yields alongside, and the closure that tears that scope down.
 ///
