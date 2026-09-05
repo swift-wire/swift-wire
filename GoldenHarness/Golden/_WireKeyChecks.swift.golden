@@ -15,11 +15,11 @@ import WireTesting
 private func _wireTypeCheck_1() {
     func _check<T>(_: BindingKey<T>, _: T.Type) {}
 
-    #sourceLocation(file: "Tests/IntegrationTests/KeyedExample.swift", line: 18)
+    #sourceLocation(file: "Tests/IntegrationTests/KeyedExample.swift", line: 21)
     _check(AppName.alternate, AppName.self)
     #sourceLocation()
 
-    #sourceLocation(file: "Tests/IntegrationTests/KeyedExample.swift", line: 22)
+    #sourceLocation(file: "Tests/IntegrationTests/KeyedExample.swift", line: 25)
     _check(AppName.alternate, AppName.self)
     #sourceLocation()
 }
@@ -27,11 +27,11 @@ private func _wireTypeCheck_1() {
 private func _wireTypeCheck_2() {
     func _check<T>(_: BindingKey<T>, _: T.Type) {}
 
-    #sourceLocation(file: "Tests/IntegrationTests/KeyedInitParameterExample.swift", line: 15)
+    #sourceLocation(file: "Tests/IntegrationTests/KeyedInitParameterExample.swift", line: 18)
     _check(AppName.boundViaInit, AppName.self)
     #sourceLocation()
 
-    #sourceLocation(file: "Tests/IntegrationTests/KeyedInitParameterExample.swift", line: 21)
+    #sourceLocation(file: "Tests/IntegrationTests/KeyedInitParameterExample.swift", line: 24)
     _check(AppName.boundViaInit, AppName.self)
     #sourceLocation()
 }
