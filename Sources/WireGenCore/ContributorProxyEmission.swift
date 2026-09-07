@@ -45,6 +45,30 @@ extension DiscoveredScopeBoundType {
 
     /// Whether this proxy bridges into any narrower scope — i.e. carries at least one scope-entry thunk.
     package var isBridgeProxy: Bool { !scopeEntryDependencies.isEmpty }
+
+    /// Every subject this proxy *holds* directly — the positional `_wireSubject` on a per-subject proxy,
+    /// and each `_wireSubject_<Subject>` on an aggregate. The inverse of the hold branch of
+    /// `aggregateSubjectDependency` / `contributorProxyBinding`, and it lives here for the same reason the
+    /// field-name constants above do: the naming is *this* file's contract with domain codegen, so
+    /// recognising it belongs beside where it is produced rather than in each pass that needs the list.
+    ///
+    /// A hold is an ordinary `.injectInitParameter` — the graph resolves it like any dependency — which is
+    /// why kind alone cannot separate it from the proxy's other labelled init parameters (a lifted
+    /// `_wireFactory_<key>`, an adapter dependency). The label is what distinguishes them, and this
+    /// accessor is the one place that is allowed to know it.
+    package var heldSubjectDependencies: [DependencyParameter] {
+        dependencies.filter { dependency in
+            guard dependency.kind == .injectInitParameter else { return false }
+            // The lone subject is positional, so an unlabelled init parameter can only be it.
+            guard let name = dependency.name else { return true }
+            return name.hasPrefix("\(contributorProxySubjectFieldName)_")
+        }
+    }
+
+    /// How many subjects this proxy carries in all, held and bridged. Exactly one for a
+    /// `.contributesProxy` proxy *and* for a single-member `.contributesAggregateProxy` group — the two
+    /// emit identically — and more only for an aggregate over several subjects.
+    package var subjectCount: Int { heldSubjectDependencies.count + scopeEntryDependencies.count }
 }
 
 /// The type of the reverse-order scope teardown a scope-entry thunk returns alongside its subject. The
