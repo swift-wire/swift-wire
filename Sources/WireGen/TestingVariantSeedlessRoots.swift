@@ -61,7 +61,12 @@ extension WireGen {
 
         var roots: [SeedlessRoot] = []
         for proxy in holdProxies.sorted(by: { $0.typeName < $1.typeName }) {
-            guard let subjectDep = proxy.dependencies.first(where: { $0.name == nil }),
+            // One subject per proxy. A `.contributesProxy` proxy and a single-member aggregate both land
+            // here (they emit identically); a group of several is refused by
+            // `aggregateVariantUnsupportedDiagnostics` rather than partly reconstructed, because one variant
+            // proxy is emitted per *proxy* and N roots over one proxy would collide on its type name.
+            guard proxy.subjectCount == 1,
+                let subjectDep = proxy.heldSubjectDependencies.first,
                 let subject = subjectByBareName[seedlessBareTypeName(subjectDep.type)],
                 scopableTypeNames.contains(subject.typeName)
             else { continue }
@@ -95,7 +100,12 @@ extension WireGen {
 
         var diagnostics: [Diagnostic] = []
         for proxy in holdProxies.sorted(by: { $0.typeName < $1.typeName }) {
-            guard let subjectDep = proxy.dependencies.first(where: { $0.name == nil }),
+            // Single-subject only, matching `seedlessReconstructionRoots`: this diagnostic's fix is
+            // `@TestScopable`, and adding it to a subject in a multi-subject group would satisfy nothing.
+            // That group is reported by `aggregateVariantUnsupportedDiagnostics` instead, which names the
+            // fix that does apply.
+            guard proxy.subjectCount == 1,
+                let subjectDep = proxy.heldSubjectDependencies.first,
                 let subject = subjectByBareName[seedlessBareTypeName(subjectDep.type)],
                 !scopableTypeNames.contains(subject.typeName)
             else { continue }
@@ -185,7 +195,7 @@ extension WireGen {
             uniquingKeysWith: { first, _ in first }
         )
 
-        let subjectDepType = root.proxy.dependencies.first(where: { $0.name == nil })?.type ?? root.subject.typeName
+        let subjectDepType = root.proxy.heldSubjectDependencies.first?.type ?? root.subject.typeName
         return SeedlessReconstruction(
             proxy: seedlessVariantProxy(
                 from: root.proxy,
@@ -300,9 +310,13 @@ extension WireGen {
             genericParameterConstraints: proxy.genericParameterConstraints,
             genericWhereClause: proxy.genericWhereClause
         )
+        // The one held subject, by the proxy model's own enumeration rather than by its unlabelled-ness —
+        // which happens to coincide here (a lone subject is positional) and would stop coinciding the moment
+        // a group of several reached this path.
+        let heldSubjectNames = Set(proxy.heldSubjectDependencies.map { $0.name ?? "" })
         let dependencies = proxy.dependencies.map { dependency -> DependencyParameter in
-            if dependency.name == nil {
-                // The unlabelled `_wireSubject` → the seedless `_wireEnterScope(doubles)` scope-entry thunk.
+            if heldSubjectNames.contains(dependency.name ?? "") {
+                // The held `_wireSubject` → the seedless `_wireEnterScope(doubles)` scope-entry thunk.
                 return DependencyParameter(
                     name: contributorProxyScopeEntryFieldName,
                     type: descriptor.thunkType,
@@ -346,8 +360,9 @@ extension WireGen {
 }
 
 /// The bare type name of a subject expression — `MeController<Repository>` → `MeController` — for matching a
-/// proxy's `_wireSubject` dependency type to its subject binding.
-private func seedlessBareTypeName(_ typeExpression: String) -> String {
+/// proxy's `_wireSubject` dependency type to its subject binding. Shared with
+/// `TestingVariantAggregateRefusal`, which matches the same dependencies to report the groups this file skips.
+func seedlessBareTypeName(_ typeExpression: String) -> String {
     guard let angle = typeExpression.firstIndex(of: "<") else { return typeExpression }
     return String(typeExpression[typeExpression.startIndex..<angle])
 }
