@@ -56,8 +56,9 @@ let package = Package(
         // Floor at 603.0.0 (Swift 6.3) so Wire can use SE-0491 module
         // selectors — both round-tripping module-qualified types through
         // codegen and recognising `@Wire::`-qualified macro attributes —
-        // which the 601/602 (6.1/6.2) parsers don't have.
-        .package(url: "https://github.com/swiftlang/swift-syntax", "603.0.0"..<"604.0.0"),
+        // which the 601/602 (6.1/6.2) parsers don't have. Ceiling admits
+        // 604, the line released with Swift 6.4; CI builds each major.
+        .package(url: "https://github.com/swiftlang/swift-syntax", "603.0.0"..<"605.0.0"),
         // Documentation only — `swift package generate-documentation` builds the `Wire.docc`
         // catalog. A plugin dependency, so it contributes nothing to a consumer's build graph.
         .package(url: "https://github.com/swiftlang/swift-docc-plugin", from: "1.4.0"),

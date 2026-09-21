@@ -6,13 +6,15 @@ on:
   pull_request:
     branches: [ main ]
 
-# The `6.3.3` literals below are **deliberate**, not a duplicated pin. `.swift-version` names the toolchain
-# swift-wire is developed against (a 6.4 snapshot, matching wire-mvc and wire-open-api, which build it as a
-# dependency); these jobs are a *regression check* that the package still compiles on the current release
-# toolchain. Bumping `.swift-version` must not touch them — they move only when the released Swift does.
+# The `6.4.0` literals below are **deliberate**, not a duplicated pin. `.swift-version` names the toolchain
+# swift-wire is developed against; these jobs are a *regression check* that the package still compiles on
+# the current release toolchain. Today the two coincide — 6.4.0 is released, and the package is developed
+# against it — but when `.swift-version` next moves to a pre-release snapshot, these literals stay where
+# they are. They move only when the released Swift does.
 #
-# `Swift64Pinned` is the job that *does* read `.swift-version` — it covers the 6.4 toolchain this package is
-# developed against, against the pre-release swift-syntax 604 line a 6.4 adopter gets.
+# swift-syntax 604 is released alongside Swift 6.4, so the declared range spans two majors (603..<605) and
+# the SwiftSyntaxMatrix job below pins each in turn. The separate pinned-snapshot job that used to track the
+# 604 line via its release/6.4.x branch is gone: SPM resolves the tagged release now.
 jobs:
   BuildAndTestLinux:
     name: Linux ${{ matrix.os }} / Swift ${{ matrix.swift-version }}
@@ -20,7 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04]
-        swift-version: ["6.3.3"]
+        swift-version: ["6.4.0"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -49,12 +51,14 @@ jobs:
         run: swiftlint analyze --strict --quiet --compiler-log-path build.log
 
   BuildAndTestMacOS:
-    name: macOS / Swift ${{ matrix.swift-version }}
+    name: macOS 26 / Swift ${{ matrix.swift-version }}
     strategy:
       fail-fast: false
       matrix:
-        swift-version: ["6.3.3"]
-    runs-on: macos-15
+        swift-version: ["6.4.0"]
+    # macos-26 rather than macos-15: the 6.4 toolchain pairs with the Xcode 27 SDK, and the older image's
+    # SDK is the mismatch wire-configuration already hit (apple/swift-configuration#178).
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v6
       - uses: SwiftyLab/setup-swift@v1
@@ -72,7 +76,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: SwiftyLab/setup-swift@v1
         with:
-          swift-version: "6.3.3"
+          swift-version: "6.4.0"
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - name: Run composition harness
@@ -88,7 +92,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: SwiftyLab/setup-swift@v1
         with:
-          swift-version: "6.3.3"
+          swift-version: "6.4.0"
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - name: Run adapter harness
@@ -104,7 +108,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: SwiftyLab/setup-swift@v1
         with:
-          swift-version: "6.3.3"
+          swift-version: "6.4.0"
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - name: Run injection-rewrite harness
@@ -119,7 +123,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: SwiftyLab/setup-swift@v1
         with:
-          swift-version: "6.3.3"
+          swift-version: "6.4.0"
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - name: Run manifest harness
@@ -137,7 +141,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: SwiftyLab/setup-swift@v1
         with:
-          swift-version: "6.3.3"
+          swift-version: "6.4.0"
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - name: Run graph-inputs harness
@@ -147,33 +151,23 @@ jobs:
         run: bash GraphInputsHarness/run-graph-inputs-harness.sh
 
   Documentation:
-    name: Documentation (DocC gate, 6.4 pinned)
-    # Deliberately *not* on the 6.3.3 floor the other jobs pin. DocC's own syntax moves with the
-    # toolchain — 6.4 accepts type-signature disambiguation for overloads
-    # (`Contributes(to:)-(CollectedKey<Element>)`), which 6.3.3 rejects in favour of USR hashes.
-    # The catalog is written for the readable form, so the gate runs the toolchain that reads it.
-    # This is documentation, not shipped code: nothing a consumer builds depends on it.
+    name: Documentation (DocC gate)
+    # The catalog is written for 6.4's DocC, which accepts type-signature disambiguation for overloads
+    # (`Contributes(to:)-(CollectedKey<Element>)`) where 6.3's wanted USR hashes. Now that 6.4 is the
+    # release the other jobs pin, this job needs nothing special.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - name: Read the pinned toolchain
-        run: echo "SWIFT_SNAPSHOT=$(cat .swift-version)" >> "$GITHUB_ENV"
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev libsqlite3-dev libcurl4-openssl-dev
-      - name: Install Swiftly + the pinned toolchain
-        run: |
-          curl -L "https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz" | tar zxf -
-          ./swiftly init --assume-yes --skip-install
-          echo "$HOME/.local/share/swiftly/bin" >> "$GITHUB_PATH"
-          # No `--use`: the command below runs through `swiftly run`, which reads `.swift-version`
-          # itself. `--use` would rewrite that file and dirty the tree, which the swift-format job's
-          # `git diff --exit-code` guard then fails on.
-          "$HOME/.local/share/swiftly/bin/swiftly" install "$SWIFT_SNAPSHOT" --assume-yes
+      - uses: SwiftyLab/setup-swift@v1
+        with:
+          swift-version: "6.4.0"
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - name: Build documentation, failing on any warning
         # The catalog's articles reference symbols by name, so a renamed or removed macro breaks a
         # link rather than a build — silently, and only for a reader. `--warnings-as-errors` is what
         # makes the articles a gate rather than prose.
-        run: swiftly run swift package generate-documentation --target Wire --warnings-as-errors
+        run: swift package generate-documentation --target Wire --warnings-as-errors
 
   GoldenHarness:
     name: Golden harness (generated-output gate)
@@ -182,7 +176,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: SwiftyLab/setup-swift@v1
         with:
-          swift-version: "6.3.3"
+          swift-version: "6.4.0"
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - name: Run golden harness
@@ -198,9 +192,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        swift-version: ["6.3.3"]
-        # Single supported major today (floor + ceiling = 603..<604).
-        swift-syntax-major: ["603"]
+        swift-version: ["6.4.0"]
+        # Every major the declared range admits (floor + ceiling = 603..<605). SPM resolves to the
+        # newest on its own, so without this the floor major is never actually built.
+        swift-syntax-major: ["603", "604"]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -216,7 +211,7 @@ jobs:
         # needs to follow.
         run: |
           next=$((${{ matrix.swift-syntax-major }} + 1))
-          sed -i 's|"603.0.0"..<"604.0.0"|"${{ matrix.swift-syntax-major }}.0.0"..<"'${next}'.0.0"|' Package.swift
+          sed -i 's|"603.0.0"..<"605.0.0"|"${{ matrix.swift-syntax-major }}.0.0"..<"'${next}'.0.0"|' Package.swift
           grep swift-syntax Package.swift
       - name: Resolve dependencies
         run: swift package update
@@ -225,55 +220,17 @@ jobs:
       - name: Run tests
         run: swift test
 
-  Swift64Pinned:
-    name: Swift 6.4 (pinned) / swift-syntax 604-prerelease
-    # That the macros and generated code build and test on the Swift 6.4 toolchain this package is
-    # developed against, using the swift-syntax 604 line it ships with — the version a real 6.4 adopter
-    # uses. 604 is still pre-release, tracked via its release/6.4.x branch because SPM version ranges
-    # don't resolve pre-release tags. (swift-syntax 603 on its aligned release compiler is already
-    # covered by the SwiftSyntaxMatrix job above.)
-    #
-    # Pinned via `.swift-version` rather than the nightly container it used to run on: a red build here
-    # should mean this change broke, not that the toolchain moved overnight. Toolchain bumps are a
-    # deliberate edit to that file.
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-      - name: Read the pinned toolchain
-        run: echo "SWIFT_SNAPSHOT=$(cat .swift-version)" >> "$GITHUB_ENV"
-      - name: Install system dependencies
-        # libcurl4-openssl-dev is required by the toolchain itself (Foundation networking on Linux) and
-        # must precede the install, or Swiftly's post-install check fails.
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev libsqlite3-dev libcurl4-openssl-dev
-      - name: Install Swiftly + the pinned toolchain
-        run: |
-          curl -L "https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz" | tar zxf -
-          ./swiftly init --assume-yes --skip-install
-          echo "$HOME/.local/share/swiftly/bin" >> "$GITHUB_PATH"
-          # No `--use`: every command below runs through `swiftly run`, which reads `.swift-version` itself.
-          # `--use` would *rewrite* that file (dropping its trailing newline) and dirty the tree, which
-          # the swift-format job's `git diff --exit-code` guard then fails on.
-          "$HOME/.local/share/swiftly/bin/swiftly" install "$SWIFT_SNAPSHOT" --assume-yes
-      - name: Pin swift-syntax to the 604 (release/6.4.x) line
-        run: |
-          sed -i 's|"603.0.0"..<"604.0.0"|branch: "release/6.4.x"|' Package.swift
-          grep swift-syntax Package.swift
-      - name: Resolve dependencies
-        run: swiftly run swift package update
-      - name: Build
-        run: swiftly run swift build -c release -Xswiftc -strict-concurrency=complete
-      - name: Run tests
-        run: swiftly run swift test
-
   StaticLinuxSDK:
     name: Static Linux SDK (cross-compile to aarch64-musl)
     runs-on: ubuntu-24.04
+    # The image and the SDK bundle must be the same Swift release: an SDK only installs against the
+    # toolchain it was built for, so these two literals move together.
     container:
-      image: swift:6.3.3-noble
+      image: swift:6.4.0-noble
     steps:
       - uses: actions/checkout@v6
       - name: Install Static Linux SDK
-        run: swift sdk install https://download.swift.org/swift-6.3.3-release/static-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz --checksum 87c3eaf908e67c0e13a84367119e12273cec1d2cd3d81f7d74bb36722d6b607b
+        run: swift sdk install https://download.swift.org/swift-6.4.0-release/static-sdk/swift-6.4.0-RELEASE/swift-6.4.0-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz --checksum 47d2fd89eebfdf9eb4d536b6710414297f755c17926cdebc4742c08982b40a9e
       - name: Cross-compile for ARM64 Linux
         run: swift build -c release --swift-sdk aarch64-swift-linux-musl
 
@@ -297,7 +254,7 @@ jobs:
     name: swift-format / Swift ${{ matrix.swift-version }}
     strategy:
       matrix:
-        swift-version: ["6.3"]
+        swift-version: ["6.4.0"]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -315,7 +272,7 @@ jobs:
     name: Coverage / Swift ${{ matrix.swift-version }}
     strategy:
       matrix:
-        swift-version: ["6.3.3"]
+        swift-version: ["6.4.0"]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
