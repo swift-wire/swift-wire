@@ -271,14 +271,21 @@ jobs:
       - name: Run tests with coverage
         run: swift test --enable-code-coverage --xunit-output test-results.xml
       - name: Convert to LCOV
+        # 6.4's build system emits one `<Target>-test-runner` executable and a `<Target>.so` per test
+        # module rather than the single `.xctest` binary earlier toolchains linked. Every one of them
+        # carries instrumented code, so llvm-cov is handed all of them; the `.xctest` glob keeps the
+        # older layout working should a job ever run on one.
         run: |
           BIN_PATH=$(swift build --show-bin-path)
           PROFDATA=$(find .build -name 'default.profdata' -path '*/codecov/*' | head -1)
-          XCTEST=$(find "$BIN_PATH" -name '*.xctest' -type f | head -1)
+          objects=()
+          for f in "$BIN_PATH"/*-test-runner "$BIN_PATH"/*.so "$BIN_PATH"/*.xctest; do
+            [ -f "$f" ] && objects+=(-object "$f")
+          done
           llvm-cov export \
             -format=lcov \
             -instr-profile="$PROFDATA" \
-            "$XCTEST" \
+            "${objects[@]}" \
             -ignore-filename-regex=".build|Tests" \
             > coverage.lcov
       - name: Upload coverage
