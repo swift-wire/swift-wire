@@ -15,6 +15,11 @@ on:
 # swift-syntax 604 is released alongside Swift 6.4, so the declared range spans two majors (603..<605) and
 # the SwiftSyntaxMatrix job below pins each in turn. The separate pinned-snapshot job that used to track the
 # 604 line via its release/6.4.x branch is gone: SPM resolves the tagged release now.
+#
+# Toolchains come from swift-wire/setup-swift, the family's own action over Swiftly. It replaced
+# SwiftyLab/setup-swift when that action's tagged releases could not install 6.4.0, and it also covers
+# macOS, where no preinstalled Xcode on the runner image carries Swift 6.4. It installs the toolchain's
+# own system dependencies, which is why no job here has an apt-get step for them.
 jobs:
   BuildAndTestLinux:
     name: Linux ${{ matrix.os }} / Swift ${{ matrix.swift-version }}
@@ -26,11 +31,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
-      - uses: SwiftyLab/setup-swift@v1
+      - uses: swift-wire/setup-swift@v1
         with:
           swift-version: ${{ matrix.swift-version }}
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev curl unzip
+      - name: Install unzip for SwiftLint
+        run: sudo apt-get update && sudo apt-get install -y unzip
       - name: Build
         run: swift build -c release -Xswiftc -strict-concurrency=complete
       - name: Build tests
@@ -61,7 +66,7 @@ jobs:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v6
-      - uses: SwiftyLab/setup-swift@v1
+      - uses: swift-wire/setup-swift@v1
         with:
           swift-version: ${{ matrix.swift-version }}
       - name: Build
@@ -74,11 +79,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - uses: SwiftyLab/setup-swift@v1
+      - uses: swift-wire/setup-swift@v1
         with:
           swift-version: "6.4.0"
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - name: Run composition harness
         # Multi-module composition gate (iteration 7g). Runs outside
         # `swift test` because the macro-using harness library depends on
@@ -90,11 +93,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - uses: SwiftyLab/setup-swift@v1
+      - uses: swift-wire/setup-swift@v1
         with:
           swift-version: "6.4.0"
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - name: Run adapter harness
         # Adapter-contract gate (iteration 8). Runs outside `swift test`
         # because the macro-using adapter package depends on swift-wire — a
@@ -106,11 +107,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - uses: SwiftyLab/setup-swift@v1
+      - uses: swift-wire/setup-swift@v1
         with:
           swift-version: "6.4.0"
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - name: Run injection-rewrite harness
         # Outside `swift test`: the fixture adapter depends on swift-wire, so a package inside these
         # tests would cycle. The adapter is synthetic, so this gate needs no external repo.
@@ -121,11 +120,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - uses: SwiftyLab/setup-swift@v1
+      - uses: swift-wire/setup-swift@v1
         with:
           swift-version: "6.4.0"
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - name: Run manifest harness
         # Plugin-output gate. Pins the undocumented SPM behaviour that
         # deferred manifest-based discovery would rest on — the plugin-output layout and llbuild's
@@ -139,11 +136,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - uses: SwiftyLab/setup-swift@v1
+      - uses: swift-wire/setup-swift@v1
         with:
           swift-version: "6.4.0"
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - name: Run graph-inputs harness
         # `@GraphInputs` changes `Wire.bootstrap`'s signature for its whole
         # module, so its fixture needs a graph of its own rather than sharing
@@ -158,11 +153,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - uses: SwiftyLab/setup-swift@v1
+      - uses: swift-wire/setup-swift@v1
         with:
           swift-version: "6.4.0"
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - name: Build documentation, failing on any warning
         # The catalog's articles reference symbols by name, so a renamed or removed macro breaks a
         # link rather than a build — silently, and only for a reader. `--warnings-as-errors` is what
@@ -174,11 +167,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - uses: SwiftyLab/setup-swift@v1
+      - uses: swift-wire/setup-swift@v1
         with:
           swift-version: "6.4.0"
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - name: Run golden harness
         # Byte-identical generated output over the IntegrationTests corpus. The
         # invariant reachability pruning and noncopyable bindings are
@@ -199,11 +190,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - uses: SwiftyLab/setup-swift@v1
+      - uses: swift-wire/setup-swift@v1
         with:
           swift-version: ${{ matrix.swift-version }}
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - name: Pin swift-syntax to ${{ matrix.swift-syntax-major }}.x
         # Narrow the declared range to a single major so SPM resolves
         # to the matrix's swift-syntax version. Targets the exact range
@@ -258,7 +247,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - uses: SwiftyLab/setup-swift@v1
+      - uses: swift-wire/setup-swift@v1
         with:
           swift-version: ${{ matrix.swift-version }}
       - name: Run swift-format
@@ -276,11 +265,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - uses: SwiftyLab/setup-swift@v1
+      - uses: swift-wire/setup-swift@v1
         with:
           swift-version: ${{ matrix.swift-version }}
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y curl libssl-dev
       - name: Run tests with coverage
         run: swift test --enable-code-coverage --xunit-output test-results.xml
       - name: Convert to LCOV
