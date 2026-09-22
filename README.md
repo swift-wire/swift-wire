@@ -49,7 +49,7 @@ targets: [
 ]
 ```
 
-swift-wire requires Swift 6.4 and supports Linux and macOS. macOS needs 15 or later; Linux is unaffected.
+swift-wire requires Swift 6.3 and supports Linux and macOS. macOS needs 15 or later; Linux is unaffected.
 
 Bootstrapping the generated graph is one line, and the graph's roots are properties on it.
 

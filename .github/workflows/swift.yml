@@ -6,15 +6,17 @@ on:
   pull_request:
     branches: [ main ]
 
-# The `6.4.0` literals below are **deliberate**, not a duplicated pin. `.swift-version` names the toolchain
-# swift-wire is developed against; these jobs are a *regression check* that the package still compiles on
-# the current release toolchain. Today the two coincide — 6.4.0 is released, and the package is developed
-# against it — but when `.swift-version` next moves to a pre-release snapshot, these literals stay where
-# they are. They move only when the released Swift does.
+# The version literals below are **deliberate**, not a duplicated pin. `.swift-version` names the toolchain
+# swift-wire is developed against (6.4.0 today); these jobs are a *regression check* that the package still
+# builds on every released Swift it supports. The package is tools-version 6.3 and its swift-syntax floor
+# is the 603 line, so 6.3.3 stays in the matrix as the floor with 6.4.0 beside it. Bumping `.swift-version`
+# must not touch them — the floor moves only when support for a Swift is dropped, and a new release is
+# added when it ships. (Downstream packages such as wire-mvc are genuinely 6.4-only; this one is not.)
 #
-# swift-syntax 604 is released alongside Swift 6.4, so the declared range spans two majors (603..<605) and
-# the SwiftSyntaxMatrix job below pins each in turn. The separate pinned-snapshot job that used to track the
-# 604 line via its release/6.4.x branch is gone: SPM resolves the tagged release now.
+# swift-syntax 604 is released alongside Swift 6.4, so the declared range spans two majors (603..<605).
+# SPM resolves 604 on every toolchain, including 6.3.3, and the SwiftSyntaxMatrix job pins each major on
+# each compiler in turn. The separate pinned-snapshot job that used to track the 604 line via its
+# release/6.4.x branch is gone: SPM resolves the tagged release now.
 #
 # Toolchains come from swift-wire/setup-swift, the family's own action over Swiftly. It replaced
 # SwiftyLab/setup-swift when that action's tagged releases could not install 6.4.0, and it also covers
@@ -27,7 +29,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04]
-        swift-version: ["6.4.0"]
+        swift-version: ["6.3.3", "6.4.0"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -60,7 +62,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        swift-version: ["6.4.0"]
+        swift-version: ["6.3.3", "6.4.0"]
     # macos-26 rather than macos-15: the 6.4 toolchain pairs with the Xcode 27 SDK, and the older image's
     # SDK is the mismatch wire-configuration already hit (apple/swift-configuration#178).
     runs-on: macos-26
@@ -75,13 +77,17 @@ jobs:
         run: swift test
 
   CompositionHarness:
-    name: Composition harness (multi-module gate)
+    name: Composition harness (multi-module gate) / Swift ${{ matrix.swift-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        swift-version: ["6.3.3", "6.4.0"]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: swift-wire/setup-swift@v1
         with:
-          swift-version: "6.4.0"
+          swift-version: ${{ matrix.swift-version }}
       - name: Run composition harness
         # Multi-module composition gate (iteration 7g). Runs outside
         # `swift test` because the macro-using harness library depends on
@@ -89,13 +95,17 @@ jobs:
         run: bash CompositionHarness/run-harness.sh
 
   AdapterHarness:
-    name: Adapter harness (adapter-contract gate)
+    name: Adapter harness (adapter-contract gate) / Swift ${{ matrix.swift-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        swift-version: ["6.3.3", "6.4.0"]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: swift-wire/setup-swift@v1
         with:
-          swift-version: "6.4.0"
+          swift-version: ${{ matrix.swift-version }}
       - name: Run adapter harness
         # Adapter-contract gate (iteration 8). Runs outside `swift test`
         # because the macro-using adapter package depends on swift-wire — a
@@ -103,26 +113,34 @@ jobs:
         run: bash AdapterHarness/run-adapter-harness.sh
 
   InjectionRewriteHarness:
-    name: Injection-rewrite harness (.rewritesInjection gate)
+    name: Injection-rewrite harness (.rewritesInjection gate) / Swift ${{ matrix.swift-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        swift-version: ["6.3.3", "6.4.0"]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: swift-wire/setup-swift@v1
         with:
-          swift-version: "6.4.0"
+          swift-version: ${{ matrix.swift-version }}
       - name: Run injection-rewrite harness
         # Outside `swift test`: the fixture adapter depends on swift-wire, so a package inside these
         # tests would cycle. The adapter is synthetic, so this gate needs no external repo.
         run: bash InjectionRewriteHarness/run-injection-rewrite-harness.sh
 
   ManifestHarness:
-    name: Manifest harness (plugin-output gate)
+    name: Manifest harness (plugin-output gate) / Swift ${{ matrix.swift-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        swift-version: ["6.3.3", "6.4.0"]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: swift-wire/setup-swift@v1
         with:
-          swift-version: "6.4.0"
+          swift-version: ${{ matrix.swift-version }}
       - name: Run manifest harness
         # Plugin-output gate. Pins the undocumented SPM behaviour that
         # deferred manifest-based discovery would rest on — the plugin-output layout and llbuild's
@@ -132,13 +150,17 @@ jobs:
         run: bash ManifestHarness/run-manifest-harness.sh
 
   GraphInputsHarness:
-    name: Graph-inputs harness (@GraphInputs gate)
+    name: Graph-inputs harness (@GraphInputs gate) / Swift ${{ matrix.swift-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        swift-version: ["6.3.3", "6.4.0"]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: swift-wire/setup-swift@v1
         with:
-          swift-version: "6.4.0"
+          swift-version: ${{ matrix.swift-version }}
       - name: Run graph-inputs harness
         # `@GraphInputs` changes `Wire.bootstrap`'s signature for its whole
         # module, so its fixture needs a graph of its own rather than sharing
@@ -146,10 +168,12 @@ jobs:
         run: bash GraphInputsHarness/run-graph-inputs-harness.sh
 
   Documentation:
-    name: Documentation (DocC gate)
-    # The catalog is written for 6.4's DocC, which accepts type-signature disambiguation for overloads
-    # (`Contributes(to:)-(CollectedKey<Element>)`) where 6.3's wanted USR hashes. Now that 6.4 is the
-    # release the other jobs pin, this job needs nothing special.
+    name: Documentation (DocC gate, 6.4 only)
+    # Deliberately *not* run on the 6.3.3 floor the other jobs include. DocC's own syntax moves with the
+    # toolchain — 6.4 accepts type-signature disambiguation for overloads
+    # (`Contributes(to:)-(CollectedKey<Element>)`), which 6.3.3 rejects in favour of USR hashes. The
+    # catalog is written for the readable form, so the gate runs the toolchain that reads it. This is
+    # documentation, not shipped code: nothing a consumer builds depends on it.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -163,13 +187,17 @@ jobs:
         run: swift package generate-documentation --target Wire --warnings-as-errors
 
   GoldenHarness:
-    name: Golden harness (generated-output gate)
+    name: Golden harness (generated-output gate) / Swift ${{ matrix.swift-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        swift-version: ["6.3.3", "6.4.0"]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: swift-wire/setup-swift@v1
         with:
-          swift-version: "6.4.0"
+          swift-version: ${{ matrix.swift-version }}
       - name: Run golden harness
         # Byte-identical generated output over the IntegrationTests corpus. The
         # invariant reachability pruning and noncopyable bindings are
@@ -183,9 +211,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        swift-version: ["6.4.0"]
-        # Every major the declared range admits (floor + ceiling = 603..<605). SPM resolves to the
-        # newest on its own, so without this the floor major is never actually built.
+        swift-version: ["6.3.3", "6.4.0"]
+        # Every major the declared range admits (floor + ceiling = 603..<605), on every supported
+        # compiler. SPM resolves to the newest major on its own, so without this the floor major is never
+        # actually built; the aligned pairs (603 on 6.3, 604 on 6.4) are what a real adopter gets, and the
+        # crossed pairs are the promise the range makes.
         swift-syntax-major: ["603", "604"]
     runs-on: ubuntu-24.04
     steps:
@@ -210,16 +240,26 @@ jobs:
         run: swift test
 
   StaticLinuxSDK:
-    name: Static Linux SDK (cross-compile to aarch64-musl)
+    name: Static Linux SDK / Swift ${{ matrix.swift-version }} (cross-compile to aarch64-musl)
+    strategy:
+      fail-fast: false
+      matrix:
+        # The image and the SDK bundle must be the same Swift release: an SDK only installs against the
+        # toolchain it was built for, so each row's three literals move together.
+        include:
+          - swift-version: "6.3.3"
+            sdk-url: https://download.swift.org/swift-6.3.3-release/static-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz
+            sdk-checksum: 87c3eaf908e67c0e13a84367119e12273cec1d2cd3d81f7d74bb36722d6b607b
+          - swift-version: "6.4.0"
+            sdk-url: https://download.swift.org/swift-6.4.0-release/static-sdk/swift-6.4.0-RELEASE/swift-6.4.0-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz
+            sdk-checksum: 47d2fd89eebfdf9eb4d536b6710414297f755c17926cdebc4742c08982b40a9e
     runs-on: ubuntu-24.04
-    # The image and the SDK bundle must be the same Swift release: an SDK only installs against the
-    # toolchain it was built for, so these two literals move together.
     container:
-      image: swift:6.4.0-noble
+      image: swift:${{ matrix.swift-version }}-noble
     steps:
       - uses: actions/checkout@v6
       - name: Install Static Linux SDK
-        run: swift sdk install https://download.swift.org/swift-6.4.0-release/static-sdk/swift-6.4.0-RELEASE/swift-6.4.0-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz --checksum 47d2fd89eebfdf9eb4d536b6710414297f755c17926cdebc4742c08982b40a9e
+        run: swift sdk install ${{ matrix.sdk-url }} --checksum ${{ matrix.sdk-checksum }}
       - name: Cross-compile for ARM64 Linux
         run: swift build -c release --swift-sdk aarch64-swift-linux-musl
 
@@ -241,6 +281,8 @@ jobs:
 
   SwiftFormat:
     name: swift-format / Swift ${{ matrix.swift-version }}
+    # One formatter, not the matrix: the tree is formatted with the toolchain `.swift-version` names, and
+    # two formatters that disagree would leave no formatting that passes.
     strategy:
       matrix:
         swift-version: ["6.4.0"]
@@ -259,6 +301,7 @@ jobs:
 
   Coverage:
     name: Coverage / Swift ${{ matrix.swift-version }}
+    # One toolchain: coverage is a measurement of the suite, not a compatibility check.
     strategy:
       matrix:
         swift-version: ["6.4.0"]
