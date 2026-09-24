@@ -149,19 +149,33 @@ Pinned by: `Tests/WireGenCoreTests/FactoryLifetimeDiagnosticsTests.swift` (`aSco
 
 ### Requirement: WireGen records a scope-bound type with its dependencies
 WireGen SHALL record each struct, class or actor carrying `@Singleton` or `@Scoped(seed:)` as a
-binding whose dependencies are the parameters of its `@Inject init` when it has one, and otherwise
-its `@Inject` stored properties in declaration order. A `@Singleton` SHALL be recorded in the app
-partition and a `@Scoped(seed: S.self)` in the partition of seed `S`.
+binding whose dependencies are the parameters of its `@Inject init`, in parameter order, when it has
+one, and otherwise its `@Inject` stored properties in declaration order. A type cannot declare both;
+the macro rejects that, as specified in [injection-points](../injection-points/spec.md).
 
-#### Scenario: an `@Inject init` wins
-- **WHEN** a `@Singleton` declares `@Inject` properties and an `@Inject init` with different parameters
-- **THEN** the recorded dependencies are the initialiser's parameters
+#### Scenario: dependencies from an `@Inject init`
+- **WHEN** a `@Singleton` declares `@Inject init(first: First, second: Second, third: Third)`
+- **THEN** the recorded dependencies are `first`, `second` and `third`, of types `First`, `Second` and `Third`, in that order
+
+#### Scenario: dependencies from `@Inject` properties
+- **WHEN** a `@Singleton` declares `@Inject var first: First`, `@Inject var second: Second` and `@Inject var third: Third`
+- **THEN** the recorded dependencies are `first`, `second` and `third`, in declaration order
+
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`singletonOnStructIsDiscovered`, `singletonOnClassIsDiscovered`, `singletonOnActorIsDiscovered`, `injectInitWithMultipleParametersPreservesOrder`, `multipleInjectPropertiesInOrder`, `unannotatedTypeIsIgnored`), `Tests/IntegrationTests/BootstrapTests.swift` (`bootstrapWiresFullDependencyChain`).
+
+### Requirement: A scope-bound type is recorded in its lifetime's partition
+WireGen SHALL record a `@Singleton` in the app partition and a `@Scoped(seed: S.self)` in the
+partition of seed `S`.
 
 #### Scenario: a scoped type
 - **WHEN** `@Scoped(seed: RequestSeed.self) struct RequestLogger` is discovered
 - **THEN** it is recorded in the `RequestSeed` partition and not in the default graph
 
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`singletonOnStructIsDiscovered`, `singletonOnClassIsDiscovered`, `singletonOnActorIsDiscovered`, `injectInitParametersTakePrecedenceOverProperties`, `multipleInjectPropertiesInOrder`, `unannotatedTypeIsIgnored`, `scopedTypeRoutedToPerSeedPartition`, `singletonAndScopedCoexistInSeparatePartitions`), `Tests/IntegrationTests/BootstrapTests.swift` (`bootstrapWiresFullDependencyChain`).
+#### Scenario: both lifetimes in one module
+- **WHEN** a module declares a `@Singleton` and a `@Scoped(seed:)` type
+- **THEN** each is recorded in its own partition
+
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`scopedTypeRoutedToPerSeedPartition`, `singletonAndScopedCoexistInSeparatePartitions`).
 
 ## Related specifications
 
