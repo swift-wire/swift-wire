@@ -222,3 +222,4 @@ Pinned by: `Tests/WireGenCoreTests/CrossModuleVisibilityTests.swift` (`externalF
 - [reachability-and-retention](../reachability-and-retention/spec.md)
 - [multi-module-composition](../multi-module-composition/spec.md)
 - [build-plugin-and-wiregen-cli](../build-plugin-and-wiregen-cli/spec.md)
+- [providers](../providers/spec.md)
