@@ -24,12 +24,13 @@ and emit every resolved binding.
 - **WHEN** a graph is built from a rooted `Root` and an unreached library binding with no reachability policy
 - **THEN** its reachable set is `nil` and both bindings are in the topological order
 
-Pinned by: `Tests/WireGenCoreTests/ReachabilityTests.swift` (`noPolicyComputesNothing`).
+Pinned by: `Tests/WireGenCoreTests/ReachabilityTests.swift` (`noPolicyComputesNothing`) for a graph built without pruning; `.github/workflows/swift.yml` (`CompositionHarness`) for default-graph pruning end to end. The policy WireGen selects for a `@Container` app graph and for a seed-scope graph is pinned by nothing yet.
 
 ### Requirement: A home-package `allowUnused: true` binding is a root
-WireGen SHALL treat a binding written with `allowUnused: true` as a reachability root when its origin
-module is not an `--external-module`, and SHALL root a multibinding key's aggregate the same way when
-the key is declared with `allowUnused: true` in the home package.
+WireGen SHALL treat a binding carrying `allowUnused` as a reachability root when its origin module is
+not an `--external-module`, whether the flag was written in source or set by synthesis, and SHALL root a
+multibinding key's aggregate the same way when the key is declared with `allowUnused: true` in the home
+package.
 
 #### Scenario: an allowUnused key in the home package
 - **WHEN** a home-package collected key is declared with `allowUnused: true` and a library binding contributes to it
@@ -46,17 +47,19 @@ members whether or not `allowUnused:` is present.
 - **WHEN** `@Singleton(allowUnused: true) struct A {}` is discovered
 - **THEN** the binding is marked `allowUnused`, and the macro adds the same `init()` and key as a plain `@Singleton`
 
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`allowUnusedTrueIsCapturedOnSingleton`, `plainSingletonIsNotAllowUnused`, `allowUnusedTrueIsCapturedOnProvides`), `Tests/WireMacrosImplTests/SingletonMacroTests.swift` (`test_singletonWithAllowUnused_generatesSameMembers`). A non-literal argument is pinned by nothing yet.
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`allowUnusedTrueIsCapturedOnSingleton`, `plainSingletonIsNotAllowUnused`, `allowUnusedTrueIsCapturedOnProvides`), `Tests/WireMacrosImplTests/SingletonMacroTests.swift` (`test_singletonWithAllowUnused_generatesSameMembers`). A non-literal argument, `@Scoped` discovery with `allowUnused:`, and `@Scoped` and `@Provides` expansion with `allowUnused:` are pinned by nothing yet.
 
 ### Requirement: A library's `allowUnused` is not a root
-WireGen SHALL NOT root a binding or a key whose origin module is an `--external-module`, whatever its
-`allowUnused:` argument. A library binding SHALL be live exactly when a home root reaches it.
+WireGen SHALL NOT root a binding or a key whose origin module is an `--external-module` for its
+`allowUnused:` argument. A library binding SHALL be live only when it is, or is reached from, one of the
+graph's roots: a home `allowUnused` binding or key aggregate, a conformance-named aggregate, or a
+singleton a seed scope borrows.
 
 #### Scenario: a library pins itself
 - **WHEN** a library binding written `allowUnused: true` depends on another library binding and no home root reaches either
 - **THEN** neither is reachable
 
-Pinned by: `Tests/WireGenCoreTests/ReachabilityTests.swift` (`allowUnusedIsHomePackageOnly`, `allowUnusedKeyIsARoot`), `Tests/WireGenCoreTests/RetentionTests.swift` (`aLibrarysAllowUnusedDoesNotRetain`).
+Pinned by: `Tests/WireGenCoreTests/ReachabilityTests.swift` (`allowUnusedIsHomePackageOnly`, `allowUnusedKeyIsARoot`, `conformanceNamedAggregateIsARoot`, `scopeBorrowedSingletonIsRetained`), `Tests/WireGenCoreTests/RetentionTests.swift` (`aLibrarysAllowUnusedDoesNotRetain`).
 
 ### Requirement: A conformance-named aggregate is a root
 An aggregate that a graph conformance names SHALL be a reachability root of the default graph, as
@@ -78,6 +81,22 @@ WireGen SHALL fold each `@GraphInputs` property into a home-module provider carr
 
 Pinned by: `Tests/WireGenCoreTests/GraphInputsDiscoveryTests.swift` (`eachInputBecomesAProviderReadingTheBootstrapParameter`).
 
+### Requirement: Synthesised proxies and a `.liftsPeersToProxy` subject are roots
+WireGen SHALL synthesise every contributor proxy and every aggregate proxy with `allowUnused: true` and
+its subject's origin module, and SHALL set `allowUnused` on the subject of a keyless
+`.liftsPeersToProxy` directive, which makes each of them a root under the home-package rule whether or
+not anything consumes the proxy's aggregate.
+
+#### Scenario: a keyless proxy and its subject
+- **WHEN** a home `TodosController` carries a `.liftsPeersToProxy` annotation with prefix `_WireGlobalMiddleware_`
+- **THEN** both `_WireGlobalMiddleware_TodosController` and `TodosController` carry `allowUnused == true`
+
+#### Scenario: a keyed proxy's subject
+- **WHEN** a `.contributesProxy` annotation proxies `TodosController`
+- **THEN** `TodosController` carries `allowUnused == false`
+
+Pinned by: `Tests/WireGenCoreTests/ContributorProxySynthesisTests.swift` (`synthesisedProxyDoesNotWarnAsDead`, `aLiftsPeersToProxySubjectIsRootedSoTheGraphStoresIt`, `aContributesProxySubjectIsNotRooted`). The flag on a keyed contributor proxy and on an aggregate proxy is pinned by nothing yet.
+
 ### Requirement: What a seed scope borrows is a root of its app graph
 WireGen SHALL root, in a container's app graph, every app singleton that one of that container's seed
 scopes borrows, although the app graph has no edge to it.
@@ -88,7 +107,7 @@ scopes borrows, although the app graph has no edge to it.
 
 Pinned by: `Tests/WireGenCoreTests/ReachabilityTests.swift` (`scopeBorrowedSingletonIsRetained`).
 
-### Requirement: Nothing else is a root
+### Requirement: `@Teardown` and key visibility are not roots
 WireGen SHALL NOT root a binding for carrying `@Teardown`, and SHALL NOT root an aggregate for its key's
 visibility.
 
@@ -105,18 +124,36 @@ Pinned by: `Tests/WireGenCoreTests/ReachabilityTests.swift` (`teardownDoesNotRoo
 ### Requirement: The walk follows sort edges, member injections and scope-entry thunks
 WireGen SHALL walk from the roots over the graph's dependency edges, plus each member-injection
 parameter (`@Inject weak var`, `@Inject func`) and each identity a bridging proxy's scope-entry thunk
-constructs (its subject and its yields), all resolved through the same producer matching as ordinary
-dependencies. These extra edges SHALL NOT be added to the topological sort.
+constructs (its subject and its yields) that has a producer in the same graph, all resolved through the
+same producer matching as ordinary dependencies. These extra edges SHALL NOT be added to the topological
+sort.
 
 #### Scenario: a binding consumed only by member injection
 - **WHEN** a rooted `Root` receives `Late` only through a member injection
 - **THEN** `Root` and `Late` are reachable and `Unreached` is not
 
-#### Scenario: a proxy's subject and yield
-- **WHEN** a bridging proxy's thunk constructs `MeController` and yields `Session`
+#### Scenario: a thunk whose subject and yield have producers in the same graph
+- **WHEN** a graph holds a bridging proxy whose thunk constructs `MeController` and yields `Session`, and producers for `MeController` and `Session` in that same graph
 - **THEN** the proxy, `MeController` and `Session` are reachable
 
-Pinned by: `Tests/WireGenCoreTests/ReachabilityTests.swift` (`memberInjectionOnly`, `scopeEntryThunkConstructed`, `reachedAfterSpecialisation`, `diamond`, `reachableCycle`, `unreachableCycle`).
+Pinned by: `Tests/WireGenCoreTests/ReachabilityTests.swift` (`memberInjectionOnly`, `scopeEntryThunkConstructed`, `reachedAfterSpecialisation`, `diamond`, `reachableCycle`, `unreachableCycle`). The exclusion of these edges from the topological sort is pinned by nothing yet.
+
+### Requirement: A bridge's subject and yields are not reached through the app graph
+WireGen SHALL place a bridging contributor proxy in its container's app graph and leave its `@Scoped`
+subject and yields in the seed-scope graph, so the thunk's reachability edges resolve to no binding of
+the pruned app graph; the thunk constructs the subject and yields from the unpruned seed-scope graph,
+pruned per routed root. That the app graph's edges never resolve is tracked as a defect in
+https://github.com/swift-wire/swift-wire/issues/401.
+
+#### Scenario: a request-scoped controller behind a singleton proxy
+- **WHEN** a `.singleton` contributor proxy bridges `SessionController`, declared `@Scoped(seed: RequestSeed)`
+- **THEN** `_WireRouteContributor_SessionController` is in the app partition with a `_wireEnterScope` thunk dependency, and `SessionController` stays in the `RequestSeed` partition
+
+#### Scenario: the thunk prunes per routed root
+- **WHEN** a `RequestSeed` scope holds `AController`, the `AResource` it depends on, and a sibling `BResource`
+- **THEN** the thunk for `AController` constructs `AResource` and `AController` and not `BResource`
+
+Pinned by: `Tests/WireGenCoreTests/ContributorProxySynthesisTests.swift` (`bridgesSeededControllerViaScopeEntryThunk`), `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`scopeEntryThunkPrunesUnreachableBindings`).
 
 ### Requirement: Unreached bindings are not emitted
 WireGen SHALL restrict a pruned graph's bindings, edges, missing-binding reports and promotions to the
@@ -165,7 +202,7 @@ graph directly (as 'graph.<property>')." for each pruned binding whose origin mo
 - **WHEN** `CompositionHarness/run-harness.sh` builds the consumer
 - **THEN** the build log contains `'UnreachedHomeBinding' is declared but nothing reachable` and `mark it 'allowUnused: true'`
 
-Pinned by: `Tests/WireGenCoreTests/PrunedBindingDiagnosticsTests.swift` (`internalPrunedIsReported`, `visibilityDoesNotGateTheReport`, `transitivelyDeadBindingIsReported`), `CompositionHarness/run-harness.sh`.
+Pinned by: `Tests/WireGenCoreTests/PrunedBindingDiagnosticsTests.swift` (`internalPrunedIsReported`, `visibilityDoesNotGateTheReport`, `transitivelyDeadBindingIsReported`), `CompositionHarness/run-harness.sh`. The keyed-slot rendering is pinned by nothing yet.
 
 ### Requirement: A pruned `@Teardown` binding says so
 WireGen SHALL render a pruned binding that declares a teardown as "'<Type>', which declares a
@@ -199,7 +236,10 @@ Pinned by: `Tests/WireGenCoreTests/RetentionTests.swift` (`aReachedButUnrootedBi
 
 ### Requirement: Roots, `@Teardown` bindings and `some P` bindings are stored
 The graph struct SHALL store a property for each binding that is a declared root, each binding with a
-teardown action, and each binding whose bound type begins `some `.
+teardown action, and each binding whose bound type begins `some `. A declared root is a home
+`allowUnused` binding or key aggregate, or, on the default graph and its variants only, a
+conformance-named aggregate; a singleton a seed scope borrows is not a declared root, and is stored only
+when generated code reads it off the graph.
 
 #### Scenario: a teardown resource without allowUnused
 - **WHEN** a built `Pool` declares a `@Teardown` and no `allowUnused:`
