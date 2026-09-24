@@ -21,7 +21,7 @@ initialiser `init(_ factory: @escaping @Sendable () async throws -> Value)` and 
 - **WHEN** `let lazy = Lazy<Int> { 7 }` and `try await lazy.get()` is called
 - **THEN** the result is `7`
 
-Pinned by: `Tests/WireTests/LazyTests.swift` (`syncFactoryWorksUnderAsyncContract`).
+Pinned by: `Tests/WireTests/LazyTests.swift` (`syncFactoryWorksUnderAsyncContract`), `Tests/IntegrationTests/LazyResourceExample.swift`, `Tests/IntegrationTests/BootstrapTests.swift` (`userWrittenLazyProviderInvokesFactoryOnFirstGet`).
 
 ### Requirement: The factory does not run before the first `get()`
 Constructing a `Lazy` SHALL NOT invoke its factory; the first `get()` SHALL invoke it.
@@ -97,7 +97,9 @@ Pinned by: `Tests/IntegrationTests/BootstrapTests.swift` (`userWrittenLazyProvid
 
 ### Requirement: A `Lazy` dependency does not break a construction cycle
 A dependency on `Lazy<T>` SHALL be a construction edge like any other, included in topological
-ordering and cycle detection; only member-injection parameters are excluded from those edges.
+ordering and cycle detection. The only dependencies left out of those edges are member-injection
+parameters (`@Inject weak var` and `@Inject func`) and scope-entry thunks, and a `Lazy<T>` dependency is
+neither.
 
 #### Scenario: a lazy provider that needs its own consumer
 - **WHEN** `A` injects `Lazy<B>` and the `@Provides` producing `Lazy<B>` takes `A` as a parameter
