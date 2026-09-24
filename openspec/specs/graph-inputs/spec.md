@@ -157,3 +157,4 @@ Pinned by: `Tests/WireGenCoreTests/GraphInputsDiscoveryTests.swift` (`inputsWith
 - [containers](../containers/spec.md)
 - [seeded-scopes](../seeded-scopes/spec.md)
 - [testing-variants](../testing-variants/spec.md)
+- [providers](../providers/spec.md)
