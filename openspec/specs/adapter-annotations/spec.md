@@ -29,17 +29,19 @@ enum with the single case `.singleton`. The carrier SHALL store only `annotation
 
 #### Scenario: an adapter declares a collating annotation
 - **WHEN** an adapter package declares `static let harnessRoute = WireAdapterAnnotationV1(annotation: "HarnessRoute", capability: .contributes(to: RoutingKeys.controllers))`
-- **THEN** the declaration compiles against the `Wire` product and `harnessRoute.annotation` is `"HarnessRoute"`
+- **THEN** the declaration compiles against the `Wire` product
 
-Pinned by: `AdapterHarness/Adapter/Sources/WireRouting/HarnessRoute.swift` and `InjectionRewriteHarness/Adapter/Sources/WireHarnessSettings/Settings.swift`, compiled by the `AdapterHarness` and `InjectionRewriteHarness` jobs in `.github/workflows/swift.yml`.
+Pinned by: `AdapterHarness/Adapter/Sources/WireRouting/HarnessRoute.swift` and `InjectionRewriteHarness/Adapter/Sources/WireHarnessSettings/Settings.swift`, compiled by the `AdapterHarness` and `InjectionRewriteHarness` jobs in `.github/workflows/swift.yml`. That the carrier stores `annotation` and nothing else is pinned by nothing yet.
 
 ### Requirement: Definitions are discovered syntactically and recognised by type name
-WireGen SHALL recognise a definition as a `let` at module scope, or a `static let` inside a type,
-whose initialiser is a call to a declaration named `WireAdapterAnnotationV1` carrying both an
-`annotation:` string literal and a `capability:` argument, and SHALL read the capability from the
-written syntax: a key argument is captured as its source text, `proxyScope:` is read as
-`.singleton` whether or not it is written, `roles:` is read from an array literal of string
-literals, and a `selector:` argument that is not `.labelled("…")` is read as no selector. A
+WireGen SHALL recognise a definition as a single-binding `let` or `var` at module scope, or a
+`static` one inside a type, whose initialiser is an unqualified call `WireAdapterAnnotationV1(...)`
+carrying both an `annotation:` string literal and a `capability:` argument; a module-qualified
+`Wire.WireAdapterAnnotationV1(...)` call or a `.init(...)` spelling compiles but is not recognised.
+WireGen SHALL read the capability from the written syntax: a key argument is captured as its source
+text, `proxyScope:` is not parsed because `.singleton` is its only value, so every proxy capability
+is read as `.singleton`, `roles:` is read from an array literal of string literals, and a
+`selector:` argument that is not `.labelled` applied to a string literal is read as no selector. A
 declaration missing either argument SHALL be ignored. The declaration SHALL never be executed.
 
 #### Scenario: a nested static definition
@@ -50,7 +52,7 @@ declaration missing either argument SHALL be ignored. The declaration SHALL neve
 - **WHEN** a definition is written with `capability: .injectsFromGraph`
 - **THEN** discovery yields the `.injectsFromGraph` capability
 
-Pinned by: `Tests/WireGenCoreTests/ContributionAliasTests.swift` (`discoversContributesToForm`), `Tests/WireGenCoreTests/AdapterDependencyTests.swift` (`discoversInjectsDependencyCapability`), `Tests/WireGenCoreTests/InjectionRewriteTests.swift` (`omittingTheSelectorLeavesTheProviderUnkeyed`).
+Pinned by: `Tests/WireGenCoreTests/ContributionAliasTests.swift` (`discoversContributesToForm`), `Tests/WireGenCoreTests/AdapterDependencyTests.swift` (`discoversInjectsDependencyCapability`), and for a `selector: .labelled("source")` definition read from source, `InjectionRewriteHarness/run-injection-rewrite-harness.sh` (`InjectionRewriteHarness/Adapter/Sources/WireHarnessSettings/Settings.swift`). Reading `roles:`, reading a `selector:` that is not `.labelled` applied to a string literal, and ignoring a qualified or `.init` call are pinned by nothing yet.
 
 ### Requirement: Definitions reach a consumer from any activated module
 The build plugin SHALL pass to WireGen the sources of every Wire-aware library the target directly
@@ -102,12 +104,15 @@ multibinding fan-in. No emission specific to the annotation SHALL exist.
 Pinned by: `Tests/WireGenCoreTests/ContributionAliasTests.swift` (`injectsContributionForAliasedBinding`, `injectsContributionForAliasedProvider`), `AdapterHarness/run-adapter-harness.sh`.
 
 ### Requirement: `.contributesProxy` synthesises one proxy binding per subject
-For each subject bearing a `.contributesProxy(to: key, proxyTypePrefix: prefix, proxyScope:)`
-annotation, WireGen SHALL synthesise a scope-bound `struct` binding named `<prefix><Subject>`,
-generic exactly as the subject and restating its `where` clause, that contributes to `key` in the
-subject's place. The subject SHALL receive no contribution. The proxy SHALL be placed in the app
-(scope-nil) partition of the subject's container and SHALL be exempt from the dead-binding
-diagnostic. Where a subject carries more than one proxy annotation the first seen SHALL win.
+For each scope-bound subject (`@Singleton` or `@Scoped`) bearing a
+`.contributesProxy(to: key, proxyTypePrefix: prefix, proxyScope:)` annotation, WireGen SHALL
+synthesise a scope-bound `struct` binding named `<prefix><Subject>`, generic exactly as the subject
+and restating its `where` clause, that contributes to `key` in the subject's place. The subject
+SHALL receive no contribution. A `@Provides` provider bearing the annotation SHALL receive neither a
+proxy nor a contribution. The proxy SHALL be placed in the app (scope-nil) partition of the
+subject's container and SHALL be exempt from the dead-binding diagnostic. Where a subject carries
+more than one proxy annotation, the last use-site seen SHALL win, which is tracked as a defect in
+https://github.com/swift-wire/swift-wire/issues/399.
 
 #### Scenario: a generic controller
 - **WHEN** `@Singleton @Controller struct TodosController<Repository: TodoRepository>` is annotated with a `.contributesProxy(to: Keys.routes, proxyTypePrefix: "_WireRouteContributor_", proxyScope: .singleton)` annotation
@@ -117,7 +122,7 @@ diagnostic. Where a subject carries more than one proxy annotation the first see
 - **WHEN** no declared annotation carries `.contributesProxy`
 - **THEN** the bindings and use-sites pass through unchanged
 
-Pinned by: `Tests/WireGenCoreTests/ContributorProxySynthesisTests.swift` (`synthesisesGenericProxyBesideController`, `synthesisesNonGenericProxy`, `noProxyAnnotationsLeavesEverythingUnchanged`, `synthesisedProxyDoesNotWarnAsDead`, `aContributesProxySubjectIsNotRooted`), `Tests/WireGenCoreTests/ContributorProxyEmissionTests.swift` (`restatesSubjectWhereClause`).
+Pinned by: `Tests/WireGenCoreTests/ContributorProxySynthesisTests.swift` (`synthesisesGenericProxyBesideController`, `synthesisesNonGenericProxy`, `noProxyAnnotationsLeavesEverythingUnchanged`, `aContributesProxySubjectIsNotRooted`), `Tests/WireGenCoreTests/ContributorProxyEmissionTests.swift` (`restatesSubjectWhereClause`). The dead-binding exemption is pinned for a `.liftsPeersToProxy` proxy by `synthesisedProxyDoesNotWarnAsDead` in `Tests/WireGenCoreTests/ContributorProxySynthesisTests.swift`; for a `.contributesProxy` proxy it is pinned by nothing yet. The provider case and the duplicate-annotation rule are pinned by nothing yet.
 
 ### Requirement: A proxy holds a subject at its own scope and bridges into a narrower one
 WireGen SHALL compare `proxyScope` against the subject's scope. A `.singleton` proxy over a
@@ -167,8 +172,8 @@ For a `.contributesAggregateProxy(to: key, proxyTypeName: name, proxyScope:, gro
 label)` annotation, WireGen SHALL partition its use-sites by the value of the argument labelled
 `label` (a string literal's quotes stripped) and, for a use-site without that argument, by the
 module the attribute is written in. Each group SHALL yield one `struct` binding named
-`<name>_<group>` with the group sanitised to letters, digits and `_`, holding every subject in the
-group as a labelled dependency, each held or bridged by its own scope. With exactly one subject the
+`<name>_<group>` with the group sanitised to letters, digits and `_`, holding every scope-bound
+subject in the group as a labelled dependency, each held or bridged by its own scope. With exactly one subject the
 dependency SHALL be positional (held) or labelled `_wireEnterScope` (bridged), exactly as
 `.contributesProxy` produces. Generic parameters SHALL be the union of the subjects', renamed with
 a numeric suffix on collision.
@@ -185,7 +190,7 @@ a numeric suffix on collision.
 - **WHEN** a group has exactly one held subject
 - **THEN** the proxy's field is `_wireSubject`, taken positionally
 
-Pinned by: `Tests/IntegrationTests/AggregateProxyContributorTests.swift` (`oneProxyHoldsEveryAnnotatedSubject`, `aBridgedSubjectIsBuiltPerRequestWhileHeldPeersAreShared`, `aSecondGroupOnTheSameAnnotationGetsItsOwnProxy`, `aOneSubjectAggregateKeepsTheSingularFieldName`, `perRootReachabilitySurvivesTheAggregate`), `GoldenHarness/Golden/_WireGraph.swift.golden`. The module-named default group is pinned by nothing yet.
+Pinned by: `Tests/IntegrationTests/AggregateProxyContributorTests.swift` (`oneProxyHoldsEveryAnnotatedSubject`, `aBridgedSubjectIsBuiltPerRequestWhileHeldPeersAreShared`, `aSecondGroupOnTheSameAnnotationGetsItsOwnProxy`, `aOneSubjectAggregateKeepsTheSingularFieldName`, `perRootReachabilitySurvivesTheAggregate`), `GoldenHarness/Golden/_WireGraph.swift.golden`. The module-named default group is pinned by `aOneSubjectAggregateKeepsTheSingularFieldName` (`_WireSoloAggregateContributor_IntegrationTests`) and the golden file.
 
 ### Requirement: `.liftsPeersToProxy` synthesises an addressable proxy that contributes to nothing
 For each subject bearing a `.liftsPeersToProxy(proxyTypePrefix: prefix, proxyScope:)` annotation,
@@ -271,7 +276,7 @@ such an attribute, or whose attribute matches no declared annotation, SHALL be u
 - **WHEN** a parameter is annotated `@Unrelated("x")` and no `.rewritesInjection` annotation is named `Unrelated`
 - **THEN** the dependency resolves by its own type as before
 
-Pinned by: `Tests/WireGenCoreTests/InjectionRewriteTests.swift` (`anUnannotatedDependencyIsUntouched`, `anUndeclaredAnnotationIsNotARewrite`, `noRewritingAnnotationsIsANoOp`).
+Pinned by: `Tests/WireGenCoreTests/InjectionRewriteTests.swift` (`anUnannotatedDependencyIsUntouched`, `anUndeclaredAnnotationIsNotARewrite`, `noRewritingAnnotationsIsANoOp`) for classification against declared annotations; `InjectionRewriteHarness/run-injection-rewrite-harness.sh` (`InjectionRewriteHarness/Consumer/Sources/InjectionRewriteHarnessConsumer/main.swift`) for capture at all three site kinds, including an `@Inject @FromSettings` property whose `Inject` is skipped. Skipping `Bind`, `Provides` and `Teardown` is pinned by nothing yet.
 
 ### Requirement: A rewritten site resolves to a synthesised keyed producer
 For a site of type `T` annotated `@X(<args>)` under a `.rewritesInjection(provider: P)`
@@ -295,12 +300,12 @@ Pinned by: `Tests/WireGenCoreTests/InjectionRewriteTests.swift` (`synthesisesAPr
 
 ### Requirement: Rewrite producers are deduplicated by annotation, provider key, arguments and type
 WireGen SHALL synthesise one producer per distinct (annotation name, selected provider key,
-rendered arguments, canonical value type), and SHALL anchor the producer at the first site that
-asked for it.
+rendered arguments, canonical value type), and SHALL anchor the producer at the first site
+encountered, in source order within a partition; the order across partitions is unspecified.
 
-#### Scenario: the same site written three times
-- **WHEN** `@Configuration(forKey: "PORT", default: 8080) port: Int` appears at three injection points
-- **THEN** one producer is synthesised and all three sites depend on it
+#### Scenario: the same site written twice
+- **WHEN** `@Configuration(forKey: "a", default: "x") value: String` appears at two injection points
+- **THEN** one producer is synthesised
 
 #### Scenario: the same key at a different type
 - **WHEN** `forKey: "PORT"` is written once at `Int` and once at `String`
@@ -310,7 +315,7 @@ asked for it.
 - **WHEN** two sites select different provider keys through the declared selector and are otherwise identical
 - **THEN** two producers are synthesised
 
-Pinned by: `Tests/WireGenCoreTests/InjectionRewriteTests.swift` (`identicalSitesShareOneProducer`, `differentArgumentsOrTypesStayDistinct`, `sameArgumentsFromDifferentProvidersAreDistinctBindings`, `theSynthesisedProviderIsAnchoredAtARealSite`).
+Pinned by: `Tests/WireGenCoreTests/InjectionRewriteTests.swift` (`identicalSitesShareOneProducer`, `differentArgumentsOrTypesStayDistinct`, `sameArgumentsFromDifferentProvidersAreDistinctBindings`), and `theSynthesisedProviderIsAnchoredAtARealSite` for the producer taking a site's location. That every deduplicated site is re-keyed to the shared producer, and that the anchor is the first such site, are pinned by nothing yet.
 
 ### Requirement: A selector names the provider by argument label
 When an annotation declares `selector: .labelled(L)`, WireGen SHALL remove the site argument
@@ -351,13 +356,17 @@ construction root of the thunk. A subject that is not scoped SHALL yield nothing
 Pinned by: `Tests/WireGenCoreTests/ScopeYieldTests.swift` (`aParameterNamingAScopeBindingIsTheRequest`, `anAttributeThatIsNoBindingIsIgnored`, `aBindingInAnotherScopeIsNotYielded`, `anUnscopedSubjectYieldsNothing`, `aSubjectNeverYieldsItself`, `yieldsAreDeduplicatedAndOrderedByTypeName`, `aYieldIsAConstructionRootAndPullsItsOwnSubgraphIn`, `withoutTheYieldNeitherIsConstructed`, `anAttributeThatIsNotABindingYieldsWhatItsDeclarationNames`, `aDirectMatchIsPreferredOverTheHop`, `theHopIsFollowedOnlyOnce`, `anArgumentThatIsNotATypeReferenceIsNoHop`, `aRouteParameterIsDetectedThroughDiscoveryAndSynthesis`).
 
 ### Requirement: A yield the subject's scope cannot construct is an error
-WireGen SHALL report, once per (subject, binding), a parameter attribute naming a scoped binding
-that the subject cannot yield. For a subject with no scope the message SHALL be
-`'<B>' is bound in @Scoped(seed: <S>.self), but '<Subject>' is not scoped — its contributor proxy holds it directly and enters no scope, so there is nothing to construct it in. Mark '<Subject>' @Scoped(seed:) with the same seed.`
+WireGen SHALL report, once per (subject, binding), a parameter attribute on a member method that
+is not `@Provides` of any scope-bound type, whether or not that type bears a proxy annotation, when
+the attribute names a `@Scoped` binding outside the type's own seed partition. Firing on a type with
+no proxy annotation is tracked as a defect in https://github.com/swift-wire/swift-wire/issues/400.
+For a subject with no scope the message SHALL be
+`<B> is bound in @Scoped(seed: <S>.self), but '<Subject>' is not scoped — its contributor proxy holds it directly and enters no scope, so there is nothing to construct it in. Mark '<Subject>' @Scoped(seed:) with the same seed.`
 For a subject in a different seed the message SHALL be
-`'<B>' is bound in @Scoped(seed: <S>.self), but '<Subject>' is in @Scoped(seed: <T>.self) — sibling seeded scopes are isolated by design, so its scope entry constructs only its own. Bind it in @Scoped(seed: <T>.self), or move '<Subject>' to the other seed.`
-When the binding was reached through a hop, `<B>` SHALL be spelled
-`'<Binding>' (named by '@<Attribute>')`. An attribute naming no binding anywhere SHALL be silent.
+`<B> is bound in @Scoped(seed: <S>.self), but '<Subject>' is in @Scoped(seed: <T>.self) — sibling seeded scopes are isolated by design, so its scope entry constructs only its own. Bind it in @Scoped(seed: <T>.self), or move '<Subject>' to the other seed.`
+`<B>` SHALL be `'<Binding>'`, or, when the binding was reached through a hop,
+`'<Binding>' (named by '@<Attribute>')`. Both messages assume a proxy, whether or not the type has
+one. An attribute naming no binding anywhere SHALL be silent.
 
 #### Scenario: an unscoped controller asking for a request binding
 - **WHEN** a `@Singleton` `DocumentsController` declares a parameter `@AuthorizedDocument` and `AuthorizedDocument` is `@Scoped(seed: RequestSeed.self)`
