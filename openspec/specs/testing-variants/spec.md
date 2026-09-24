@@ -69,8 +69,8 @@ dependencies are empty, and SHALL record a doubles field named from the slot ide
 - **THEN** the doubles-sourced binding keeps identity `some BackendRepository` and the field is named `backendRepository`
 
 #### Scenario: a keyed slot
-- **WHEN** the substitution is `@BindType(Repo.primary, MockRepo.self)` and a provider carries key `Repo.primary`
-- **THEN** that provider, and only it, is rewritten
+- **WHEN** the substitution is `@BindType(Repo.primary, MockRepo.self)` and a `BackendRepository` provider carries key `Repo.primary`
+- **THEN** that provider keeps key `Repo.primary` and becomes doubles-sourced with access path `doubles.backendRepositoryKeyedRepoPrimary`
 
 Pinned by: `Tests/WireGenCoreTests/TestingGraphTests.swift` (`substitutionMakesSlotDoublesSourcedAndMockTyped`, `opaqueSlotKeepsIdentityFieldStripsSomePrefix`, `keyedSubstitutionMatchesByKey`).
 
@@ -91,12 +91,18 @@ error. For each routed subject the variant covers it SHALL also emit
 
 Pinned by: `Tests/WireGenCoreTests/TestingGraphTests.swift` (`doublesStructTypeNameJoinsReferenceComponents`, `renderDoublesStructEmitsPackageFieldsAndInit`), `Tests/IntegrationTests/SubjectDoublesTests.swift` (`subjectDoublesCarryOnlyTheSlotsTheSubjectReaches`, `siblingSubjectsOnOneSeedGetDisjointDoubles`, `subjectReachingNoMockEntersScopeWithNoDoubles`, `keyWideDoublesStillCarriesEverySlot`).
 
-### Requirement: Each key emits a variant app graph without the mocked bindings
-For a key `Enum.key` WireGen SHALL emit `_Enum_keyWireGraph` with `Wire.bootstrapEnum_key()`, whose
-order is the production default order minus the mocked and lifted bindings, every bridging
-contributor proxy, and any production factory a variant factory replaces; a surviving aggregate
-SHALL list only the contributors that survive. A mocked eager binding's initialiser SHALL NOT run
-under the variant bootstrap.
+### Requirement: A key that reaches a scope emits a variant app graph without its lifted bindings
+For a key `Enum.key` whose substitutions reach at least one seed scope, directly or through a lift,
+or at least one seedless route contributor, WireGen SHALL emit `_Enum_keyWireGraph` with
+`Wire.bootstrapEnum_key()`, whose order is the production default order minus the lifted bindings,
+the bindings each seedless reconstruction drops, every bridging contributor proxy, and any
+production factory a variant factory replaces; a surviving aggregate SHALL list only the
+contributors that survive, and an empty order SHALL emit neither. A mocked app binding that is
+lifted or seedlessly reconstructed SHALL NOT be initialised under the variant bootstrap. A key whose
+substitutions match production bindings but reach no seed scope and no seedless route contributor
+SHALL emit no variant at all, and a mocked app singleton no seed scope reaches SHALL stay in the
+variant app graph as its production binding; both are tracked as a possible defect in
+https://github.com/swift-wire/swift-wire/issues/437.
 
 #### Scenario: a mocked eager provider
 - **WHEN** `EagerFixture.bindMock` mocks `any EagerWidget`, whose production provider counts its initialisations
@@ -106,35 +112,51 @@ under the variant bootstrap.
 - **WHEN** an aggregate lists a contributor the variant drops
 - **THEN** the variant's aggregate keeps the surviving contributors only, and an aggregate with nothing dropped is unchanged
 
-Pinned by: `Tests/IntegrationTests/EagerSingletonBindTypeTests.swift` (`eagerBindTypedBindingIsDroppedFromTheVariantAppGraph`), `Tests/IntegrationTests/BindTypeProxyContributorTests.swift` (`eagerSingletonInitDoesNotRunUnderTheVariantGraph`), `Tests/WireGenCoreTests/TestingGraphTests.swift` (`variantAggregateShedsDroppedContributorsAndKeepsSurvivors`, `variantAggregateRewriteIsANoOpWhenNothingDropped`).
+Pinned by: `Tests/IntegrationTests/EagerSingletonBindTypeTests.swift` (`eagerBindTypedBindingIsDroppedFromTheVariantAppGraph`), `Tests/IntegrationTests/BindTypeProxyContributorTests.swift` (`eagerSingletonInitDoesNotRunUnderTheVariantGraph`), `Tests/WireGenCoreTests/TestingGraphTests.swift` (`variantAggregateShedsDroppedContributorsAndKeepsSurvivors`, `variantAggregateRewriteIsANoOpWhenNothingDropped`). The key that reaches no scope, the unreached mocked app singleton and the empty order are pinned by nothing yet.
 
 ### Requirement: A variant seed scope is entered through a doubles-taking facade
-For each seed scope a key's substitutions or lifts touch, WireGen SHALL emit
-`_Enum_key_<Seed>WireScope` and `Wire.bootstrapEnum_key_<Seed>Scope(seed:wireGraph:doubles:)`,
-where `wireGraph:` is typed to the variant app graph and `doubles:` to `_Enum_keyDoubles`; the
-scope's thunk SHALL construct each doubles-sourced binding as `let <field> = doubles.<field>`.
+For each seed scope a key's substitutions or lifts touch and that no production bridging
+contributor proxy enters, WireGen SHALL emit `_Enum_key_<Seed>WireScope` and
+`Wire.bootstrapEnum_key_<Seed>Scope(seed:wireGraph:doubles:)`, where `wireGraph:` is typed to the
+variant app graph and `doubles:` to `_Enum_keyDoubles`; the scope's bootstrap SHALL bind each
+doubles-sourced binding to the binding's own local name as `let <binding local> = doubles.<field>`.
+A seed scope a production bridging contributor proxy enters SHALL be reached only through the
+per-subject contributor facade.
 
 #### Scenario: a direct substitution inside the scope
 - **WHEN** `WireDoublesFixture.bindMockRepo` mocks `any TodoRepository` consumed by a `@Scoped(seed: TodoRequestSeed.self)` controller
-- **THEN** `Wire.bootstrapWireDoublesFixture_bindMockRepo_TodoRequestSeedScope(seed:wireGraph:doubles:)` returns a scope whose `todoController` calls the supplied `MockTodoRepository` instance
+- **THEN** `Wire.bootstrapWireDoublesFixture_bindMockRepo_TodoRequestSeedScope(seed:wireGraph:doubles:)` returns a scope whose `todoController` calls the supplied `MockTodoRepository` instance, and its bootstrap contains `let anyTodoRepository = doubles.todoRepository`
 
 #### Scenario: a generic seed subject over an opaque mocked backend
 - **WHEN** `GenSeedFixture.bindMock` mocks `GenBackend` for a generic `@Scoped(seed:)` consumer
 - **THEN** `Wire.bootstrapGenSeedFixture_bindMock_GenSeedRequestSeedScope(seed:wireGraph:doubles:)` yields `genSeedConsumerOfSomeGenBackend` reading the mock
 
-Pinned by: `Tests/IntegrationTests/BindTypeDoublesTests.swift` (`suppliedMockInstanceFlowsThroughScopeEntry`), `Tests/IntegrationTests/GenericSeedFacadeBindTypeTests.swift` (`genericSeedSubjectConcretizesToMockOverTheVariantGraph`), `Tests/WireGenCoreTests/BindTypeSeedScopeTests.swift` (`scopeEntryThunkThreadsDoublesAndSourcesBindType`, `discoveredControllerBindsMockThroughVariantGraph`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
+#### Scenario: a seed a bridging proxy enters
+- **WHEN** `WireProxyFixture.bindMock` mocks `any ProxyRepository` consumed by `ProxyRouteController`, whose production bridging proxy enters `ProxyRequestSeed`
+- **THEN** no `_WireProxyFixture_bindMock_ProxyRequestSeedWireScope` and no `Wire.bootstrapWireProxyFixture_bindMock_ProxyRequestSeedScope` are emitted
+
+Pinned by: `Tests/IntegrationTests/BindTypeDoublesTests.swift` (`suppliedMockInstanceFlowsThroughScopeEntry`), `Tests/IntegrationTests/GenericSeedFacadeBindTypeTests.swift` (`genericSeedSubjectConcretizesToMockOverTheVariantGraph`), `Tests/WireGenCoreTests/ScopableCascadeTests.swift` (`liftedSingletonIsScopeBoundNotBorrowed`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
 ### Requirement: A routed subject is entered through a per-subject contributor facade
-For each production bridging contributor proxy whose seed scope the variant touches, WireGen SHALL
-emit a variant proxy and `Wire.bootstrapEnum_key_<Subject>Contributor(wireGraph:)` returning it;
-the proxy's `_wireEnterScope(seed, doubles)` SHALL take the per-subject doubles and return the same
-entry struct as production, including its teardown.
+For each production bridging contributor proxy with an unlabelled `_wireEnterScope` thunk whose
+seed scope the variant touches, WireGen SHALL emit a variant proxy and
+`Wire.bootstrapEnum_key_<Subject>Contributor(wireGraph:)` returning it; the proxy's
+`_wireEnterScope(seed, doubles)` SHALL take the per-subject doubles and return a variant entry
+struct `_WireScopeEntry_Enum_key_<Subject>` with the same fields as production's
+`_WireScopeEntry_<Subject>`: the subject, the scope teardown and the same yields. A multi-subject
+aggregate proxy, whose thunks are labelled `_wireEnterScope_<Subject>`, SHALL be dropped from the
+variant app graph with no variant proxy and no facade, which is tracked as a defect in
+https://github.com/swift-wire/swift-wire/issues/362.
 
 #### Scenario: a `@Scoped(seed:)` route controller
 - **WHEN** `WireProxyFixture.bindMock` mocks `any ProxyRepository` reached by `ProxyRouteController`
 - **THEN** `Wire.bootstrapWireProxyFixture_bindMock_ProxyRouteControllerContributor(wireGraph:)._wireEnterScope(ProxyRequestSeed(id: "req-1"), doubles)` yields a subject whose `tag()` reads the mock, and its teardown records on the same mock
 
-Pinned by: `Tests/IntegrationTests/BindTypeProxyContributorTests.swift` (`variantProxyEntersScopeWithDoubles`), `Tests/IntegrationTests/SubjectDoublesTests.swift` (`subjectDoublesCarryOnlyTheSlotsTheSubjectReaches`). Mock-consumption detection through more than one hop is https://github.com/swift-wire/swift-wire/issues/331; several factories on one proxy is https://github.com/swift-wire/swift-wire/issues/332; the keyed-slot mock-consuming factory is https://github.com/swift-wire/swift-wire/issues/329; the box-role variant factory is https://github.com/swift-wire/swift-wire/issues/333.
+#### Scenario: the variant entry struct
+- **WHEN** WireGen emits the variant proxy for `WireProxyFixture.bindMock` over `ProxyRouteController`
+- **THEN** its thunk is typed `@Sendable (ProxyRequestSeed, _WireProxyFixture_bindMock_ProxyRouteControllerDoubles) async throws -> _WireScopeEntry_WireProxyFixture_bindMock_ProxyRouteController`, a type distinct from production's `_WireScopeEntry_ProxyRouteController`
+
+Pinned by: `Tests/IntegrationTests/BindTypeProxyContributorTests.swift` (`variantProxyEntersScopeWithDoubles`), `Tests/IntegrationTests/SubjectDoublesTests.swift` (`subjectDoublesCarryOnlyTheSlotsTheSubjectReaches`), `GoldenHarness/Golden/_WireGraph.swift.golden`. The multi-subject aggregate proxy is pinned by nothing yet. Mock-consumption detection through more than one hop is https://github.com/swift-wire/swift-wire/issues/331; several factories on one proxy is https://github.com/swift-wire/swift-wire/issues/332; the keyed-slot mock-consuming factory is https://github.com/swift-wire/swift-wire/issues/329; the box-role variant factory is https://github.com/swift-wire/swift-wire/issues/333.
 
 ### Requirement: Variants are emitted only under `--testing-variants`
 When the run did not receive `--testing-variants`, `WireGen` SHALL fail with one error per distinct
@@ -159,15 +181,19 @@ key whose origin module is not the consumer, with the message
 Pinned by: `Tests/WireGenCoreTests/BindTypeDiscoveryTests.swift` (`foreignKeyNamesTheOriginModule`).
 
 ### Requirement: A `@BindType` slot nothing produces is an error
-For each substitution matching no binding across the production app singletons and every seed
-scope, `WireGen` SHALL emit an error at the attribute with the message
+For each substitution matching no binding among the default graph's production-retained app
+singletons and its seed scopes, `WireGen` SHALL emit an error at the attribute with the message
 `@BindType(<slot>, <Mock>.self) substitutes a slot no binding under test produces — check the slot type or key.`
 
 #### Scenario: a mistyped slot
 - **WHEN** a key carries `@BindType(NotBound.self, MockNotBound.self)` and no binding produces `NotBound`
 - **THEN** the error reads `@BindType(NotBound, MockNotBound.self) substitutes a slot no binding under test produces — check the slot type or key.`
 
-Pinned by: `Tests/WireGenCoreTests/TestingGraphTests.swift` (`unmatchedSubstitutionIsReported`), `Tests/WireGenCoreTests/ScopableCascadeTests.swift` (`unmatchedSubstitutionIsDiagnosed`).
+A binding produced only in a `@Container` graph or a `@Container` seed scope is not matched, so a
+`@BindType` on it reports this message, which is tracked as a possible defect in
+https://github.com/swift-wire/swift-wire/issues/436.
+
+Pinned by: `Tests/WireGenCoreTests/TestingGraphTests.swift` (`unmatchedSubstitutionIsReported`), `Tests/WireGenCoreTests/ScopableCascadeTests.swift` (`unmatchedSubstitutionIsDiagnosed`). The `@Container` exclusion is pinned by nothing yet.
 
 ### Requirement: The `@TestScopable` cascade lifts app-scoped hops into the scope
 When a mocked app-scoped binding reaches a seed scope's roots through app-scoped consumers,
@@ -186,8 +212,8 @@ at the `@BindType` attribute.
 - **THEN** the error reads `AccountRepository is bound per-scope-entry under test, but reaches the scope root through singleton 'AccountController'. Mark AccountController with @TestScopable to allow it to be lifted into the scope under test.`
 
 #### Scenario: an unreached singleton
-- **WHEN** an app singleton neither reaches the mock nor is reached from the seed's roots
-- **THEN** it is not lifted
+- **WHEN** an app singleton `Analytics` consumes the mocked `any AccountRepository` but no seed root reaches it
+- **THEN** it is not lifted, while the seed-reached `AccountController` is
 
 Pinned by: `Tests/WireGenCoreTests/ScopableCascadeTests.swift` (`testScopableMarkersDiscoveredOnTypeDeclarations`, `typeWithoutTestScopableIsNotMarked`, `cascadeLiftsMockedLeafAndMarkedHop`, `unreachableSingletonIsNotLifted`, `unmarkedHopFiresGuidedDiagnostic`, `markingHopClearsTheDiagnostic`, `liftedSingletonIsScopeBoundNotBorrowed`).
 
@@ -257,13 +283,13 @@ dependency-module binding reachability pruned from production is never reference
 Pinned by: nothing yet.
 
 ### Requirement: `@Replaces` is the whole-target alternative
-`@Replaces` SHALL substitute a binding by type in every graph of the target that declares it, with
+`@Replaces` SHALL substitute a binding by identity (type and key) in every graph of the target that declares it, with
 Wire constructing the replacement; `@BindType` SHALL substitute a slot in one key's variant only,
 with the test supplying the instance.
 
-#### Scenario: choosing by granularity
-- **WHEN** a test target needs one stateless fake with no handle on the instance
-- **THEN** `@Replaces` on the fake suffices and no `TestingKey` is declared
+#### Scenario: a replacement in every graph
+- **WHEN** the target's `@Replaces` fake supersedes a library's `ComposeWidget`
+- **THEN** `Wire.bootstrapComposeRequestSeedScope(seed:wireGraph:)` over `Wire.bootstrap()` yields a consumer reading `"fake"`, and the library's real widget is never constructed
 
 Pinned by: `Tests/WireGenCoreTests/ReplacesTests.swift` (`providesReplacesSupersedesConcreteSingleton`, `homeModuleReplacesIsHonoured`), `Tests/IntegrationTests/ReplacesBindTypeComposeTests.swift` (`replacesAndBindTypeComposeWithCorrectPrecedence`). One `TestingKey` per target as served by an adapter is https://github.com/swift-wire/swift-wire/issues/336.
 
