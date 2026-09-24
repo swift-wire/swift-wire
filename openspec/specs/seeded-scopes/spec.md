@@ -33,11 +33,11 @@ binding's `ScopeKey` (`nil` for a `@Singleton` type and for a `@Provides` outsid
 
 Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`scopedTypeRoutedToPerSeedPartition`, `singletonAndScopedCoexistInSeparatePartitions`, `scopedInsideContainerRoutesToContainerAndSeedPartition`).
 
-### Requirement: Two bindings share a scope if and only if their seed text matches
+### Requirement: Two bindings in the same container share a scope if and only if their seed text matches
 WireGen SHALL key a scope by `ScopeKey.seed`, the trimmed source text of the base of the `seed:`
-argument's `.self` expression, with generic arguments kept verbatim. Bindings naming the same seed
-text SHALL share one partition, and bindings naming different seed text SHALL get independent
-partitions.
+argument's `.self` expression, with generic arguments kept verbatim. Bindings in the same container
+(or both outside any container) naming the same seed text SHALL share one partition; bindings naming
+different seed text, or in different containers, SHALL get independent partitions.
 
 #### Scenario: two types, one seed
 - **WHEN** `RequestLogger` and `RequestMetrics` are both `@Scoped(seed: RequestSeed.self)`
@@ -51,7 +51,11 @@ partitions.
 - **WHEN** `TenantCache` is `@Scoped(seed: TenantSeed<String>.self)`
 - **THEN** its partition's seed is `TenantSeed<String>`
 
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`twoScopedTypesSameSeedShareAPartition`, `scopedTypesWithDifferentSeedsGetIndependentPartitions`, `scopedSeedExpressionPreservesGenericArgs`).
+#### Scenario: one seed inside a container
+- **WHEN** `@Scoped(seed: RequestSeed.self) struct TestRequestLogger` is nested in `@Container enum TestContainer`
+- **THEN** it is in `Partition(container: "TestContainer", scope: ScopeKey(seed: "RequestSeed"))`, not the `(nil, RequestSeed)` partition
+
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`twoScopedTypesSameSeedShareAPartition`, `scopedTypesWithDifferentSeedsGetIndependentPartitions`, `scopedSeedExpressionPreservesGenericArgs`, `scopedInsideContainerRoutesToContainerAndSeedPartition`).
 
 ### Requirement: Scopes do not nest
 Every `ScopeKey` WireGen constructs SHALL have `within == nil`. A `@Scoped(seed:)` type declared
@@ -71,8 +75,10 @@ Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`scopedTypeRoutedToPer
 ### Requirement: WireGen builds one graph per seed scope
 For each container (the default graph included) and each seed with a non-empty partition in it,
 WireGen SHALL build one dependency graph from the partition's bindings, one synthetic binding for
-the seed, and one borrow binding per singleton of that container. The partition's scope graphs
-SHALL be emitted in ascending order of their identifier suffix.
+the seed, and one borrow binding per singleton of that container. The whole-scope facades of the
+seed scopes that no bridging contributor proxy enters (see
+[scope-entry-and-generated-names](../scope-entry-and-generated-names/spec.md)) SHALL be emitted in
+ascending order of their identifier suffix.
 
 #### Scenario: two seeds in one module
 - **WHEN** a module has bindings scoped to `RequestSeed` and to `JobSeed`
@@ -82,8 +88,10 @@ Pinned by: `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`multipleSeedS
 
 ### Requirement: The seed is bound in its own scope
 WireGen SHALL satisfy a dependency on the seed type inside its scope from the bootstrap's `seed:`
-parameter, whose internal name is `identifierName(forType:key:)` of the seed type, and SHALL store
-the seed on the scope struct. No `let` line SHALL be emitted for the seed.
+parameter, whose internal name is `identifierName(forType:key:)` of the seed type, and, for a seed
+scope that has a whole-scope facade (one no bridging contributor proxy enters; see
+[scope-entry-and-generated-names](../scope-entry-and-generated-names/spec.md)), SHALL store the seed
+on the scope struct. No `let` line SHALL be emitted for the seed.
 
 #### Scenario: a scoped binding that reads only the seed
 - **WHEN** `RequestLogger` is `@Scoped(seed: HBRequestSeed.self)` and injects `HBRequestSeed`
@@ -99,7 +107,11 @@ Pinned by: `Tests/WireGenCoreTests/SeedScopeOrchestrationTests.swift` (`scopeBin
 Each singleton of the scope's container SHALL be available in the scope as a borrow whose access
 path is `<parent graph local>.<property>` (`_wireGraph.<property>` over the default graph). WireGen
 SHALL inline that access path at each consumer's argument site, and SHALL NOT construct the
-singleton again, bind it to a local, or store it on the scope struct.
+singleton again, bind it to a local, or store it on the scope struct, except that an existential
+promotion of a borrowed singleton binds one alias local (`let any<P>: any <P> = <access path>`),
+which its consumers then receive. This holds for production scopes over the default graph or a
+container; a testing variant's scope may lift `@TestScopable` singletons and `@BindType`d slots into
+the scope (see [testing-variants](../testing-variants/spec.md)).
 
 #### Scenario: a scoped logger over the app logger
 - **WHEN** `@Scoped(seed: TestRequestSeed.self) struct RequestLogger` injects `TestRequestSeed` and the singleton `Logger`
@@ -109,7 +121,11 @@ singleton again, bind it to a local, or store it on the scope struct.
 - **WHEN** the default graph holds `HTTPClient` and no scoped binding injects it
 - **THEN** the scope graph lists it as borrowed (`hTTPClient`) and the emitted bootstrap does not mention it
 
-Pinned by: `Tests/WireGenCoreTests/SeedScopeOrchestrationTests.swift` (`scopeBindingBorrowingSingletonValidates`, `unreferencedSingletonsStillAppearInTopologicalOrderButAreBorrowed`), `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`seedScopeBorrowingSingletonsExcludesThemFromStoredProperties`), `Tests/IntegrationTests/RequestLogger.swift`, `Tests/IntegrationTests/BootstrapTests.swift` (`seedScopeBootstrapInjectsSeedAndBorrowsSingleton`, `seedScopeBootstrapResolvesInScopeDependencies`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
+#### Scenario: a borrowed singleton promoted to an existential
+- **WHEN** `ScopedGreetingReporter`, scoped to `TestRequestSeed`, injects `any Greeting` and the default graph binds an opaque `Greeting` producer
+- **THEN** the bootstrap contains `let anyGreeting: any Greeting = _wireGraph.someGreeting` and constructs `ScopedGreetingReporter(testRequestSeed: testRequestSeed, greeting: anyGreeting)`
+
+Pinned by: `Tests/WireGenCoreTests/SeedScopeOrchestrationTests.swift` (`scopeBindingBorrowingSingletonValidates`, `unreferencedSingletonsStillAppearInTopologicalOrderButAreBorrowed`), `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`seedScopeBorrowingSingletonsExcludesThemFromStoredProperties`), `Tests/IntegrationTests/RequestLogger.swift`, `Tests/IntegrationTests/BootstrapTests.swift` (`seedScopeBootstrapInjectsSeedAndBorrowsSingleton`, `seedScopeBootstrapResolvesInScopeDependencies`, `scopedExistentialConsumerBorrowsThePromotedSingleton`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
 ### Requirement: A container's seed scope borrows from that container's graph
 A seed scope inside `@Container <C>` SHALL take `_<C>WireGraph` as its parent graph and SHALL borrow
@@ -122,23 +138,36 @@ is `<C>` with its first letter lower-cased. It SHALL NOT borrow from the default
 
 Pinned by: `Tests/WireGenCoreTests/SeedScopeOrchestrationTests.swift` (`containerScopeOrchestrationCarriesContainerSpecificParentGraphType`), `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`containerScopeEmissionTargetsContainerWireGraphAsParent`), `Tests/IntegrationTests/BootstrapTests.swift` (`containerScopeBootstrapBorrowsFromContainerWireGraph`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
-### Requirement: Each scope entry constructs its bindings afresh
-Each call of a seed scope's bootstrap SHALL construct every scoped binding again from the seed it is
-given, while reading the same borrowed singletons from the graph it is passed.
+### Requirement: Each scope entry evaluates its producers afresh
+Each call of a seed scope's bootstrap SHALL evaluate every scoped binding's producer again (a
+`@Scoped` type's initialiser, a `@Provides` function, or a `@Provides` property read) with the seed
+it is given, while reading the same borrowed singletons from the graph it is passed. A
+`@Provides static let` in a scope block is read, not rebuilt, so every entry receives the same
+value.
 
 #### Scenario: two entries over one graph
 - **WHEN** `Wire.bootstrapTestRequestSeedScope` is called with seeds `"a"` and `"b"` over the same graph
 - **THEN** the two scopes' loggers produce `"[log] [a] ping"` and `"[log] [b] ping"`
 
-Pinned by: `Tests/IntegrationTests/BootstrapTests.swift` (`seedScopeEntriesProduceDistinctInstances`).
+#### Scenario: a property-form provider in a scope block
+- **WHEN** `@Scoped(seed: OrderSeed.self) enum OrderProviders` declares `@Provides static let auditTag: AuditTag`
+- **THEN** the bootstrap contains `let auditTag = OrderProviders.auditTag`, a read of the static property on every entry
+
+Pinned by: `Tests/IntegrationTests/BootstrapTests.swift` (`seedScopeEntriesProduceDistinctInstances`), `GoldenHarness/Golden/_WireGraph.swift.golden`. Instance identity across entries is pinned by nothing yet.
 
 ### Requirement: A singleton injecting a scoped binding is a missing binding with a cross-scope note
 When a binding in a container's singleton partition depends on a type bound only in a seed scope of
 the same container, WireGen SHALL report `error: no binding produces '<Type>'` at the dependency
-site, followed by `note: '<Type>' is bound in @Scoped(seed: <Seed>.self) scope, not @Singleton` at
-the binding's declaration and a note at the dependency site reading "scope '<consumer>' to
-@Scoped(seed: <Seed>.self) too, or extract the scope-bound concern into a wrapper bound at the
-wider scope". The consumer SHALL be named by its type name, or by its access path for a provider.
+site, followed by `note: '<Type>' is bound in <binding scope> scope, not <consumer scope>` at the
+binding's declaration and a note at the dependency site reading "scope '<consumer>' to <binding
+scope> too, or extract the scope-bound concern into a wrapper bound at the wider scope". A scope
+label SHALL read `@Singleton` for the default graph, `@Container <C>` for a container's singletons,
+`@Scoped(seed: <Seed>.self)` for a default-graph seed scope and `@Container <C> / @Scoped(seed:
+<Seed>.self)` for a container's seed scope. The consumer SHALL be named by its type name, by its
+access path for a provider, or by its key reference for an aggregate. When the consumer is the
+factory WireGen synthesises for a `@Factory` template, the fix-it note SHALL instead name the
+template and explain its lifetime ("'<Template>' is a @Factory template, so it has no scope of its
+own ..."; see [factory-templates](../factory-templates/spec.md)).
 
 #### Scenario: a singleton storing a request logger
 - **WHEN** `@Singleton struct Foo` has `@Inject var logger: RequestLogger` and `RequestLogger` is `@Scoped(seed: HBRequestSeed.self)`
@@ -148,34 +177,37 @@ wider scope". The consumer SHALL be named by its type name, or by its access pat
 - **WHEN** `@Provides func makeWidget(logger: RequestLogger) -> Widget` is at module scope
 - **THEN** the fix-it note contains `scope 'makeWidget'`
 
-Pinned by: `Tests/WireGenCoreTests/CrossScopeDiagnosticsTests.swift` (`singletonStoringScopedBindingRendersCrossScopeNote`, `providerConsumerSurfacedInFixItAsAccessPath`).
+#### Scenario: a `@Factory` template as the consumer
+- **WHEN** `@Factory(ControllerMiddleware.screenAccess) struct ScreenAccess<Ctx>` has `@Inject var caller: Caller` and `Caller` is `@Scoped(seed: HTTPRequest.self)`
+- **THEN** the output contains `error: no binding produces 'Caller'` and `'ScreenAccess' is a @Factory template`, and does not contain `scope '_WireFactory_ControllerMiddleware_screenAccess'`
+
+Pinned by: `Tests/WireGenCoreTests/CrossScopeDiagnosticsTests.swift` (`singletonStoringScopedBindingRendersCrossScopeNote`, `providerConsumerSurfacedInFixItAsAccessPath`), `Tests/WireGenCoreTests/FactoryLifetimeDiagnosticsTests.swift` (`aTemplateInjectingAScopedBindingIsNamedByTheTemplate`). The `@Container <C> / @Scoped(seed: <Seed>.self)` label and the aggregate consumer name are pinned by nothing yet.
 
 ### Requirement: Sibling seeded scopes are isolated
 A seed scope's graph SHALL resolve only against its own partition, its seed and its container's
 singletons. A dependency on a type bound only in another seed scope of the same container SHALL be
 a missing binding whose notes name the other scope and read "sibling seeded scopes are isolated by
 design; restructure so '<consumer>' lives in the same scope, or extract the cross-scope concern into
-a wrapper bound at the singleton level".
+a wrapper bound at the singleton level", unless the consumer is the factory WireGen synthesises for
+a `@Factory` template, in which case the fix-it note names the template and explains its lifetime
+instead.
 
 #### Scenario: one seed's binding injects another's
 - **WHEN** `@Scoped(seed: SeedA.self) struct AService` injects `BService`, which is `@Scoped(seed: SeedB.self)`
 - **THEN** the `SeedA` graph reports `error: no binding produces 'BService'` with `note: 'BService' is bound in @Scoped(seed: SeedB.self) scope, not @Scoped(seed: SeedA.self)` and the isolation note
 
-Pinned by: `Tests/WireGenCoreTests/CrossScopeDiagnosticsTests.swift` (`siblingSeededScopesProduceIsolationFixIt`).
+Pinned by: `Tests/WireGenCoreTests/CrossScopeDiagnosticsTests.swift` (`siblingSeededScopesProduceIsolationFixIt`). The `@Factory` template exception between sibling scopes is pinned by nothing yet.
 
 ### Requirement: A dependency bound nowhere carries no cross-scope note
-When no other partition binds the missing `(type, key)`, WireGen SHALL report the missing binding
-alone, without an `is bound in` note or a fix-it note.
+When no other partition binds the missing `(type, key)`, WireGen SHALL attach no cross-scope hint to
+the missing binding: no `is bound in` note and no scope fix-it note. Other notes, such as the
+typealias or optional-mismatch note, are unaffected.
 
 #### Scenario: an unbound type
 - **WHEN** `@Singleton struct Foo` injects `NotABinding` and nothing binds it
 - **THEN** the output contains `error: no binding produces 'NotABinding'` and does not contain `is bound in`
 
-#### Scenario: an unbound type inside a scope
-- **WHEN** a `HBRequestSeed`-scoped binding depends on `MissingService` and neither the scope, the seed nor any borrow provides it
-- **THEN** the scope graph fails validation with a missing binding
-
-Pinned by: `Tests/WireGenCoreTests/CrossScopeDiagnosticsTests.swift` (`crossScopeHintIsAbsentForGenuinelyMissingBindings`), `Tests/WireGenCoreTests/SeedScopeOrchestrationTests.swift` (`scopeBindingMissingDependencyFails`).
+Pinned by: `Tests/WireGenCoreTests/CrossScopeDiagnosticsTests.swift` (`crossScopeHintIsAbsentForGenuinelyMissingBindings`). The same absence for a consumer inside a seed scope is pinned by nothing yet.
 
 ### Requirement: A `@Scoped(seed:)` enum is a scope block for its `@Provides`
 WireGen SHALL record each `@Provides` declared inside an `enum` carrying `@Scoped(seed: <Seed>.self)`,
@@ -190,7 +222,7 @@ the enclosing container and that seed, and SHALL NOT record it in the singleton 
 - **WHEN** `@Scoped(seed: RequestSeed.self) enum Providers` is nested in `@Container enum App`
 - **THEN** its `@Provides` is in `Partition(container: "App", scope: ScopeKey(seed: "RequestSeed"))`
 
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`plainProvidesHasNoScopeKey`, `providesInScopeBlockInheritsTheBlockSeed`, `scopeBlockRoutesProvidersOutOfDefaultGraph`, `scopeBlockInContainerLandsInContainerSeedPartition`), `Tests/IntegrationTests/ScopedProvidesExample.swift`, `Tests/IntegrationTests/BootstrapTests.swift` (`scopeBlockProvidesResolveWithinSeedScope`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`plainProvidesHasNoScopeKey`, `providesInScopeBlockInheritsTheBlockSeed`, `scopeBlockRoutesProvidersOutOfDefaultGraph`, `scopeBlockInContainerLandsInContainerSeedPartition`), `Tests/IntegrationTests/ScopedProvidesExample.swift`, `Tests/IntegrationTests/BootstrapTests.swift` (`scopeBlockProvidesResolveWithinSeedScope`), `GoldenHarness/Golden/_WireGraph.swift.golden`. A `@Provides` in a type nested inside the block is pinned by nothing yet.
 
 ### Requirement: A `@Singleton` inside a scope block is an error
 WireGen SHALL report an error at the type's name when a `@Singleton` type is declared inside a
