@@ -16,10 +16,13 @@ Documentation: [InjectionPoints](../../../Sources/Wire/Wire.docc/InjectionPoints
 
 ### Requirement: `@Inject` stored properties become the synthesised initialiser's parameters
 When the primary declaration of a `@Singleton`, `@Scoped` or `@Factory` type has no user-written
-initialiser, the macro SHALL generate `init(<name>: <Type>, …)` taking one parameter per `@Inject`
-stored property in declaration order, assigning each with `self.<name> = <name>`, or `init()` when
-there are none. The generated `init` SHALL carry the host type's access keyword, omitting
-`internal`.
+initialiser, the macro SHALL generate `init(<name>: <Type>, …)` taking one parameter per
+type-annotated `@Inject` stored-property binding in declaration order, assigning each with
+`self.<name> = <name>`, or `init()` when there are none. A binding without its own annotation, such
+as `a` in `@Inject var a, b: Dep`, gets no parameter, which is tracked as a possible defect in
+https://github.com/swift-wire/swift-wire/issues/411. The generated `init` SHALL carry the host
+type's access keyword verbatim, omitting `internal`; for an `open` host that is `open init`, which
+Swift rejects, tracked in https://github.com/swift-wire/swift-wire/issues/407.
 
 #### Scenario: one injected property
 - **WHEN** `@Singleton struct A { @Inject var b: B }` is expanded
@@ -71,7 +74,8 @@ Pinned by: `Tests/WireMacrosImplTests/SingletonMacroTests.swift` (`test_singleto
 
 ### Requirement: `@Inject` on both an initialiser and a stored property is an error
 When one initialiser is marked `@Inject` and any stored property that would be a constructor
-injection point (an owning property or a `weak let`) is also marked `@Inject`, the macro SHALL
+injection point (an owning property, a `weak let`, or an `unowned` property; that is, any
+`@Inject` property except a `weak var`) is also marked `@Inject`, the macro SHALL
 report "@Inject is on both an initialiser and a stored property. Pick one source of truth — either
 the @Inject-marked initialiser declares dependencies via its parameters, or @Inject-marked
 properties declare them via Wire's auto-generated init." at the initialiser. An `@Inject weak var`
@@ -99,10 +103,14 @@ or 'public'." at an `@Inject init` declared `private` or `fileprivate`.
 Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`privateInjectInitEmitsDeclarationTooPrivateError`).
 
 ### Requirement: `@Inject weak var` is delivered after construction
-An `@Inject weak var` property, declared `T?` or `T!`, SHALL be excluded from the synthesised
-initialiser's parameters and recorded as a post-construction property-assignment member injection.
-The generated bootstrap SHALL assign it with `<consumer>.<property> = <producer>` after the
-construction sequence.
+On a `@Singleton` or `@Scoped` class host, an `@Inject weak var` property, declared `T?` or `T!`,
+SHALL be excluded from the synthesised initialiser's parameters and recorded as a post-construction
+property-assignment member injection, and the generated bootstrap SHALL assign it with
+`<consumer>.<property> = <producer>` after the construction sequence. An actor host goes through the
+generated setter in the next requirement. On a `@Factory` template the property is never assigned,
+tracked as a possible defect in https://github.com/swift-wire/swift-wire/issues/409; on a struct host
+the emitted assignment targets a `let` local, tracked in
+https://github.com/swift-wire/swift-wire/issues/410.
 
 #### Scenario: the synthesised init omits the weak property
 - **WHEN** `@Singleton final class View { @Inject weak var coordinator: Coordinator? }` is expanded
@@ -144,14 +152,14 @@ once per actor type and property, and the bootstrap SHALL call
 `await <consumer>._wireSet<Property>(<producer>)` in place of a direct assignment.
 
 #### Scenario: the emitted setter
-- **WHEN** an actor `View` holds a weak `coordinator` member injection
-- **THEN** the generated source contains `await view._wireSetCoordinator(coordinator)` and `func _wireSetCoordinator(_ value: Coordinator) {` with body `self.coordinator = value`
+- **WHEN** actor `Toolbelt` declares `@Inject package weak var workshop: Workshop?`
+- **THEN** the generated source contains `await toolbelt._wireSetWorkshop(workshop)` and `extension Toolbelt { func _wireSetWorkshop(_ value: Workshop?) {` with body `self.workshop = value`
 
 #### Scenario: two actors in a cycle
 - **WHEN** actor `Workshop` takes `Toolbelt` in its `@Inject init` and actor `Toolbelt` declares `@Inject weak var workshop: Workshop?`
 - **THEN** bootstrap succeeds and `await graph.toolbelt.workshop === graph.workshop`
 
-Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`propertyAssignmentOnActorConsumerRoutesThroughGeneratedSetterExtension`), `Tests/IntegrationTests/BootstrapTests.swift` (`weakInjectionOnActorRoutesThroughGeneratedSetterExtension`) over `Tests/IntegrationTests/ActorWeakCycleExample.swift`.
+Pinned by: `GoldenHarness/Golden/_WireGraph.swift.golden` (`_wireSetWorkshop`), `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`propertyAssignmentOnActorConsumerRoutesThroughGeneratedSetterExtension`), `Tests/IntegrationTests/BootstrapTests.swift` (`weakInjectionOnActorRoutesThroughGeneratedSetterExtension`) over `Tests/IntegrationTests/ActorWeakCycleExample.swift`.
 
 ### Requirement: `weak let` and `unowned` properties are constructor-injected
 An `@Inject weak let` property SHALL be a synthesised-initialiser parameter of its declared optional
@@ -174,8 +182,8 @@ through them can name them, and neither SHALL produce a diagnostic when acyclic.
 Pinned by: `Tests/WireMacrosImplTests/SingletonMacroTests.swift` (`test_injectWeakLet_includedInSynthesisedInitParameters`), `Tests/WireGenCoreTests/DiscoveryTests.swift` (`weakInjectLetBecomesInitDependencyNotMemberInjection`, `weakInjectLetEmitsNoBlanketDiagnostic`, `weakInjectLetWithIUOBecomesInitDependency`, `unownedInjectBecomesInitDependencyFlaggedNonOwning`), `Tests/IntegrationTests/BootstrapTests.swift` (`weakLetInjectionDeliversNonOwningReferenceAtInit`, `unownedInjectionDeliversNonOwningReferenceAtInit`) over `Tests/IntegrationTests/WeakLetExample.swift` and `Tests/IntegrationTests/UnownedExample.swift`.
 
 ### Requirement: `@Inject func` is called after construction
-Each `@Inject func` on a `@Singleton` or `@Scoped` type SHALL be recorded as a method-call member
-injection whose parameters resolve through the graph. The bootstrap SHALL call it after the
+Each `@Inject func` on a `@Singleton` or `@Scoped` type, other than an `@Inject mutating func` on a
+struct (see below), SHALL be recorded as a method-call member injection whose parameters resolve through the graph. The bootstrap SHALL call it after the
 construction sequence as `[try] [await] <consumer>.<method>(<args>)`, with `try` when the method
 throws and `await` when the method is `async` or the host is an `actor`.
 
@@ -209,8 +217,8 @@ Pinned by: `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`privateInject
 WireGen SHALL report an error beginning "'@Inject mutating func' on a struct produces divergent
 state — consumers that received this binding via init see the pre-mutation value, only the
 graph-stored value reflects the mutation." at the method name of an `@Inject mutating func` on a
-`struct` host, and SHALL record no member injection for it. The same method on a class, or a
-non-mutating `@Inject func` on a struct, SHALL NOT be diagnosed.
+`struct` host, and SHALL record no member injection for it. A non-mutating `@Inject func` on a
+struct, or any `@Inject func` on a class, SHALL NOT be diagnosed.
 
 #### Scenario: a mutating method on a struct
 - **WHEN** `@Singleton struct Config` declares `@Inject mutating func receive(data: SomeData)`
@@ -234,8 +242,8 @@ Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`missingBindingDetectionFi
 initialisers taking a `BindingKey<Value>`, a `CollectedKey<Element>` (where `Value == [Element]`),
 a `MappedKey<Key, Element>` (where `Value == [Key: Element]`) and a `BuilderKey<Builder>`. WireGen
 SHALL read the key of `@Bind(<key>)` on an `@Inject init` or `@Provides func` parameter as that
-dependency's key, and the generated bootstrap SHALL pass the argument positionally as for an unkeyed
-parameter.
+dependency's key, and the generated bootstrap SHALL pass the keyed binding's value under the
+parameter's label, as for an unkeyed parameter.
 
 #### Scenario: a keyed single binding
 - **WHEN** `KeyedInitConsumer` declares `@Inject init(@Bind(AppName.boundViaInit) name: AppName)` and `@Provides(AppName.boundViaInit)` binds `AppName(value: "bound-via-init")`
