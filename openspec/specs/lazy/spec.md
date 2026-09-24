@@ -113,3 +113,4 @@ Pinned by: nothing yet.
 - [dependency-cycles](../dependency-cycles/spec.md)
 - [reachability-and-retention](../reachability-and-retention/spec.md)
 - [construction-scheduling](../construction-scheduling/spec.md)
+- [providers](../providers/spec.md)
