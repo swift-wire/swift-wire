@@ -2,15 +2,15 @@
 
 ## Purpose
 
-The declarations that put a binding in a graph. `@Singleton` and `@Scoped(seed:)` make a type its
-own producer: the macro synthesises the initialiser Wire calls and a `static key`, and WireGen
-records the type as a binding of the app partition or of the seed's scope. `@Factory(key)` is the
-third lifetime macro and is exclusive with the other two. `@Provides` is a marker on a property or
-function that WireGen records as a producer of its declared type, with a function's parameters as
-its dependencies.
+The lifetime macros that make a type its own producer. `@Singleton` and `@Scoped(seed:)` synthesise
+the initialiser Wire calls and a `static key`, and WireGen records the type as a binding of the app
+partition or of the seed's scope, with its injected members as dependencies. `@Factory(key)` is the
+third lifetime macro and is exclusive with the other two. Producers declared with `@Provides` are
+specified in [providers](../providers/spec.md), and what `allowUnused:` does in
+[reachability-and-retention](../reachability-and-retention/spec.md).
 
-Rationale: [OpaqueTypesSupport](../../../Documentation/Notes/OpaqueTypesSupport.md), [VisibilityModel](../../../Documentation/Notes/VisibilityModel.md).
-Documentation: [ProvidingValues](../../../Sources/Wire/Wire.docc/ProvidingValues.md), [InjectionPoints](../../../Sources/Wire/Wire.docc/InjectionPoints.md), [ScopesAndLifetimes](../../../Sources/Wire/Wire.docc/ScopesAndLifetimes.md).
+Rationale: [VisibilityModel](../../../Documentation/Notes/VisibilityModel.md).
+Documentation: [ScopesAndLifetimes](../../../Sources/Wire/Wire.docc/ScopesAndLifetimes.md), [InjectionPoints](../../../Sources/Wire/Wire.docc/InjectionPoints.md).
 
 ## Requirements
 
@@ -163,121 +163,6 @@ partition and a `@Scoped(seed: S.self)` in the partition of seed `S`.
 
 Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`singletonOnStructIsDiscovered`, `singletonOnClassIsDiscovered`, `singletonOnActorIsDiscovered`, `injectInitParametersTakePrecedenceOverProperties`, `multipleInjectPropertiesInOrder`, `unannotatedTypeIsIgnored`, `scopedTypeRoutedToPerSeedPartition`, `singletonAndScopedCoexistInSeparatePartitions`), `Tests/IntegrationTests/BootstrapTests.swift` (`bootstrapWiresFullDependencyChain`).
 
-### Requirement: `@Provides` is a marker that generates nothing
-The `@Provides` macro SHALL expand to no peers on a property or function, at module scope or as a
-`static` member.
-
-#### Scenario: a static function
-- **WHEN** `enum E { @Provides static func make() -> Foo { Foo() } }` is expanded
-- **THEN** the source is unchanged
-
-Pinned by: `Tests/WireMacrosImplTests/ProvidesMacroTests.swift` (`test_providesOnTopLevelLet_producesNoPeers`, `test_providesOnTopLevelFunc_producesNoPeers`, `test_providesOnStaticLet_producesNoPeers`, `test_providesOnStaticFunc_producesNoPeers`).
-
-### Requirement: `@Provides` is recognised at module scope and on `static` members only
-WireGen SHALL record a `@Provides` property or function declared at module scope, or declared
-`static` inside a struct, class, enum, actor or extension, with an access path of the enclosing
-type names and the member name joined by `.`. It SHALL ignore `@Provides` on an instance member.
-
-#### Scenario: a nested static
-- **WHEN** `enum Outer { enum Inner { @Provides static let foo: Foo = Foo() } }` is discovered
-- **THEN** the provider's access path is `Outer.Inner.foo`
-
-#### Scenario: an instance member
-- **WHEN** `struct AppConfig { @Provides let logger: Logger = Logger() }` is discovered
-- **THEN** no provider is recorded
-
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesOnTopLevelLetIsDiscovered`, `providesOnStaticLetCapturesEnclosingTypeInAccessPath`, `providesOnStaticFuncCapturesEnclosingTypeInAccessPath`, `providesNestedInsideTypesProducesDottedAccessPath`, `providesOnInstanceMemberIsSkipped`), `Tests/IntegrationTests/BootstrapTests.swift` (`providersAtAllAttachmentSitesProduceWiredGraph`).
-
-### Requirement: A `@Provides` property binds its annotated or constructed type
-WireGen SHALL take a `@Provides` property's bound type from its type annotation, or, when there is
-none, from an initialiser of the form `Foo(…)` or `Foo<Bar>(…)` whose called name starts with an
-uppercase letter. A property whose type neither source determines, or a declaration with more than
-one pattern binding, SHALL be skipped without a diagnostic.
-
-#### Scenario: an inferred type
-- **WHEN** `@Provides let logger = Logger()` is discovered
-- **THEN** the provider's bound type is `Logger`
-
-#### Scenario: a member access
-- **WHEN** `@Provides let logger = Logger.shared` is discovered
-- **THEN** no provider is recorded
-
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesLetInferredFromConstructorCallIsDiscovered`, `providesLetInferredFromGenericConstructorCall`, `providesLetTypeAnnotationTakesPrecedenceOverConstructorCall`, `providesLetFromMemberAccessIsSkipped`, `providesLetFromLowercaseFunctionCallIsSkipped`, `providesLetFromLiteralIsSkipped`).
-
-### Requirement: A `@Provides` computed property carries its getter's effects
-WireGen SHALL record a `@Provides` computed property with the `async` and `throws` specifiers of its
-`get` accessor, and a stored `@Provides` property as neither.
-
-#### Scenario: an async throwing getter
-- **WHEN** `@Provides var fetchedFoo: Foo { get async throws { … } }` is bootstrapped
-- **THEN** the graph awaits and tries the getter and injects its value
-
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesComputedPropertyWithEffectsCapturesFlags`, `providesStoredPropertyHasNoEffects`), `Tests/IntegrationTests/BootstrapTests.swift` (`asyncThrowsComputedPropertyResolvesThroughBootstrap`).
-
-### Requirement: A `@Provides` function's parameters are its dependencies
-WireGen SHALL record a `@Provides` function's return type as its bound type and each of its
-parameters, in order, as a dependency resolved by type (or by `@Bind` key). A `@Provides` function
-with no return clause SHALL be skipped.
-
-#### Scenario: two parameters
-- **WHEN** `@Provides func makeRepository(table: TaskTable, logger: Logger) -> Repository` is discovered
-- **THEN** the provider binds `Repository` with dependencies `TaskTable` and `Logger`
-
-#### Scenario: no return type
-- **WHEN** `@Provides func sideEffect() { … }` is discovered
-- **THEN** no provider is recorded
-
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesOnTopLevelFuncWithoutParametersIsDiscovered`, `providesOnTopLevelFuncWithParametersBecomesDependencies`, `providesOnVoidReturningFuncIsSkipped`, `providesPreservesGenericInstantiationInBoundType`), `Tests/IntegrationTests/BootstrapTests.swift` (`providersAtAllAttachmentSitesProduceWiredGraph`).
-
-### Requirement: `@Provides(key)` records the key's written text
-WireGen SHALL record the positional first argument of `@Provides(…)` as the provider's key, as its
-trimmed source text. A leading labelled argument SHALL mean the provider has no key.
-
-#### Scenario: a keyed provider
-- **WHEN** `@Provides(Foo.primary, allowUnused: true) let foo: Foo = Foo()` is discovered
-- **THEN** the provider's key is `Foo.primary`
-
-#### Scenario: a label only
-- **WHEN** `@Provides(allowUnused: true) let foo: Foo = Foo()` is discovered
-- **THEN** the provider has no key
-
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesWithoutKeyArgumentHasNilKeyIdentifier`, `providesWithMemberAccessKeyExtractsCanonicalText`, `providesFunctionWithKeyExtractsCanonicalText`, `allowUnusedTrueIsCapturedOnProvides`, `keyedProvidesWithAllowUnusedCapturesBoth`).
-
-### Requirement: `@Provides` in an unannotated extension falls through to the default graph
-A `@Provides` inside an `extension` that does not carry `@Container` SHALL be recorded in the
-enclosing partition, not the extended type's container. When the extended type is a `@Container`,
-WireGen SHALL warn "@Provides '<name>' in an unannotated extension of '<Type>' falls through to the
-default graph — mark the extension @Container to contribute to '<Type>'s container instead."
-
-#### Scenario: an extension of a container
-- **WHEN** `@Container enum TestContainer` is declared and `extension TestContainer { @Provides static let extra: Extra = Extra() }` is discovered
-- **THEN** `TestContainer.extra` is a default-graph binding and the extension site is recorded as a warning candidate
-
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesInUnannotatedExtensionFallsThroughToDefault`, `unannotatedExtensionProvidesIsRecordedAsCandidate`, `containerAnnotatedExtensionProvidesIsNotACandidate`). The warning text is pinned by nothing yet.
-
-### Requirement: `@Provides` in an extension of an undeclared type is a warning
-When the extended type is neither a `@Container` nor a type declared in the module, and its written
-name contains no `.` or `<`, WireGen SHALL warn "@Provides '<name>' in an extension of '<Type>' —
-'<Type>' isn't declared in this module, so the binding falls through to the default graph and any
-@Container on '<Type>' elsewhere isn't visible to discovery. …"
-
-#### Scenario: an imported type
-- **WHEN** `extension Logger { @Provides static let appLogger: Logger = Logger() }` is discovered and no `Logger` is declared in the module
-- **THEN** one warning containing "'Logger' isn't declared in this module" is reported
-
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`crossModuleExtensionWarningFiresForUndeclaredType`, `crossModuleExtensionWarningSkipsLocallyDeclaredType`, `crossModuleExtensionWarningDefersToContainerWarning`, `crossModuleExtensionWarningSkipsMemberTypeTargets`).
-
-### Requirement: `allowUnused:` counts only as a literal `true`
-WireGen SHALL mark a `@Singleton`, `@Scoped` or `@Provides` binding as `allowUnused` only when the
-attribute's `allowUnused:` argument is the boolean literal `true`. The macros SHALL expand the same
-members whether or not `allowUnused:` is present.
-
-#### Scenario: a literal flag
-- **WHEN** `@Singleton(allowUnused: true) struct A {}` is discovered
-- **THEN** the binding is marked `allowUnused`, and the macro adds the same `init()` and key as a plain `@Singleton`
-
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`allowUnusedTrueIsCapturedOnSingleton`, `plainSingletonIsNotAllowUnused`, `allowUnusedTrueIsCapturedOnProvides`), `Tests/WireMacrosImplTests/SingletonMacroTests.swift` (`test_singletonWithAllowUnused_generatesSameMembers`). A non-literal argument is pinned by nothing yet.
-
 ## Related specifications
 
 - [injection-points](../injection-points/spec.md)
@@ -289,3 +174,4 @@ Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`allowUnusedTrueIsCapt
 - [visibility-and-access](../visibility-and-access/spec.md)
 - [reachability-and-retention](../reachability-and-retention/spec.md)
 - [build-plugin-and-wiregen-cli](../build-plugin-and-wiregen-cli/spec.md)
+- [providers](../providers/spec.md)
