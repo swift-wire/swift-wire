@@ -21,8 +21,8 @@ output files are `_WireGraph.swift` and `_WireKeyChecks.swift` in the plugin wor
 target with no source module or no `.swift` files SHALL get no command.
 
 #### Scenario: a consumer target with sources
-- **WHEN** the plugin runs on `IntegrationTests`, which depends on the Wire-aware sibling `WireTestLibrary`
-- **THEN** one command runs `WireGen` over both modules' sources and SwiftPM compiles the emitted `_WireGraph.swift` and `_WireKeyChecks.swift` into the target
+- **WHEN** the plugin runs on `IntegrationTests`, whose direct dependencies `WireTesting` and `WireTestLibrary` both depend on the `Wire` target
+- **THEN** one command runs `WireGen` over the three modules' sources (`IntegrationTests`, then `WireTesting`, then `WireTestLibrary`) and SwiftPM compiles the emitted `_WireGraph.swift` and `_WireKeyChecks.swift` into the target
 
 Pinned by: `BuildAndTestLinux` and `BuildAndTestMacOS` jobs in `.github/workflows/swift.yml` (the `IntegrationTests` target only builds if both outputs are produced and compile).
 
@@ -32,7 +32,7 @@ dependency of the consumer and that module's own dependencies name `Wire`, by ta
 name (`dependsOnWire`). Transitive dependencies SHALL NOT be activated, whatever they depend on.
 
 #### Scenario: a same-package Wire-aware sibling
-- **WHEN** `IntegrationTests` depends on `WireTestLibrary`, which depends on `Wire` and declares `public @Singleton LibraryService`
+- **WHEN** `IntegrationTests` depends on `WireTestLibrary`, which depends on `Wire` and declares `public @Singleton(allowUnused: true) LibraryService`
 - **THEN** `try await Wire.bootstrap()` in `IntegrationTests` exposes `graph.libraryService`
 
 #### Scenario: a transitively depended Wire-aware package
@@ -47,14 +47,14 @@ same-package `.target` dependency as `--module <name> <files…>` and each activ
 `.product` dependency as `--external-module <name> <files…>`, deduplicated by module name.
 
 #### Scenario: a same-package dependency
-- **WHEN** `WireTestLibrary` is a `.target` dependency and declares a `package`-visible `@Singleton PackageVisibleService`
+- **WHEN** `WireTestLibrary` is a `.target` dependency and declares a `package`-visible `@Singleton(allowUnused: true) PackageVisibleService`
 - **THEN** it is passed as `--module WireTestLibrary` and the `package` binding composes into `IntegrationTests`
 
 #### Scenario: an external package dependency
 - **WHEN** `WireHarnessLibrary` is a `.product` dependency of the harness consumer
 - **THEN** it is passed as `--external-module WireHarnessLibrary` and its `public` bindings compose across the package boundary
 
-Pinned by: `Tests/IntegrationTests/CrossModuleCompositionTests.swift` (`samePackagePackageVisibleBindingIsComposed`), `CompositionHarness/run-harness.sh` via the `CompositionHarness` job in `.github/workflows/swift.yml`.
+Pinned by: `Tests/IntegrationTests/CrossModuleCompositionTests.swift` (`samePackagePackageVisibleBindingIsComposed`), `CompositionHarness/run-harness.sh` via the `CompositionHarness` job in `.github/workflows/swift.yml` (the external bindings composing). The `--external-module` classification itself is pinned by nothing yet.
 
 ### Requirement: `--testing-variants` is passed for test targets only
 The plugin SHALL add `--testing-variants` to the `WireGen` arguments when the target's
@@ -64,7 +64,7 @@ The plugin SHALL add `--testing-variants` to the `WireGen` arguments when the ta
 - **WHEN** `IntegrationTests` declares `WireDoublesFixture.bindMockRepo = TestingKey()` with a `@BindType`
 - **THEN** the build succeeds and `Wire.bootstrapWireDoublesFixture_bindMockRepo()` exists
 
-Pinned by: `Tests/IntegrationTests/BindTypeDoublesTests.swift` (`suppliedMockInstanceFlowsThroughScopeEntry`), `GoldenHarness/run-golden-harness.sh`. The production-target half is pinned by nothing yet.
+Pinned by: `Tests/IntegrationTests/BindTypeDoublesTests.swift` (`suppliedMockInstanceFlowsThroughScopeEntry`). The production-target half is pinned by nothing yet.
 
 ### Requirement: Very large input sets raise a plugin warning
 When the consumer's sources plus activated dependencies' sources exceed 5000 files, the plugin SHALL
@@ -81,9 +81,10 @@ Pinned by: nothing yet.
 ### Requirement: The `WireGen` argument grammar
 `WireGen` SHALL take, in order, the graph output path, the key-checks output path, then one or more
 groups each introduced by `--module <name>` or `--external-module <name>` and followed by that
-module's source paths; `--testing-variants` SHALL be accepted anywhere in the argument list and removed before group parsing.
-The first group SHALL be the consumer module. With fewer than three arguments, no group, or a group
-flag without a name, `WireGen` SHALL write
+module's source paths; `--testing-variants` SHALL be accepted anywhere after the two output paths and removed before group parsing.
+The first group SHALL be the consumer module. With fewer than three arguments, no group, a token
+other than `--module` or `--external-module` where a group is expected, or a group flag without a
+name, `WireGen` SHALL write
 `error: WireGen requires two output paths (graph + key checks) and at least one --module group.`
 followed by
 `usage: WireGen <graph-output-path> <key-checks-output-path> [--testing-variants] --module <name> <source-files...> [--module <name> <source-files...>]`
@@ -104,17 +105,22 @@ Pinned by: `GoldenHarness/run-golden-harness.sh`. The usage path is pinned by no
 `<file>:<line>:<col>: warning: <message>`, each note as `<file>:<line>:<col>: note: <message>`,
 and SHALL write them to stderr before any graph-validation block. A graph that fails validation
 SHALL be reported under a line `in graph '<name>':` where `<name>` is `default`, the container
-name, or `scope '<Seed>'`.
+name, or `scope '<Seed>'`, and a testing-variant scope that fails validation SHALL be reported under
+a line `in testing variant '<Key>' scope '<Seed>':`.
 
 #### Scenario: every diagnostic line carries a position
-- **WHEN** a source set produces missing-binding, cycle and duplicate-binding errors
+- **WHEN** a source set produces graph-validation errors, for example a duplicate binding with its `also bound here` note
 - **THEN** every rendered line begins with a `file:line:col:` prefix
+
+#### Scenario: a discovery warning
+- **WHEN** `struct Mixed` in `Mixed.swift` carries both `@Container` and `@Singleton`
+- **THEN** the rendered line begins `Mixed.swift:3:8: warning: 'Mixed' carries both @Container and @Singleton`
 
 #### Scenario: a pruning warning reaches the build log
 - **WHEN** the harness consumer declares an unreached `@Singleton UnreachedHomeBinding`
 - **THEN** `swift build` output contains `'UnreachedHomeBinding' is declared but nothing reachable` and `mark it 'allowUnused: true'`
 
-Pinned by: `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`everyDiagnosticLineCarriesFileLineColPrefix`), `CompositionHarness/run-harness.sh` via the `CompositionHarness` job in `.github/workflows/swift.yml`.
+Pinned by: `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`everyDiagnosticLineCarriesFileLineColPrefix`, `containerWithScopeRendersAsDiagnostic`, `privateInjectWeakVarRendersWithAsymmetryNote`), `CompositionHarness/run-harness.sh` via the `CompositionHarness` job in `.github/workflows/swift.yml`. The `in graph` and `in testing variant` headers are pinned by nothing yet.
 
 ### Requirement: Any error-severity diagnostic fails the run before anything is written
 `WireGen` SHALL exit with status 1 when any diagnostic has `.error` severity, when any graph has
@@ -137,20 +143,22 @@ Pinned by: nothing yet.
 - **WHEN** no bindings are discovered
 - **THEN** the order renders as `topological order (0 binding(s)):` and `  (graph is empty)`
 
-#### Scenario: a three-binding graph
-- **WHEN** three bindings resolve in order
-- **THEN** the order renders as `topological order (3 binding(s)):` with entries `1.`, `2.` and `3.`
+#### Scenario: a two-binding graph
+- **WHEN** two bindings `First` and `Second` resolve in order
+- **THEN** the order renders as `topological order (2 binding(s)):` with entries `1. First` and `2. Second`
 
 Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`renderTopologicalOrderEmptyShowsEmptyNotice`, `renderTopologicalOrderNumbersEachEntry`), `Tests/WireGenCoreTests/DiscoveryTests.swift` (`discoveryReportHeaderAndCountWithEmptyInput`, `discoveryReportSkipsFilesWithNoBindings`).
 
 ### Requirement: The generated graph is a struct, a private bootstrap and a `Wire` facade
-`_WireGraph.swift` SHALL begin `// Generated by WireGen — do not edit.`, then the imports folded to
-one per module with access-level modifiers and `@_exported` dropped and attributes unioned, sorted
-and deduplicated, then any synthesised module-scope types, then
+`_WireGraph.swift` SHALL begin `// Generated by WireGen — do not edit.`, then the imports
+canonicalised to one line per module and import-kind specifier, with access-level modifiers and
+`@_exported` dropped and attributes unioned, deduplicated and sorted by rendered line (a captured
+`#if` import block is kept whole with its inner imports normalised), then any synthesised
+module-scope types, then
 `internal struct _WireGraph<T0: P0, …>: Introspectable, Teardownable` with one stored `let` per
 retained binding named from its bound type, then
 `private func _wireBootstrap() async throws -> _WireGraph<some P0, …>` constructing every binding
-in topological order, and finally one `internal enum Wire` whose
+in dependency order, and finally one `internal enum Wire` whose
 `static func bootstrap() async throws -> …` calls `try await _wireBootstrap()`. The generic clause
 SHALL be present only when the graph lifts opaque (`some P`) bindings.
 
@@ -164,9 +172,38 @@ SHALL be present only when the graph lifts opaque (`some P`) bindings.
 
 #### Scenario: imports are normalised
 - **WHEN** input files import one module at several access levels, with `@testable` on one of them, and another module twice
-- **THEN** the generated file carries each module once, sorted, with its access-level modifier dropped and its attributes kept
+- **THEN** the generated file carries each module once, with its access-level modifier dropped and its attributes kept, and the lines sorted by rendered text, so an attributed line such as `@testable import Internals` sorts before `import Foundation`
 
-Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`emptyGraphProducesBareBootstrap`, `singleNoDependencySingleton`, `importsAreEmittedSortedAndDeduplicated`, `importsArePreservedVerbatimWithModifiers`), `Tests/WireGenCoreTests/ImportNormalizationTests.swift` (`collapsesAccessLevels`, `dropsAccessModifier`, `unionsAttributes`, `sortsAndDeduplicates`, `emittersNormalize`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
+#### Scenario: an import-kind specifier is a separate import
+- **WHEN** input files import `public import struct Foundation.Data` and `import Foundation`
+- **THEN** the generated imports are `import Foundation` and `import struct Foundation.Data`
+
+#### Scenario: a platform-selection block is kept whole
+- **WHEN** a file captures `#if canImport(FoundationEssentials)` with `@_exported public import FoundationEssentials` and, under `#else`, `package import Foundation`
+- **THEN** the block is emitted whole as `#if canImport(FoundationEssentials)`, `import FoundationEssentials`, `#else`, `import Foundation`, `#endif`
+
+Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`emptyGraphProducesBareBootstrap`, `singleNoDependencySingleton`, `importsAreEmittedSortedAndDeduplicated`, `importsArePreservedVerbatimWithModifiers`), `Tests/WireGenCoreTests/ImportNormalizationTests.swift` (`collapsesAccessLevels`, `dropsAccessModifier`, `unionsAttributes`, `keepsKindSpecifier`, `normalizesInsideIfConfig`, `sortsAndDeduplicates`, `emittersNormalize`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
+
+### Requirement: The bootstrap is a linear chain unless the graph qualifies for construction scheduling
+`_wireBootstrap` SHALL construct the bindings as a linear chain in topological order, except that
+when `schedulerPlan` qualifies the graph it SHALL build a prefix on the chain, construct a scheduled
+region concurrently inside `withThrowingTaskGroup`, and build the suffix on the chain after the
+seam, with the scheduler's support declarations (such as `_WireBuilding`) emitted between the graph
+struct and the bootstrap.
+
+#### Scenario: a wholly synchronous graph
+- **WHEN** the only binding is a synchronous `@Singleton Leaf`
+- **THEN** the bootstrap contains `let leaf = Leaf()` and no `_WireBindingState` or `WireBuilding`
+
+#### Scenario: two independent async bindings
+- **WHEN** the graph holds two async bindings `Pool` and `Cache`, neither depending on the other
+- **THEN** the file declares `private struct _WireBuilding: ~Copyable {`, the bootstrap adds `_wireGroup.addTask { .pool(await Pool()) }`, and no `let pool = await Pool()` is emitted
+
+#### Scenario: prefix and suffix around the scheduled region
+- **WHEN** `Config` is upstream of the async `Pool`, `Service` waits on `Pool` only, and `Host` waits on both `Service` and the async `Cache`
+- **THEN** `let config = Config()` precedes `return try await withThrowingTaskGroup`, and `let host = Host(service: service, cache: cache)` follows the seam
+
+Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aWhollySyncGraphKeepsTheLinearChain`, `twoIndependentAsyncBindingsAreScheduled`, `aBindingUpstreamOfEveryAsyncOneStaysOnTheChain`, `aBindingWaitingOnEveryAsyncOneReturnsToTheChain`).
 
 ### Requirement: Named graphs share the default graph's shape
 Each `@Container` and each testing-variant app graph SHALL be emitted as
@@ -185,14 +222,20 @@ collected onto the single trailing `enum Wire`.
 Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`singleContainerEmitsItsOwnStructAlongsideEmptyDefault`, `defaultAndContainerBothEmitSideBySide`, `multipleContainersAreEmittedInSortedOrder`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
 ### Requirement: `@GraphInputs` adds an `inputs:` parameter to the default and testing-variant bootstraps
-When the consumer module declares a `@GraphInputs` type, `Wire.bootstrap`, `_wireBootstrap` and each
-testing-variant bootstrap SHALL take `inputs: <Type>`; a `@Container` graph's bootstrap SHALL NOT.
+When the consumer module or a same-package (`--module`) dependency declares a `@GraphInputs` type
+(the first such declaration in the home package), `Wire.bootstrap`, `_wireBootstrap` and each
+testing-variant bootstrap SHALL take `inputs: <Type>`; a `@Container` graph's bootstrap SHALL NOT. A
+declaration in an `--external-module` dependency SHALL be ignored with a warning.
 
 #### Scenario: a module with graph inputs
 - **WHEN** the graph-inputs harness consumer declares `@GraphInputs struct AppInputs` with a `configuration` property and two `@Provides(key)` properties
 - **THEN** `try await Wire.bootstrap(inputs: …)` constructs the graph and the values reach their consumers by type and by key
 
-Pinned by: `GraphInputsHarness/run-graph-inputs-harness.sh` via the `GraphInputsHarness` job in `.github/workflows/swift.yml`.
+#### Scenario: a declaration in an external dependency
+- **WHEN** the only `@GraphInputs` declaration, `LibraryInputs`, comes from the external module `SomeLibrary`
+- **THEN** no inputs type is resolved and a warning naming `SomeLibrary` is reported
+
+Pinned by: `GraphInputsHarness/run-graph-inputs-harness.sh` via the `GraphInputsHarness` job in `.github/workflows/swift.yml`, `Tests/WireGenCoreTests/GraphInputsDiscoveryTests.swift` (`aDependencysInputsAreIgnoredAndDiagnosed`, `aSamePackageModulesInputsAreUsed`). The container and testing-variant halves are pinned by nothing yet.
 
 ### Requirement: A constructed but unstored binding becomes an unavailable stub
 For each binding the graph constructs but does not store, `_WireGraph.swift` SHALL emit, on one
@@ -211,8 +254,9 @@ normalised imports, and SHALL contain one `private func _wireTypeCheck_<n>()` pe
 `(key expression, declared type)` pair, each declaring
 `func _check<T>(_: BindingKey<T>, _: T.Type) {}` and, per source site,
 `#sourceLocation(file: "<file>", line: <line>)`, `_check(<key>, <Type>.self)` and
-`#sourceLocation()`. Multibinding keys and injection-rewrite keys SHALL be excluded, and the file
-SHALL be emitted with the header alone when there are no keyed sites.
+`#sourceLocation()`. Multibinding keys, injection-rewrite keys, and sites whose declared type begins
+with `any ` or `some ` SHALL be excluded, and when there are no keyed sites the file SHALL contain
+only the header comment block and the normalised imports.
 
 #### Scenario: no keyed bindings
 - **WHEN** the input holds only unkeyed bindings
@@ -226,7 +270,11 @@ SHALL be emitted with the header alone when there are no keyed sites.
 - **WHEN** a keyed provider and two keyed consumers all use `(Database.primary, Database)`
 - **THEN** one function carries three `_check` calls, each under its own `#sourceLocation`
 
-Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`keyChecksEmptyInputProducesHeaderOnlyFile`, `keyChecksUnkeyedBindingsProduceNoFunctions`, `keyedProviderProducesCheckFunction`, `keyedDependencyProducesCheckFunction`, `sameKeyAndTypeAtMultipleSitesDedupesToOneFunction`), `GoldenHarness/Golden/_WireKeyChecks.swift.golden`.
+#### Scenario: an existential keyed provider
+- **WHEN** `@Provides(Logger.fancy)` binds `any Logger`
+- **THEN** the file contains no `_wireTypeCheck_` function
+
+Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`keyChecksEmptyInputProducesHeaderOnlyFile`, `keyChecksUnkeyedBindingsProduceNoFunctions`, `keyedProviderProducesCheckFunction`, `keyedDependencyProducesCheckFunction`, `sameKeyAndTypeAtMultipleSitesDedupesToOneFunction`, `anyProtocolBindingsAreSkipped`, `someProtocolBindingsAreSkipped`), `GoldenHarness/Golden/_WireKeyChecks.swift.golden`.
 
 ### Requirement: Generated output is deterministic and path-relative
 For the same input files in the same order, `WireGen` SHALL produce byte-identical output. Source
