@@ -31,8 +31,13 @@ WireGen SHALL recognise a multibinding key as a single-binding `let` at module s
 `static let` inside a type whose type annotation, or failing that whose constructor-call
 initialiser, names `CollectedKey`, `MappedKey` or `BuilderKey`. It SHALL record the flavour, the
 verbatim generic arguments, the canonical reference (the enclosing type names and the property name
-joined by `.`) and the effective access level, which is the most restrictive of the declaration's
-own access and every enclosing type's. A non-static stored property on a type SHALL NOT be a key.
+joined by `.`) and the effective access level: the declaration's own access folded with the access
+of every enclosing type body and the explicit access modifier of every enclosing extension. An
+extension with no access modifier SHALL NOT cap its members, and the extended type's own declared
+access SHALL NOT be consulted, so `extension App { public static let services = ... }` records a
+`public` key even when `App` is `internal`, which is tracked as a possible defect in
+https://github.com/swift-wire/swift-wire/issues/418. A non-static stored property on a type SHALL NOT
+be a key.
 
 #### Scenario: a key in an extension
 - **WHEN** `extension App { static let services = CollectedKey<any Service>() }` is scanned
@@ -46,7 +51,11 @@ own access and every enclosing type's. A non-static stored property on a type SH
 - **WHEN** `public static let services = CollectedKey<any Service>()` sits inside `internal enum App`
 - **THEN** the key's effective access is `internal`
 
-Pinned by: `Tests/WireGenCoreTests/MultibindingKeyDiscoveryTests.swift` (`collectedKeyOnExtensionCapturesFlavourTypeAndReference`, `mappedKeyCapturesBothTypeArguments`, `builderKeyCapturesBuilderTypeArgument`, `moduleScopeKeyHasUnqualifiedReference`, `explicitTypeAnnotationFormIsCaptured`, `keyWithoutExplicitGenericsCapturesEmptyTypeArguments`, `effectiveAccessFoldsEnclosingTypeAccess`, `nonKeyDeclarationsAreIgnored`, `instanceLevelKeyDeclarationIsIgnored`).
+#### Scenario: an unmodified extension does not cap access
+- **WHEN** `extension App { public static let services = CollectedKey<any Service>() }` is scanned
+- **THEN** the key's effective access is `public`
+
+Pinned by: `Tests/WireGenCoreTests/MultibindingKeyDiscoveryTests.swift` (`collectedKeyOnExtensionCapturesFlavourTypeAndReference`, `mappedKeyCapturesBothTypeArguments`, `builderKeyCapturesBuilderTypeArgument`, `moduleScopeKeyHasUnqualifiedReference`, `explicitTypeAnnotationFormIsCaptured`, `effectiveAccessFoldsEnclosingTypeAccess`, `nonKeyDeclarationsAreIgnored`, `instanceLevelKeyDeclarationIsIgnored`), `Tests/WireGenCoreTests/MultibindingValidationTests.swift` (`publicKeyInExtensionIsSilent`, `internalKeyInExtensionStillWarns`). That the extended type's own access is not consulted is pinned by nothing yet.
 
 ### Requirement: Keys are discovered across every activated module
 WireGen SHALL pool the key declarations discovered in every module of its parse set, so a
@@ -84,13 +93,17 @@ Pinned by: `Tests/WireMacrosImplTests/ContributesMacroTests.swift` (`test_contri
 WireGen SHALL record each `@Contributes` attribute on a `@Singleton` or `@Scoped` type, or on a
 `@Provides` property or function, as a contribution of that binding, capturing the key reference,
 the `withOrder:` integer and the `atKey:` expression text verbatim. A declaration carrying several
-`@Contributes` attributes SHALL contribute to each named key.
+`@Contributes` attributes SHALL contribute to each named key. WireGen SHALL read `withOrder:` only
+when its source text parses with `Int(_:)`, which in practice means an integer literal without
+separators; any other expression, such as `withOrder: Rank.auth` or `withOrder: 1_000`, is recorded
+as unranked, which is tracked as a possible defect in
+https://github.com/swift-wire/swift-wire/issues/419.
 
 #### Scenario: one contributor, three builder keys
 - **WHEN** `@Singleton` `LoggingMiddleware` carries `@Contributes(to:withOrder:)` for `MiddlewareRegistry.pipeline`, `.list` and `.composed`
 - **THEN** it is folded into all three aggregates
 
-Pinned by: `Tests/WireGenCoreTests/ContributionDiscoveryTests.swift` (`singletonContributionCapturesKeyReference`, `withOrderArgumentIsCaptured`, `atKeyArgumentIsCapturedVerbatim`, `multipleContributesAttributesYieldMultipleContributions`, `providesPropertyContributionIsCaptured`, `providesFunctionContributionIsCaptured`), `Tests/IntegrationTests/BootstrapTests.swift` (`builderMultibindingFoldsToConcreteResultInRankOrder`, `builderMultibindingFoldsToCollectionResult`, `builderMultibindingFoldsToExistentialResult`).
+Pinned by: `Tests/WireGenCoreTests/ContributionDiscoveryTests.swift` (`singletonContributionCapturesKeyReference`, `withOrderArgumentIsCaptured`, `atKeyArgumentIsCapturedVerbatim`, `multipleContributesAttributesYieldMultipleContributions`, `providesPropertyContributionIsCaptured`, `providesFunctionContributionIsCaptured`), `Tests/IntegrationTests/BootstrapTests.swift` (`builderMultibindingFoldsToConcreteResultInRankOrder`, `builderMultibindingFoldsToCollectionResult`, `builderMultibindingFoldsToExistentialResult`). The treatment of a non-literal `withOrder:` as unranked is pinned by nothing yet.
 
 ### Requirement: A contributor keeps its own binding identity
 A contributing binding SHALL remain an ordinary binding under its own identity, and the aggregate
@@ -102,7 +115,7 @@ constructed.
 - **WHEN** `Auth` and `Logging` both contribute to `App.services`
 - **THEN** the graph has no validation errors and both precede the `[any Service]` aggregate in the topological order
 
-Pinned by: `Tests/WireGenCoreTests/MultibindingFanInTests.swift` (`coContributorsAreNotDuplicates`, `aggregateSortsAfterAllContributors`, `contributorReachableOnlyViaAggregateIsConstructed`).
+Pinned by: `Tests/WireGenCoreTests/MultibindingFanInTests.swift` (`coContributorsAreNotDuplicates`, `aggregateSortsAfterAllContributors`). The construction of a contributor reached only through the aggregate is pinned by `Tests/IntegrationTests/BootstrapTests.swift` (`collectedMultibindingAggregatesContributorsInRankOrder`), where `LoggingPlugin` and `MetricsPlugin` are injected only through `PluginRegistry.ordered`.
 
 ### Requirement: `@Contributes` requires a co-located producer macro
 WireGen SHALL report an error at a `@Contributes` attribute on a type that carries neither
@@ -168,7 +181,9 @@ Pinned by: `Tests/WireGenCoreTests/MultibindingValidationTests.swift` (`duplicat
 For each partition (the default graph, each container, each seed scope) WireGen SHALL synthesise
 an aggregate binding for every declared key that is contributed to or consumed by an `@Inject` in
 that partition, from that partition's contributors only, and SHALL synthesise none for a key used
-in neither way there. The aggregate SHALL sort after all of its contributors and before its
+in neither way there. The exceptions are a `BuilderKey` that the builder requirements below exclude
+(no discovered result type, or no contributors in the partition) and a collected or mapped key with
+the wrong number of generic arguments, which only arises in source the compiler rejects. The aggregate SHALL sort after all of its contributors and before its
 consumers.
 
 #### Scenario: the production/test container pattern
@@ -213,28 +228,46 @@ SHALL still synthesise its aggregate, so the consumer resolves to an empty colle
 Pinned by: `Tests/WireGenCoreTests/MultibindingFanInTests.swift` (`emptyAggregateStillResolvesForConsumer`), `Tests/IntegrationTests/BootstrapTests.swift` (`emptyMultibindingBootstrapsToEmptyCollection`).
 
 ### Requirement: The builder result type is read from the `@resultBuilder` declaration
-WireGen SHALL discover each `@resultBuilder` type and record as its result type the return type of
-`buildFinalResult` when it declares one, otherwise of `buildBlock`. A `BuilderKey<Builder>`
-aggregate SHALL have that type. A `BuilderKey` whose builder has no discovered result type, or which
-has no contributors in the partition, SHALL produce no aggregate.
+WireGen SHALL discover each `@resultBuilder` type and record, under the type's simple name, as its
+result type the return type of the first `buildFinalResult` with a return clause declared in the
+type's own body, otherwise of the first such `buildBlock`. Methods declared in an extension of the
+builder SHALL NOT be read. A `BuilderKey<Builder>` aggregate SHALL have the result type recorded
+under the `Builder` generic argument's text, which must spell the builder's simple name exactly. A
+`BuilderKey` whose builder has no discovered result type SHALL produce no aggregate, which is how a
+builder with its `buildBlock` in an extension, or a key naming its builder qualified, behaves today;
+this is tracked as a possible defect in https://github.com/swift-wire/swift-wire/issues/420.
 
 #### Scenario: `buildFinalResult` wins
 - **WHEN** a `@resultBuilder` declares `buildBlock(_:) -> [Part]` and `buildFinalResult(_:) -> Chain`
 - **THEN** its result type is `Chain`
 
-#### Scenario: an empty builder key
-- **WHEN** `App.pipeline = BuilderKey<PipelineBuilder>()` has no contributors
+#### Scenario: a builder with no discovered result type
+- **WHEN** `AuthMW` contributes to `App.pipeline = BuilderKey<PipelineBuilder>()` and no `@resultBuilder` named `PipelineBuilder` is discovered
 - **THEN** no aggregate is synthesised for `App.pipeline`
 
-Pinned by: `Tests/WireGenCoreTests/ResultBuilderDiscoveryTests.swift` (`buildBlockResultTypeIsCaptured`, `buildFinalResultIsPreferredOverBuildBlock`, `nonResultBuilderTypeIsIgnored`), `Tests/WireGenCoreTests/MultibindingFanInTests.swift` (`builderAggregateUsesResultBuilderResultType`, `builderWithoutDiscoveredResultBuilderIsSkipped`, `emptyBuilderProducesNoAggregate`).
+Pinned by: `Tests/WireGenCoreTests/ResultBuilderDiscoveryTests.swift` (`buildBlockResultTypeIsCaptured`, `buildFinalResultIsPreferredOverBuildBlock`, `nonResultBuilderTypeIsIgnored`), `Tests/WireGenCoreTests/MultibindingFanInTests.swift` (`builderAggregateUsesResultBuilderResultType`, `builderWithoutDiscoveredResultBuilderIsSkipped`). The extension and qualified-name cases are pinned by nothing yet.
+
+### Requirement: A consumed builder key with no contributors has no aggregate
+When a `BuilderKey` is consumed in a partition with no contributors there, WireGen SHALL synthesise
+no aggregate for it, so the consumer is reported as a missing binding. This is tracked as a defect
+in https://github.com/swift-wire/swift-wire/issues/370.
+
+#### Scenario: an empty consumed builder key
+- **WHEN** `Host` injects `App.pipeline = BuilderKey<PipelineBuilder>()` and nothing contributes to it
+- **THEN** no aggregate is synthesised for `App.pipeline`
+
+Pinned by: nothing yet.
 
 ### Requirement: A builder aggregate is a `@<Builder>` fold function
 The generated graph SHALL construct a `BuilderKey` aggregate as a local function annotated
 `@<Builder>`, named `_wireFold` followed by the upper-camel-cased sanitised key reference, taking no
 parameters, returning the builder's result type and listing the contributor locals in contributor
 order, followed by a `let` binding the aggregate local to its call. The result type SHALL be the
-written type, so the fold produces a concrete or existential result and not an opaque one; the
-parameterised-opaque fold is tracked by https://github.com/swift-wire/swift-wire/issues/356.
+builder's written return type copied verbatim, so a builder whose written return type is concrete
+or existential yields a concrete or existential fold; the parameterised-opaque fold is tracked by
+https://github.com/swift-wire/swift-wire/issues/356. A builder written with a `some P` return is
+copied into the fold unchecked, which is tracked as a possible defect in
+https://github.com/swift-wire/swift-wire/issues/422.
 
 #### Scenario: the emitted fold
 - **WHEN** `Keys.routes` is a builder key over `[any Route]` with contributor `AlphaRoute`
@@ -244,7 +277,7 @@ parameterised-opaque fold is tracked by https://github.com/swift-wire/swift-wire
 - **WHEN** `AuthMiddleware` (`withOrder: 1`) and `LoggingMiddleware` (`withOrder: 2`) contribute to `BuilderKey<PipelineBuilder>`, `BuilderKey<MiddlewareListBuilder>` and `BuilderKey<ComposedMiddlewareBuilder>`
 - **THEN** `pipeline.steps` is `["auth", "log"]`, `list.map(\.step)` is `["auth", "log"]` and `composed.step` is `"auth>log"`
 
-Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aBuilderFoldInThePrefixDoesNotBlockScheduling`), `Tests/IntegrationTests/BootstrapTests.swift` (`builderMultibindingFoldsToConcreteResultInRankOrder`, `builderMultibindingFoldsToCollectionResult`, `builderMultibindingFoldsToExistentialResult`).
+Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aBuilderFoldInThePrefixDoesNotBlockScheduling`), `Tests/IntegrationTests/BootstrapTests.swift` (`builderMultibindingFoldsToConcreteResultInRankOrder`, `builderMultibindingFoldsToCollectionResult`, `builderMultibindingFoldsToExistentialResult`). The handling of a `some P` builder return is pinned by nothing yet.
 
 ### Requirement: An unconsumed key warns
 WireGen SHALL warn at the declaration of an `internal` or `package` key without `allowUnused: true`
@@ -257,10 +290,10 @@ A `public` or `open` key SHALL NOT warn.
 - **THEN** the warning above is reported at the key declaration
 
 #### Scenario: a public key in an extension
-- **WHEN** `extension App { public static let services = CollectedKey<any Service>() }` extends `public enum App` and nothing injects the key
+- **WHEN** `extension App { public static let services = CollectedKey<any Service>() }`, an extension with no access modifier, declares the key and nothing injects it
 - **THEN** no warning is reported
 
-Pinned by: `Tests/WireGenCoreTests/MultibindingValidationTests.swift` (`deadKeyWarns`, `liveMultibindingIsSilent`, `publicKeyInExtensionIsSilent`, `internalKeyInExtensionStillWarns`, `allowUnusedKeyIsSilent`, `keyConsumedByGraphConformanceIsSilent`).
+Pinned by: `Tests/WireGenCoreTests/MultibindingValidationTests.swift` (`deadKeyWarns`, `liveMultibindingIsSilent`, `publicKeyInExtensionIsSilent`, `internalKeyInExtensionStillWarns`, `keyConsumedByGraphConformanceIsSilent`). The silencing of this warning by `allowUnused: true` is pinned by nothing yet.
 
 ### Requirement: A consumed key with no contributors warns
 WireGen SHALL warn at the declaration of an `internal` or `package` key without `allowUnused: true`
@@ -275,7 +308,7 @@ that is consumed in some partition with no contributors to it there, reading
 - **WHEN** a key is consumed in two containers and each container contributes to it
 - **THEN** no warning is reported
 
-Pinned by: `Tests/WireGenCoreTests/MultibindingValidationTests.swift` (`emptyMultibindingWarns`, `publicEmptyKeyIsSilent`, `keyConsumedInTwoContainersEachContributedIsLive`).
+Pinned by: `Tests/WireGenCoreTests/MultibindingValidationTests.swift` (`emptyMultibindingWarns`, `publicEmptyKeyIsSilent`, `keyConsumedInTwoContainersEachContributedIsLive`, `allowUnusedKeyIsSilent`).
 
 ## Related specifications
 
