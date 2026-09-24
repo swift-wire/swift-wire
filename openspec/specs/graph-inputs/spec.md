@@ -45,11 +45,33 @@ type annotation SHALL be skipped.
 - **WHEN** `@GraphInputs struct AppInputs` declares `let configuration: RuntimeConfiguration`, `var mutableToo: Int`, `var described: String { "x" }` and `var observed: Bool = false { didSet {} }`
 - **THEN** the inputs are `configuration`, `mutableToo` and `observed`, of types `RuntimeConfiguration`, `Int` and `Bool`
 
-#### Scenario: a computed property beside keyed `String` inputs
-- **WHEN** the harness's `AppInputs` declares `var describedRegion: String { "region=\(region)" }` beside two keyed `String` inputs
-- **THEN** it becomes no binding and does not collide with them
+Pinned by: `Tests/WireGenCoreTests/GraphInputsDiscoveryTests.swift` (`storedPropertiesBecomeInputsAndComputedOnesDoNot`). The skipped untyped property is pinned by nothing yet.
 
-Pinned by: `Tests/WireGenCoreTests/GraphInputsDiscoveryTests.swift` (`storedPropertiesBecomeInputsAndComputedOnesDoNot`), `GraphInputsHarness/Consumer/Sources/GraphInputsHarnessConsumer/main.swift` (run by the `GraphInputsHarness` job in `.github/workflows/swift.yml`). The skipped untyped property is pinned by nothing yet.
+### Requirement: Only a single identifier with its own type annotation is read
+WireGen SHALL read each pattern binding of a declaration separately and SHALL take it as an input
+only when its pattern is a single identifier carrying its own type annotation, with no diagnostic for
+a binding it skips. This is tracked as a defect in https://github.com/swift-wire/swift-wire/issues/404.
+
+#### Scenario: a shared trailing annotation
+- **WHEN** `@GraphInputs struct AppInputs` declares `let region, stage: String`
+- **THEN** the only input is `stage`, and no diagnostic names `region`
+
+#### Scenario: a tuple pattern
+- **WHEN** `@GraphInputs struct AppInputs` declares `let configuration: RuntimeConfiguration` and `let (host, port): (String, Int)`
+- **THEN** the only input is `configuration`
+
+Pinned by: nothing yet.
+
+### Requirement: A `static` stored property is taken as an input
+WireGen SHALL NOT read a property's declaration modifiers, so a `static` stored property with a type
+annotation SHALL become an input whose access path `_wireInputs.<name>` does not compile in the
+generated file. This is tracked as a defect in https://github.com/swift-wire/swift-wire/issues/402.
+
+#### Scenario: a static constant on the inputs struct
+- **WHEN** `@GraphInputs struct AppInputs` declares `let configuration: RuntimeConfiguration` and `static let fallback: Int = 0`
+- **THEN** the inputs are `configuration` and `fallback`, and the provider for `fallback` reads `_wireInputs.fallback`
+
+Pinned by: nothing yet.
 
 ### Requirement: `@Provides(key)` keys an input
 An input property carrying `@Provides` with a positional first argument SHALL be keyed by that
@@ -120,6 +142,18 @@ will not resolve."
 
 Pinned by: `Tests/WireGenCoreTests/GraphInputsDiscoveryTests.swift` (`aDependencysInputsAreIgnoredAndDiagnosed`, `aSamePackageModulesInputsAreUsed`, `aDependencysInputsDoNotCollideWithTheConsumersOwn`).
 
+### Requirement: The generated file does not import the inputs declaration's module
+WireGen SHALL name the honoured inputs type bare in the generated file and SHALL add no import for
+the module that declares it, so a declaration from another module of the same package compiles only
+when a binding-bearing file of the consumer already imports that module. This is tracked as a defect
+in https://github.com/swift-wire/swift-wire/issues/405.
+
+#### Scenario: inputs declared in a sibling module
+- **WHEN** `AppInputs` is declared in `App`, the consumer is `AppTests` in the same package, and no binding-bearing file of `AppTests` imports `App`
+- **THEN** the generated file declares `inputs _wireInputs: AppInputs` with no `import App` line for it
+
+Pinned by: nothing yet.
+
 ### Requirement: More than one honoured declaration is an error
 When more than one `@GraphInputs` declaration comes from outside the external modules, WireGen SHALL
 report an error at each declaration after the first: "multiple @GraphInputs types are declared
@@ -132,13 +166,13 @@ report an error at each declaration after the first: "multiple @GraphInputs type
 Pinned by: `Tests/WireGenCoreTests/GraphInputsDiscoveryTests.swift` (`twoGraphInputsTypesIsAnError`).
 
 ### Requirement: A declaration with no inputs warns
-WireGen SHALL warn at an honoured `@GraphInputs` declaration that has no input properties:
-"@GraphInputs '<Type>' declares no stored properties, so it contributes no bindings — give it the
-values the graph needs from outside, or remove the annotation." A declaration with at least one
-input SHALL raise no diagnostic.
+WireGen SHALL warn at each `@GraphInputs` declaration from outside the external modules that has no
+input properties: "@GraphInputs '<Type>' declares no stored properties, so it contributes no
+bindings — give it the values the graph needs from outside, or remove the annotation." A declaration
+with at least one input SHALL NOT raise this warning.
 
 #### Scenario: only a computed property
-- **WHEN** `@GraphInputs struct AppInputs: Sendable { var described: String { 42 } }` is discovered
+- **WHEN** `@GraphInputs struct AppInputs: Sendable { var described: String { "x" } }` is discovered
 - **THEN** exactly one warning is reported
 
 #### Scenario: one stored property
