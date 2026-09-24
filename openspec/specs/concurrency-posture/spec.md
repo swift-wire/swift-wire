@@ -1,0 +1,92 @@
+# Concurrency posture
+
+## Purpose
+
+What the generated code demands of a binding's concurrency story, and what it leaves to the Swift
+checker. Wire places no blanket `Sendable` requirement on bindings: the generated graph and scope
+structs derive their conformance from their stored bindings, and only a binding that crosses a task
+boundary in a scheduled construction is asserted `Sendable`. Actor consumers are reached through an
+`await` the generated code emits, specified with the member-injection forms in
+[injection-points](../injection-points/spec.md). `Lazy` requires a `Sendable` value. The package-wide
+`NonisolatedNonsendingByDefault` setting is specified in
+[scope-entry-and-generated-names](../scope-entry-and-generated-names/spec.md).
+
+Rationale: [ConstructionScheduling](../../../Documentation/Notes/ConstructionScheduling.md), [LazyTypeSupport](../../../Documentation/Notes/LazyTypeSupport.md).
+Documentation: [ConcurrencyAndIsolation](../../../Sources/Wire/Wire.docc/ConcurrencyAndIsolation.md).
+
+## Requirements
+
+### Requirement: The graph struct declares no `Sendable` conformance
+WireGen SHALL declare each graph struct with the conformances `Introspectable, Teardownable` and no
+explicit `Sendable`, so that Swift derives `Sendable` exactly when every stored binding is `Sendable`.
+
+#### Scenario: the default graph's declaration
+- **WHEN** WireGen renders a default graph of two singletons
+- **THEN** the struct is declared `internal struct _WireGraph: Introspectable, Teardownable {`
+
+Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`propertyAssignmentMemberInjectionEmitsAsDirectAssignmentAfterConstruction`, `propertyAssignmentOnActorConsumerRoutesThroughGeneratedSetterExtension`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
+
+### Requirement: The seed scope struct declares no `Sendable` conformance
+WireGen SHALL declare each seed scope struct `internal struct _<Seed>WireScope` with no conformance
+clause.
+
+#### Scenario: a request-seeded scope
+- **WHEN** a `@Scoped(seed: HBRequestSeed.self)` scope is emitted
+- **THEN** the struct is declared `internal struct _HBRequestSeedWireScope {`
+
+Pinned by: `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`seedScopeWithOnlySeedAliasingProducesScopeStruct`).
+
+### Requirement: A non-`Sendable` binding builds when it does not cross a task boundary
+A binding that is not `Sendable` SHALL be constructible, injectable and stored on the graph, in both
+the linear and the scheduled construction forms, as long as it is neither an async group binding nor a
+dependency one of those reads.
+
+#### Scenario: a non-`Sendable` class beside scheduled bindings
+- **WHEN** `SchedulerContainer` holds the non-`Sendable` class `SchedulerCounter`, read by the group binding `SchedulerService` alongside two async bindings
+- **THEN** `Wire.bootstrapSchedulerContainer()` succeeds and `graph.schedulerService.counter === graph.schedulerCounter`
+
+Pinned by: `Tests/IntegrationTests/SchedulerContainerTests.swift` (`aNonSendableBindingIsSharedNotReconstructed`).
+
+### Requirement: Only bindings crossing a scheduled task boundary are asserted `Sendable`
+WireGen SHALL assert `Sendable` only for an async binding in a scheduled group and for each binding
+such a binding reads, through the `_check<T: Sendable>` assertions specified in
+[construction-scheduling](../construction-scheduling/spec.md). No other generated code SHALL require a
+binding to be `Sendable`.
+
+#### Scenario: group bindings that do not suspend
+- **WHEN** the group holds async `Pool` and `Cache` and sync `Service`, and the suffix holds `Host`
+- **THEN** there is no `_check((Service).self)` and no `_check((Host).self)`
+
+Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aFrontierValueCapturedByAScheduledBindingIsAssertedTooButOthersAreNot`).
+
+### Requirement: `Lazy` requires a `Sendable` value
+`Lazy` SHALL be declared `public struct Lazy<Value: Sendable>: Sendable` and its factory SHALL be an
+`@escaping @Sendable () async throws -> Value`, so a `Lazy` can be shared across tasks.
+
+#### Scenario: concurrent first callers
+- **WHEN** 100 child tasks call `get()` on one `Lazy<Int>`
+- **THEN** every task receives `99` and the factory ran once
+
+Pinned by: `Tests/WireTests/LazyTests.swift` (`factoryCalledOnceAcrossConcurrentFirstCallers`).
+
+### Requirement: Teardown and scope-entry closures are `@Sendable`
+The graph's captured `_wireTeardown`, each accumulated teardown action and each scope entry's
+`_wireScopeTeardown` SHALL be typed `@Sendable () async -> [any Error]`, and each scope-entry thunk
+SHALL be a `@Sendable` closure.
+
+#### Scenario: a scope-entry thunk
+- **WHEN** a bridging proxy's subject is seeded by `RequestSeed`
+- **THEN** the thunk is emitted as `{ @Sendable (requestSeed: RequestSeed) async throws in` and its teardown as `let _wireScopeTeardown: @Sendable () async -> [any Error] = {`
+
+Pinned by: `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`bridgingProxyEmitsScopeEntryThunkCapturingSingletons`, `scopeEntryThunkTearsDownScopedBindings`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
+
+## Related specifications
+
+- [construction-scheduling](../construction-scheduling/spec.md)
+- [lazy](../lazy/spec.md)
+- [teardown](../teardown/spec.md)
+- [injection-points](../injection-points/spec.md)
+- [scope-entry-and-generated-names](../scope-entry-and-generated-names/spec.md)
+- [seeded-scopes](../seeded-scopes/spec.md)
+- [binding-lifetimes](../binding-lifetimes/spec.md)
+- [build-plugin-and-wiregen-cli](../build-plugin-and-wiregen-cli/spec.md)
