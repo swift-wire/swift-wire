@@ -37,6 +37,17 @@ the key is declared with `allowUnused: true` in the home package.
 
 Pinned by: `Tests/WireGenCoreTests/ReachabilityTests.swift` (`allowUnusedKeyIsARoot`, `libraryBindingLiveViaHomeRoot`).
 
+### Requirement: `allowUnused:` counts only as a literal `true`
+WireGen SHALL mark a `@Singleton`, `@Scoped` or `@Provides` binding as `allowUnused` only when the
+attribute's `allowUnused:` argument is the boolean literal `true`. The macros SHALL expand the same
+members whether or not `allowUnused:` is present.
+
+#### Scenario: a literal flag
+- **WHEN** `@Singleton(allowUnused: true) struct A {}` is discovered
+- **THEN** the binding is marked `allowUnused`, and the macro adds the same `init()` and key as a plain `@Singleton`
+
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`allowUnusedTrueIsCapturedOnSingleton`, `plainSingletonIsNotAllowUnused`, `allowUnusedTrueIsCapturedOnProvides`), `Tests/WireMacrosImplTests/SingletonMacroTests.swift` (`test_singletonWithAllowUnused_generatesSameMembers`). A non-literal argument is pinned by nothing yet.
+
 ### Requirement: A library's `allowUnused` is not a root
 WireGen SHALL NOT root a binding or a key whose origin module is an `--external-module`, whatever its
 `allowUnused:` argument. A library binding SHALL be live exactly when a home root reaches it.
@@ -228,3 +239,5 @@ Pinned by: `Tests/WireGenCoreTests/RetentionTests.swift` (`aDroppedPropertyLeave
 - [teardown](../teardown/spec.md)
 - [testing-variants](../testing-variants/spec.md)
 - [multi-module-composition](../multi-module-composition/spec.md)
+- [binding-lifetimes](../binding-lifetimes/spec.md)
+- [providers](../providers/spec.md)
