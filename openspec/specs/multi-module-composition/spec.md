@@ -17,19 +17,25 @@ Documentation: [ComposingAcrossModules](../../../Sources/Wire/Wire.docc/Composin
 The build plugin SHALL activate the modules the consumer directly depends on that themselves depend
 on `Wire`, and pass each to WireGen as a module group, as specified in
 [build-plugin-and-wiregen-cli](../build-plugin-and-wiregen-cli/spec.md). An activated module's
-bindings SHALL be composed into the consumer's generated graph and constructed by its bootstrap.
+bindings SHALL enter the consumer's parse set and be validated with it, and those reachable from the
+consumer's roots, as specified in [reachability-and-retention](../reachability-and-retention/spec.md),
+SHALL be emitted into the generated graph and constructed by its bootstrap.
 
 #### Scenario: a same-package library singleton
-- **WHEN** `IntegrationTests` depends on the sibling target `WireTestLibrary`, which declares `public @Singleton LibraryService`
+- **WHEN** `IntegrationTests` depends on the sibling target `WireTestLibrary`, which declares `public` `@Singleton(allowUnused: true) LibraryService`, a root because `WireTestLibrary` is a same-package module
 - **THEN** `try await Wire.bootstrap()` returns a graph whose `libraryService.name` is `"library"`
 
 #### Scenario: a package-visible library singleton
-- **WHEN** `WireTestLibrary` declares a `package` `@Singleton PackageVisibleService`
+- **WHEN** `WireTestLibrary` declares a `package` `@Singleton(allowUnused: true) PackageVisibleService`
 - **THEN** the bootstrapped graph's `packageVisibleService.label` is `"package-visible"`
 
 #### Scenario: an external-package library
 - **WHEN** the composition harness consumer depends on the `WireHarnessLibrary` product and injects its unkeyed and keyed `ExternalService`
 - **THEN** the consumer bootstraps and both resolve to a service named `"external"`
+
+#### Scenario: an unreached library singleton
+- **WHEN** `WireHarnessLibrary` declares `public` `@Singleton UnreachedExternalService`, whose `init` traps, and nothing in the consumer reaches it
+- **THEN** the consumer's generated graph does not construct it and the consumer bootstraps
 
 Pinned by: `Tests/IntegrationTests/CrossModuleCompositionTests.swift` (`samePackageLibraryBindingIsComposedAndConstructed`, `samePackagePackageVisibleBindingIsComposed`), `.github/workflows/swift.yml` (`CompositionHarness`).
 
@@ -57,7 +63,7 @@ The lines SHALL be deduplicated and sorted.
 - **WHEN** every composed binding originates in the consumer
 - **THEN** no foreign import is added
 
-Pinned by: `Tests/WireGenCoreTests/OriginModuleDiscoveryTests.swift` (`foreignImportsEmitsSortedDedupedImportsExcludingConsumer`, `foreignImportsIsEmptyWhenAllBindingsAreConsumerLocal`).
+Pinned by: `Tests/WireGenCoreTests/OriginModuleDiscoveryTests.swift` (`foreignImportsEmitsSortedDedupedImportsExcludingConsumer`, `foreignImportsIsEmptyWhenAllBindingsAreConsumerLocal`). The graph-conformance and synthesised-factory sources are pinned by nothing yet.
 
 ### Requirement: Only files that declare something contribute their imports
 WireGen SHALL carry a parsed file's own `import` declarations into the generated file only when the
@@ -70,9 +76,12 @@ file declares a binding, a graph conformance or a multibinding key.
 Pinned by: nothing yet.
 
 ### Requirement: Imports are normalised to one internal import per module
-The generated `_WireGraph.swift` and `_WireKeyChecks.swift` SHALL carry one import per module and
-import-kind specifier, with no access-level modifier and no `@_exported` attribute, keeping the union
-of every other attribute the module was imported with. The lines SHALL be sorted and deduplicated.
+Among their unconditional imports, the generated `_WireGraph.swift` and `_WireKeyChecks.swift` SHALL
+carry one import per module and import-kind specifier, with no access-level modifier and no
+`@_exported` attribute, keeping the union of every other attribute the module was imported with. A
+captured import-only `#if` block SHALL be kept whole beside them and not merged with them, so a module
+imported both plainly and inside such a block appears in both. The lines SHALL be sorted, and only
+identical lines deduplicated.
 
 #### Scenario: one module at several access levels
 - **WHEN** the collected imports are `import Wire`, `public import Wire`, `package import Wire` and `private import Wire`
@@ -105,17 +114,23 @@ Pinned by: `Tests/WireGenCoreTests/ImportNormalizationTests.swift` (`normalizesI
 ### Requirement: Composed modules are validated as one graph
 WireGen SHALL resolve dependencies, keys and missing bindings over the union of every activated
 module's bindings, so a dependency in one module is satisfied by a producer in another and a key
-declared in one module resolves a keyed site in another.
+declared in one module resolves a keyed site in another. WireGen SHALL report a missing binding only
+for a consumer that reachability retains; an unreachable binding whose dependency no activated module
+produces is pruned before the missing-binding check and reported by nothing.
 
 #### Scenario: a logger from a library
 - **WHEN** module `App` injects `Logger` and module `Lib` provides it
 - **THEN** validation reports nothing
 
 #### Scenario: a dependency no module provides
-- **WHEN** module `App` injects `Missing` and no activated module produces it
+- **WHEN** module `App` injects `Missing` into a binding that reachability retains, and no activated module produces `Missing`
 - **THEN** the rendered output contains `no binding produces`
 
-Pinned by: `Tests/WireGenCoreTests/CrossLibraryValidationTests.swift` (`crossLibraryDependencyResolvesAcrossModules`, `crossLibraryMissingBindingFires`, `crossLibraryKeyReferenceResolves`).
+#### Scenario: an unreachable binding with an unresolvable dependency
+- **WHEN** library `WireHarnessLibrary` declares `@Singleton LibraryBindingNeedingDeep`, which injects `DeepConfig` from a package the consumer never depends on, and nothing in the consumer reaches it
+- **THEN** no missing-binding error is reported and the consumer builds
+
+Pinned by: `Tests/WireGenCoreTests/CrossLibraryValidationTests.swift` (`crossLibraryDependencyResolvesAcrossModules`, `crossLibraryMissingBindingFires`, `crossLibraryKeyReferenceResolves`), `Tests/WireGenCoreTests/ReachabilityTests.swift` (`missingBindingInPrunedSubgraphIsNotAnError`, `missingBindingInRetainedSubgraphStillFails`), `.github/workflows/swift.yml` (`CompositionHarness`).
 
 ### Requirement: A cross-module duplicate names each module
 When the bindings of one duplicate identity come from more than one origin module, WireGen SHALL
@@ -144,9 +159,14 @@ contributing the same rank to one key is an error.
 Pinned by: nothing yet.
 
 ### Requirement: `@Wire::X` selects Wire's macros only
-WireGen SHALL recognise a Wire macro attribute written with an SE-0491 module selector naming `Wire`
-(`@Wire::Singleton`, `@Wire::Inject`, `@Wire::Contributes`, and so on, whitespace around `::` ignored)
-exactly as the bare name, and SHALL NOT recognise the same name qualified with any other module.
+When discovering bindings, dependencies, contributions and teardowns, WireGen SHALL recognise a Wire
+macro attribute written with an SE-0491 module selector naming `Wire` (`@Wire::Singleton`,
+`@Wire::Inject`, `@Wire::Contributes`, and so on, whitespace around `::` ignored) exactly as the bare
+name, and SHALL NOT recognise the same name qualified with any other module. The injection-rewrite
+candidate scan is the exception: it skips only the bare `Bind`, `Inject`, `Provides` and `Teardown`, so
+on `@Wire::Inject @FromSettings(...) var level: String` it records `Wire::Inject` as the candidate and
+no adapter rewrite happens, which is tracked as a defect in
+https://github.com/swift-wire/swift-wire/issues/413.
 
 #### Scenario: qualified Wire macros
 - **WHEN** a source declares `@Wire::Singleton final class View { @Wire::Inject var logger: Logger }`
@@ -156,17 +176,30 @@ exactly as the bare name, and SHALL NOT recognise the same name qualified with a
 - **WHEN** a source declares `@OtherDI::Singleton final class View {}`
 - **THEN** discovery records no singleton
 
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`moduleQualifiedWireMacrosRecognized`, `otherModuleQualifiedMacroNotRecognizedAsWire`), `Tests/WireGenCoreTests/ContributionDiscoveryTests.swift` (`moduleQualifiedContributesSelectorIsRecognised`).
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`moduleQualifiedWireMacrosRecognized`, `otherModuleQualifiedMacroNotRecognizedAsWire`), `Tests/WireGenCoreTests/ContributionDiscoveryTests.swift` (`moduleQualifiedContributesSelectorIsRecognised`). The injection-rewrite exception is pinned by nothing yet.
 
 ### Requirement: `@Replaces` is a marker that generates nothing
-The `@Replaces` macro SHALL be an argumentless peer macro whose expansion is empty. WireGen SHALL record
-it on a co-located `@Singleton`, `@Scoped` or `@Provides` binding as that binding replacing its slot.
+The `@Replaces` macro SHALL be an argumentless peer macro whose expansion is empty.
 
-#### Scenario: a provider replacement
-- **WHEN** module `App` declares `@Provides @Replaces func fakeClient() -> Client` and module `Lib` provides `Client`
-- **THEN** the graph builds with one `Client` binding, originating in `App`
+#### Scenario: expanding the marker
+- **WHEN** `@Replaces` is attached to `@Provides func fakeClient() -> Client`
+- **THEN** the macro expansion adds no declaration
 
-Pinned by: `Tests/WireGenCoreTests/ReplacesTests.swift` (`providesReplacesSupersedesConcreteSingleton`).
+Pinned by: nothing yet.
+
+### Requirement: Discovery records `@Replaces` on its co-located binding
+WireGen SHALL record `@Replaces` on a co-located `@Singleton`, `@Scoped` or `@Provides` binding as that
+binding replacing its slot (`isReplacer`).
+
+#### Scenario: a singleton replacement
+- **WHEN** a source declares `@Singleton(as: Repo.self) @Replaces struct FakeRepo: Repo`
+- **THEN** discovery records one singleton whose `isReplacer` is true
+
+#### Scenario: a keyed provider replacement
+- **WHEN** a source declares `@Provides(Client.primary) @Replaces func fakeClient() -> Client`
+- **THEN** discovery records one provider whose `isReplacer` is true and whose `keyIdentifier` is `Client.primary`
+
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`singletonReplacesMarkerCaptured`, `providesReplacesMarkerCaptured`, `providesKeyedReplacesMarkerCaptured`). The `@Scoped` form is pinned by nothing yet.
 
 ### Requirement: A home-module `@Replaces` supersedes the other bindings of its slot
 When a binding in the consumer module carries `@Replaces`, WireGen SHALL drop every other binding of
@@ -174,14 +207,14 @@ that binding's identity before duplicate detection. A keyed replacer SHALL super
 slot, and an unkeyed one only the unkeyed slot.
 
 #### Scenario: a test fake over an app binding
-- **WHEN** module `AppServer` binds `RealRepo` and module `AppTests` binds `FakeRepo` with `@Replaces` for the same identity
-- **THEN** the graph builds and its order holds only `FakeRepo`
+- **WHEN** module `Lib` binds `RealRepo` and module `App`, the consumer, binds `FakeRepo` with `@Replaces`, both as `Repo`
+- **THEN** the graph builds with no warning and its order holds only `FakeRepo`
 
 #### Scenario: an unkeyed replacer and a keyed slot
 - **WHEN** module `Lib` binds `RealRepo` and `@Provides(Repo.primary) realPrimary`, and module `App` binds `FakeRepo` with a bare `@Replaces`, all as `Repo`
 - **THEN** the graph holds `FakeRepo` and the keyed `Repo.primary` provider, and not `RealRepo`
 
-Pinned by: `Tests/WireGenCoreTests/ReplacesTests.swift` (`replacesSupersedesSameKeyBindingFromAnotherModule`, `keyedReplaceSupersedesSameKeyedBinding`, `unkeyedReplacesDoesNotCrossIntoKeyedSlot`, `homeModuleReplacesIsHonoured`), `Tests/WireGenCoreTests/CrossLibraryValidationTests.swift` (`replacesSupersedesDependencyModuleBinding`).
+Pinned by: `Tests/WireGenCoreTests/ReplacesTests.swift` (`homeModuleReplacesIsHonoured`, `keyedReplaceSupersedesSameKeyedBinding`, `unkeyedReplacesDoesNotCrossIntoKeyedSlot`). That a keyed replacer leaves an unkeyed binding of the same type in place is pinned by nothing yet.
 
 ### Requirement: `@Replaces` outside the consumer module has no effect
 WireGen SHALL honour `@Replaces` only on bindings whose origin is the consumer module. For a
