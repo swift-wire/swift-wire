@@ -19,21 +19,33 @@ Documentation: [ScopesAndLifetimes](../../../Sources/Wire/Wire.docc/ScopesAndLif
 
 ### Requirement: `FactoryKey` is an untyped namespace token
 The `Wire` module SHALL export `FactoryKey` as a non-generic `Sendable` struct with the single
-initialiser `init()`. Its identity in the graph SHALL be the canonical text of its declaring
-reference, which `@Factory(_:)` and consumers both name.
+initialiser `init()`. Its identity in the graph SHALL be the whitespace-trimmed source text of the
+reference as written, compared as a string, so `@Factory(_:)` and every consumer must spell it
+identically.
 
 #### Scenario: a key beside its template
 - **WHEN** a module declares `enum FactoryProxyKeys { static let probe = FactoryKey() }` and `@Factory(FactoryProxyKeys.probe) struct ProbeMiddleware`
-- **THEN** both compile against the `Wire` product and the template is recorded with key reference `FactoryProxyKeys.probe`
+- **THEN** both compile against the `Wire` product
 
-Pinned by: `Tests/IntegrationTests/FactoryProxyContributorExample.swift`, `Tests/WireGenCoreTests/FactoryTemplateTests.swift` (`discoversTemplateWithKeyAssistedParamsAndDeps`).
+#### Scenario: the key is the argument's text
+- **WHEN** `@Factory(MyMiddleware.session) struct SessionMiddleware<Ctx, Reader, Sender>` is scanned
+- **THEN** the template is recorded with key reference `MyMiddleware.session`
+
+#### Scenario: a differently qualified spelling
+- **WHEN** a template is declared `@Factory(Keys.session)` and its only consumer names `MyModule.Keys.session`
+- **THEN** no factory is synthesised, because the two spellings are distinct keys
+
+Pinned by: `Tests/IntegrationTests/FactoryProxyContributorExample.swift`, `Tests/WireGenCoreTests/FactoryTemplateTests.swift` (`discoversTemplateWithKeyAssistedParamsAndDeps`). That differently qualified spellings of one static are distinct keys is pinned by nothing yet.
 
 ### Requirement: WireGen records a `@Factory` type as a template
 WireGen SHALL record each type carrying `@Factory(<key>)` as a factory template with the key
 argument's text, the simple and enclosing-qualified type names, the generic parameter names in
 declaration order, each parameter's inheritance constraint, the `where`-clause requirements
 verbatim without the `where` keyword, its `@Inject` dependencies (extracted as for a `@Singleton`)
-and its declared access level. A type without `@Factory` SHALL yield no template.
+and its declared access level. A type without `@Factory` SHALL yield no template. For source that
+already fails to compile because a type also carries `@Singleton` or `@Scoped` (see
+[binding-lifetimes](../binding-lifetimes/spec.md)), WireGen SHALL record that type as neither a
+template nor a binding.
 
 #### Scenario: a template with three generic parameters
 - **WHEN** `@Factory(MyMiddleware.session) struct SessionMiddleware<Ctx, Reader, Sender> { @Inject var store: SessionStore }` is scanned
@@ -43,7 +55,7 @@ and its declared access level. A type without `@Factory` SHALL yield no template
 - **WHEN** the template is declared `struct Mw<Ctx, Reader> where Reader.ReadElement == UInt8, Reader: ~Copyable`
 - **THEN** its recorded `where` clause is `Reader.ReadElement == UInt8, Reader: ~Copyable`
 
-Pinned by: `Tests/WireGenCoreTests/FactoryTemplateTests.swift` (`discoversTemplateWithKeyAssistedParamsAndDeps`, `capturesWhereClause`, `capturesAssistedParameterConstraints`, `nonFactoryTypeYieldsNoTemplate`).
+Pinned by: `Tests/WireGenCoreTests/FactoryTemplateTests.swift` (`discoversTemplateWithKeyAssistedParamsAndDeps`, `capturesWhereClause`, `capturesAssistedParameterConstraints`, `nonFactoryTypeYieldsNoTemplate`), `Tests/WireGenCoreTests/FactoryLifetimeDiagnosticsTests.swift` (`aRefusedDeclarationIsRecordedAsNeitherRoleRatherThanBoth`). The enclosing-qualified type name and the access level are pinned by nothing yet.
 
 ### Requirement: A template is not a binding
 WireGen SHALL NOT record a `@Factory` template as a binding in any partition.
@@ -54,22 +66,42 @@ WireGen SHALL NOT record a `@Factory` template as a binding in any partition.
 
 Pinned by: `Tests/WireGenCoreTests/FactoryTemplateTests.swift` (`templateIsNotRecordedAsBinding`).
 
-### Requirement: A generic parameter is injected when an `@Inject` dependency's type uses it
-WireGen SHALL classify a template's generic parameter as injected when it is, or appears as a
-generic argument in, the type of one of the template's `@Inject` dependencies, and as assisted
-otherwise. Injected parameters SHALL become the synthesised factory's own generic parameters, making
-its binding a lift node; a template with no injected parameter SHALL produce a non-generic factory
-binding.
+### Requirement: A generic parameter is injected when an `@Inject` dependency's type names it
+WireGen SHALL classify a template's generic parameter as injected when the type of one of the
+template's `@Inject` dependencies is the parameter itself or names it as an explicit generic argument
+(`Box<Repository>`), and as assisted otherwise. The check is textual: a parameter used only through
+sugar (`Repository?`, `[Repository]`) or as the base of a member type (`Repository.Assoc`) is
+classified as assisted, which is tracked as a defect in
+https://github.com/swift-wire/swift-wire/issues/415.
 
 #### Scenario: a concrete dependency
 - **WHEN** a template generic over `Ctx, Reader, Sender` injects `APIKeyStore`
 - **THEN** all three parameters are assisted
 
+#### Scenario: a bare generic dependency
+- **WHEN** a template generic over `Ctx, Repository` injects `repository: Repository`
+- **THEN** `Ctx` is assisted and `Repository` is injected
+
+Pinned by: `Tests/WireGenCoreTests/FactoryRoleMappingTests.swift` (`assistedParametersExcludeInjected`). The explicit generic-argument form and the sugared forms are pinned by nothing yet.
+
+### Requirement: The factory binding is generic over the injected parameters
+The synthesised factory binding SHALL take the template's injected parameters as its own generic
+parameters, carrying only the constraints written on them in the template's generic parameter
+clause, and SHALL be a lift node when each of them has a determining protocol constraint there. An
+injected parameter left unconstrained, or constrained only in the template's `where` clause (tracked
+as a defect in https://github.com/swift-wire/swift-wire/issues/416), leaves the binding an
+undetermined generic binding, which the graph reports as an error. A template with no injected
+parameter SHALL produce a non-generic factory binding.
+
 #### Scenario: a generic dependency
 - **WHEN** `@Factory(Keys.audit) struct AuditGate<Ctx, Repository: TodoRepository>` injects `repository: Repository`
-- **THEN** `Ctx` is assisted and the factory binding is generic over `Repository: TodoRepository` and is a lift node
+- **THEN** the factory binding is generic over `Repository: TodoRepository` and is a lift node
 
-Pinned by: `Tests/WireGenCoreTests/FactoryRoleMappingTests.swift` (`assistedParametersExcludeInjected`), `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`factoryBindingIsAGenericLiftNodeOverTheInjectedAxis`, `nonInjectedFactoryStaysNonGeneric`, `rendersFactoryGenericOverInjectedAxisCreateOverAssisted`).
+#### Scenario: no injected parameter
+- **WHEN** a template generic over `Ctx, Reader, Sender` injects only `Store`
+- **THEN** the factory binding has no generic parameters and renders as `struct _WireFactory_Keys_session: Sendable {`
+
+Pinned by: `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`factoryBindingIsAGenericLiftNodeOverTheInjectedAxis`, `nonInjectedFactoryStaysNonGeneric`, `rendersFactoryGenericOverInjectedAxisCreateOverAssisted`). The undetermined case is pinned by nothing yet.
 
 ### Requirement: A template contributes nothing to the graph until a consumer demands its key
 WireGen SHALL synthesise a factory for a template only when an `.injectsFromGraph` use-site names
@@ -92,11 +124,11 @@ template from the factory's held values on every call.
 - **WHEN** `AccountController` demands `MyMiddleware.session` and the template injects `SessionStore`
 - **THEN** the registered `_WireFactory_MyMiddleware_session` binding depends on `SessionStore`
 
-#### Scenario: a factory held by a scope-entry proxy
-- **WHEN** `@Scoped(seed: FactoryProxyRequestSeed.self)` `FactoryProxyRouteController` carries `@RouteMiddleware(FactoryProxyKeys.probe)` and a testing variant enters its scope with a mock repository
-- **THEN** the subject's `tag()` returns `"mock:routed"` and teardown reports no errors
+#### Scenario: `create` constructs the template from the held values
+- **WHEN** the factory for `SessionMiddleware<Ctx, Reader, Sender>` holding `store: SessionStore` is rendered
+- **THEN** its `create<Ctx, Reader, Sender>(_: Ctx.Type, _: Reader.Type, _: Sender.Type)` body is `SessionMiddleware(store: store)`
 
-Pinned by: `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`appendsFactoryEdgeAndRegistersBinding`, `synthesisFromDiscoveredSource`), `Tests/IntegrationTests/FactoryProxyContributorTests.swift` (`factoryCarryingProxyEntersScopeWithDoubles`).
+Pinned by: `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`appendsFactoryEdgeAndRegistersBinding`, `synthesisFromDiscoveredSource`, `rendersFactoryDeclarationWithAssistedCreateAndConstraint`). That a keyed dependency keeps its key on the factory binding is pinned by nothing yet.
 
 ### Requirement: Every consumed factory type is emitted internal in the consuming module
 WireGen SHALL emit the declaration of every factory the module's graph consumes into that module's
@@ -110,18 +142,21 @@ key reference.
 Pinned by: `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`rendersEveryConsumedFactoryInternalRegardlessOfOriginModule`).
 
 ### Requirement: A scoped dependency of a template is reported against the template
-When a synthesised factory's dependency is missing from its partition but is bound in a narrower
-one, WireGen SHALL name the template, not the synthesised factory, in the missing-binding hint, with
+When a synthesised factory's dependency is missing from its partition but is bound in another
+partition (a narrower scope or another container), WireGen SHALL name the template, not the synthesised factory, in the missing-binding hint, with
 the suggestion
-`` '<Template>' is a @Factory template, so it has no scope of its own: it is constructed per `create` call, and its @Inject members resolve once — where the factory Wire synthesises for its key is constructed, in <consumer scope>. A <binding scope> binding can't be one of them. Produce '<Type>' at <consumer scope>, or move the scope-bound concern out of the template and into a binding that lives in the scope. Annotating '<Template>' with a scope is not a move: @Factory is itself a lifetime, and a declaration has one. ``
-where `<binding scope>` is the one scope the type is bound in followed by a space, or `a narrower `
-when it is bound in several. A declared consumer SHALL keep the ordinary cross-scope advice.
+`` '<Template>' is a @Factory template, so it has no scope of its own: it is constructed per `create` call, and its @Inject members resolve once — where the factory Wire synthesises for its key is constructed, in <consumer scope>. A <binding scope>binding can't be one of them. Produce '<Type>' at <consumer scope>, or move the scope-bound concern out of the template and into a binding that lives in the scope. Annotating '<Template>' with a scope is not a move: @Factory is itself a lifetime, and a declaration has one. ``
+where `<binding scope>` carries its own trailing space: it is the one scope the type is bound in
+followed by a space, or `a narrower ` when it is bound in several, which renders
+`A a narrower binding can't be one of them.` and is tracked as a defect in
+https://github.com/swift-wire/swift-wire/issues/414. A declared consumer SHALL keep the ordinary
+cross-scope advice.
 
 #### Scenario: a template injecting a request-scoped caller
 - **WHEN** `@Factory(ControllerMiddleware.screenAccess) struct ScreenAccess<Ctx>` injects `@Scoped(seed: HTTPRequest.self)` `Caller` and `@Singleton` `DocumentsController` carries `@Middleware(ControllerMiddleware.screenAccess)`
-- **THEN** the build reports `error: no binding produces 'Caller'` with a hint containing `'ScreenAccess' is a @Factory template`, `A @Scoped(seed: HTTPRequest.self) binding can't be one of them` and `Produce 'Caller' at @Singleton`, and not naming `_WireFactory_ControllerMiddleware_screenAccess`
+- **THEN** the build reports `error: no binding produces 'Caller'` with a hint containing `'ScreenAccess' is a @Factory template`, `A @Scoped(seed: HTTPRequest.self) binding can't be one of them` and `Produce 'Caller' at @Singleton`, and not containing `scope '_WireFactory_ControllerMiddleware_screenAccess'`
 
-Pinned by: `Tests/WireGenCoreTests/FactoryLifetimeDiagnosticsTests.swift` (`aTemplateInjectingAScopedBindingIsNamedByTheTemplate`, `theNoteStatesTheConstraintThatActuallyBites`, `theNoteOffersOnlyMovesThatCanBeWritten`, `aDeclaredConsumerStillGetsTheOrdinaryAdvice`).
+Pinned by: `Tests/WireGenCoreTests/FactoryLifetimeDiagnosticsTests.swift` (`aTemplateInjectingAScopedBindingIsNamedByTheTemplate`, `theNoteStatesTheConstraintThatActuallyBites`, `theNoteOffersOnlyMovesThatCanBeWritten`, `aDeclaredConsumerStillGetsTheOrdinaryAdvice`). The several-partitions wording and the other-container case are pinned by nothing yet.
 
 ### Requirement: An unconsumed internal template warns
 WireGen SHALL warn at an `internal` template declared in the module being built whose key no
