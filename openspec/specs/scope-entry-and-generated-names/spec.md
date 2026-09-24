@@ -23,18 +23,28 @@ carry no function-typed requirement; the teardown is read off the concrete entry
 protocol.
 
 #### Scenario: recovering a subject's type from a thunk
-- **WHEN** an adapter declares `func noSubject<Seed, Entry: WireScopeEntry>(_ thunk: @Sendable (Seed) async throws -> Entry) -> Entry.Subject? { nil }` and passes a bridged proxy's `_wireEnterScope`
+- **WHEN** an adapter declares `func noSubject<Seed, Doubles, Entry: WireScopeEntry>(_ thunk: @Sendable (Seed, Doubles) async throws -> Entry) -> Entry.Subject? { nil }` and passes a testing-variant proxy's `_wireEnterScope`
 - **THEN** `Entry.Subject` resolves to the concrete subject type without the adapter spelling it, including for a subject over an opaque backend
 
-Pinned by: `Tests/IntegrationTests/ScopeEntryProjectionTests.swift` (`aSubjectsTypeIsRecoverableFromItsThunk`).
-
-### Requirement: Every target is compiled with `NonisolatedNonsendingByDefault`
-`Package.swift` SHALL apply `.enableUpcomingFeature("NonisolatedNonsendingByDefault")` to every
-Swift target in the package.
-
-#### Scenario: an adapter that enables the feature conforms a generated entry
+#### Scenario: a consumer that enables the feature conforms a generated entry
 - **WHEN** a consumer module with `NonisolatedNonsendingByDefault` enabled compiles a `_WireScopeEntry_<Subject>` struct whose `_wireScopeTeardown` is `@Sendable () async -> [any Error]`
 - **THEN** the struct's `WireScopeEntry` conformance compiles, since the protocol names no function type
+
+Pinned by: `Tests/IntegrationTests/ScopeEntryProjectionTests.swift` (`aSubjectsTypeIsRecoverableFromItsThunk`), which the `IntegrationTests` target compiles with the feature enabled over the generated entry structs recorded in `GoldenHarness/Golden/_WireGraph.swift.golden`. The single-seed form of the projection over a production bridged proxy is pinned by nothing yet, and so is a consumer module that disagrees with `Wire` about the feature.
+
+### Requirement: Every target is compiled with `NonisolatedNonsendingByDefault`
+`Package.swift` SHALL apply `.enableUpcomingFeature("NonisolatedNonsendingByDefault")`, through
+`wireSettings`, to every target that accepts Swift settings: every library, macro, executable and
+test target. The `WireBuildPlugin` build-tool plugin SHALL take no Swift settings, since
+`.plugin(...)` accepts none.
+
+#### Scenario: a library, macro, executable or test target
+- **WHEN** `Package.swift` declares the `IntegrationTests` test target
+- **THEN** it passes `swiftSettings: wireSettings`, whose one setting is `.enableUpcomingFeature("NonisolatedNonsendingByDefault")`
+
+#### Scenario: the build-tool plugin
+- **WHEN** `Package.swift` declares `.plugin(name: "WireBuildPlugin", capability: .buildTool(), dependencies: ["WireGen"])`
+- **THEN** that target carries no `swiftSettings`
 
 Pinned by: nothing yet.
 
@@ -66,10 +76,15 @@ Pinned by: `Tests/WireGenCoreTests/ScopeYieldTests.swift` (`theThunkReturnsAName
 A bridging proxy's `_wireEnterScope` field SHALL have type
 `@Sendable (<Seed>) async throws -> _WireScopeEntry_<Subject>` in production, and
 `@Sendable (<Seed>, _<Variant>_<Subject>Doubles) async throws -> _WireScopeEntry_<Variant>_<Subject>`
-on a testing-variant proxy. The proxy's initialiser SHALL take it as `@escaping`. Calling it
-SHALL construct the subject and its reachable subgraph in the seed's scope and return the entry,
-whose `_wireScopeTeardown` runs the scope's `@Teardown` bindings in reverse construction order and
-collects errors rather than throwing.
+on its testing-variant proxy. A testing-variant proxy over a held app-`@Singleton` subject that
+the key rebuilds per call because it consumes a mocked slot (a seedless reconstruction root) SHALL
+store, in place of the production proxy's `_wireSubject`, a `_wireEnterScope` of type
+`@Sendable (_<Variant>_<Subject>Doubles) async throws -> _WireScopeEntry_<Variant>_<Subject>`, with
+no seed parameter. The proxy's initialiser SHALL take the thunk as `@escaping`. Calling it SHALL
+construct the subject and its reachable subgraph and return the entry, whose `_wireScopeTeardown`
+runs, in reverse construction order, the `@Teardown` bindings that this entry constructed (those
+reachable from the subject and its yields, excluding borrowed app singletons) and collects errors
+rather than throwing.
 
 #### Scenario: a production bridge
 - **WHEN** `SessionController<Repository>` is `@Scoped(seed: RequestSeed.self)` under a `.singleton` proxy
@@ -79,7 +94,15 @@ collects errors rather than throwing.
 - **WHEN** a test calls `proxy._wireEnterScope(GenProxyRequestSeed(id: "projection"), doubles)` on a variant proxy
 - **THEN** the returned entry's `_wireSubject` is the subject built against the doubles and `await entered._wireScopeTeardown()` returns `[]`
 
-Pinned by: `Tests/WireGenCoreTests/ContributorProxyEmissionTests.swift` (`emitsScopeEntryThunkFieldAndNoSubject`), `Tests/WireGenCoreTests/ScopeYieldTests.swift` (`theThunkReturnsANamedStructRatherThanATuple`), `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`scopeEntryThunkTearsDownScopedBindings`), `Tests/IntegrationTests/BindTypeProxyContributorTests.swift` (`variantProxyEntersScopeWithDoubles`), `Tests/IntegrationTests/FactoryProxyContributorTests.swift` (`factoryCarryingProxyEntersScopeWithDoubles`), `Tests/IntegrationTests/ScopeEntryProjectionTests.swift` (`aSubjectsTypeIsRecoverableFromItsThunk`).
+#### Scenario: a seedless reconstruction root under a variant
+- **WHEN** the `AppScopedFixture.bindMock` key touches the held app-`@Singleton` `AppScopedController`, whose production proxy stores `_wireSubject: AppScopedController`
+- **THEN** the variant proxy stores `let _wireEnterScope: @Sendable (_AppScopedFixture_bindMock_AppScopedControllerDoubles) async throws -> _WireScopeEntry_AppScopedFixture_bindMock_AppScopedController` and a test enters it as `proxy._wireEnterScope(doubles)`
+
+#### Scenario: a sibling subject on the same seed
+- **WHEN** the `WireProxyFixture.bindMock` variant proxy for `ProxyRouteController` is entered and `ProxySiblingController` is scoped to the same seed
+- **THEN** the entry never constructs `ProxySiblingController`, and its teardown runs only the teardowns of what it constructed
+
+Pinned by: `Tests/WireGenCoreTests/ScopeYieldTests.swift` (`theThunkReturnsANamedStructRatherThanATuple`, `theEntryStructIsGenericExactlyAsItsSubject`), `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`scopeEntryThunkTearsDownScopedBindings`), `Tests/IntegrationTests/BindTypeProxyContributorTests.swift` (`variantProxyEntersScopeWithDoubles`), `Tests/IntegrationTests/FactoryProxyContributorTests.swift` (`factoryCarryingProxyEntersScopeWithDoubles`), `Tests/IntegrationTests/ScopeEntryProjectionTests.swift` (`aSubjectsTypeIsRecoverableFromItsThunk`), `Tests/IntegrationTests/ScopableRouteContributorTests.swift` (`appScopedRouteContributorRebuildsSeedlesslyWithTheMock`), `GoldenHarness/Golden/_WireGraph.swift.golden`. `Tests/WireGenCoreTests/ContributorProxyEmissionTests.swift` (`emitsScopeEntryThunkFieldAndNoSubject`) pins only the field name and the `@escaping` label, since it builds its proxy with a thunk that returns the bare subject; that stale fixture is tracked in https://github.com/swift-wire/swift-wire/issues/435.
 
 ### Requirement: A per-subject proxy's fields are named by a fixed contract
 A contributor proxy SHALL store its held subject as `_wireSubject`, taken positionally by its
@@ -151,9 +174,14 @@ with no access keyword, whose stored properties are the template's `@Inject` dep
 initialiser takes them by name, and whose `func create<Assisted…>(_: A.Type, …) -> Produced<…><where clause>`
 is generic over the template's assisted parameters (or the canonical roles, when a mapping is
 visible), takes one metatype per generic parameter, restates the per-parameter constraints then
-the template's own `where` requirements, and constructs the produced type. The key sanitiser SHALL
-replace every character outside letters, digits and `_` with `_`. A factory generic over an
-injected axis SHALL be spelled on a generic proxy with the proxy's own matching parameter.
+the template's own `where` requirements, and constructs the produced type. The key-fragment
+sanitiser (`sanitizedKeyFragment`, used for `_WireFactory_<key>`, `_wireFactory_<key>` and
+`_wire<key>`) SHALL replace every character outside letters, digits and `_` with `_`. A factory
+generic over an injected axis SHALL be spelled on a generic proxy with the proxy's own matching
+parameter. Under a testing key, a lifted factory that consumes a mocked slot SHALL also be emitted
+as `_<Variant>_WireFactory_<key>`, without the mocked `@Inject` fields and with a `create` that
+prepends `doubles: _<Variant>_<Subject>Doubles` and reads the mocked dependencies from it; the
+variant proxy's `_wireFactory_<key>` field SHALL have that type.
 
 #### Scenario: a template with a constrained assisted parameter
 - **WHEN** `@Factory(MyMiddleware.session) struct SessionMiddleware<Ctx: RequestContext, Reader, Sender>` injects `store: SessionStore`
@@ -163,7 +191,11 @@ injected axis SHALL be spelled on a generic proxy with the proxy's own matching 
 - **WHEN** `_WireFactory_GenAppKeys_audit<Backend: GenAppBackend>` is lifted onto a proxy generic over `Backend: GenAppBackend`
 - **THEN** the proxy's field is `let _wireFactory_GenAppKeys_audit: _WireFactory_GenAppKeys_audit<Backend>`
 
-Pinned by: `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`rendersFactoryDeclarationWithAssistedCreateAndConstraint`, `rendersTemplateWhereClauseAfterParameterConstraints`, `rendersEveryConsumedFactoryInternalRegardlessOfOriginModule`, `rendersFactoryGenericOverInjectedAxisCreateOverAssisted`, `nonInjectedFactoryStaysNonGeneric`, `proxyFactoryFieldIsParameterisedByTheSharedBackend`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
+#### Scenario: a mock-consuming factory under a testing key
+- **WHEN** the `AppScopedFixture.bindMock` key mocks the repository that `AppScopedKeys.audit` injects
+- **THEN** the variant proxy's field is `let _wireFactory_AppScopedKeys_audit: _AppScopedFixture_bindMock_WireFactory_AppScopedKeys_audit`, whose `create` is `func create(doubles: _AppScopedFixture_bindMock_AppScopedControllerDoubles) -> AppScopedAudit`
+
+Pinned by: `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`rendersFactoryDeclarationWithAssistedCreateAndConstraint`, `rendersTemplateWhereClauseAfterParameterConstraints`, `rendersEveryConsumedFactoryInternalRegardlessOfOriginModule`, `rendersFactoryGenericOverInjectedAxisCreateOverAssisted`, `nonInjectedFactoryStaysNonGeneric`, `proxyFactoryFieldIsParameterisedByTheSharedBackend`), `Tests/IntegrationTests/ScopableRouteContributorTests.swift` (`appScopedRouteContributorRebuildsSeedlesslyWithTheMock`, `genericAppScopedRouteContributorConcretizesToTheMock`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
 ### Requirement: Graph structs are `_WireGraph` and `_<Name>WireGraph`
 WireGen SHALL emit the default graph as `internal struct _WireGraph<lift clause>: Introspectable, Teardownable`,
@@ -200,10 +232,10 @@ Pinned by: `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`seedScopeWith
 
 ### Requirement: The `Wire` facade is an internal enum of static bootstrap methods
 WireGen SHALL emit `internal enum Wire` as the last block of the generated file, always
-containing `static func bootstrap() async throws -> _WireGraph<…>` (with an `inputs:` parameter
-when the module declares `@GraphInputs`), plus `bootstrap<Container>()` per container and
-`bootstrap<Variant>()` per testing variant, each delegating to a private `_wireBootstrap<Name>()`
-free function.
+containing `static func bootstrap() async throws -> _WireGraph<…>`, plus `bootstrap<Container>()`
+per container and `bootstrap<Variant>()` per testing variant, each delegating to a private
+`_wireBootstrap<Name>()` free function. `bootstrap()` and each `bootstrap<Variant>()` SHALL take an
+`inputs:` parameter when the module declares `@GraphInputs`; `bootstrap<Container>()` never does.
 
 #### Scenario: an empty module
 - **WHEN** a module declares no bindings
@@ -221,8 +253,10 @@ For each seed scope no bridging proxy enters, WireGen SHALL emit
 where `<graph label>` is the parent graph's struct name with leading underscores stripped and
 passed through the stored-property rule (`wireGraph` for `_WireGraph`, `testContainerWireGraph`
 for `_TestContainerWireGraph`), and the private bootstrap's internal name for it is the label
-prefixed with `_`. A testing variant's scope facade SHALL add a trailing `doubles: _<Variant>Doubles`
-parameter. A seed that a bridging proxy enters SHALL have no whole-scope facade.
+prefixed with `_`. A testing variant's scope facade SHALL keep the default graph's label
+`wireGraph` (internal name `_wireGraph`) while its parameter type is the variant app graph
+`_<Variant>WireGraph<…>`, and SHALL add a trailing `doubles: _<Variant>Doubles` parameter. A seed
+that a bridging proxy enters SHALL have no whole-scope facade.
 
 #### Scenario: a default-graph seed scope
 - **WHEN** `HBRequestSeed` seeds a scope over the default graph
@@ -234,15 +268,18 @@ parameter. A seed that a bridging proxy enters SHALL have no whole-scope facade.
 
 #### Scenario: a variant seed scope
 - **WHEN** the `ComposeFixture.bindMock` key substitutes a binding in the `ComposeRequestSeed` scope
-- **THEN** the facade is `bootstrapComposeFixture_bindMock_ComposeRequestSeedScope(seed:wireGraph:doubles:)` taking `_ComposeFixture_bindMockDoubles`
+- **THEN** the facade is `bootstrapComposeFixture_bindMock_ComposeRequestSeedScope(seed:wireGraph:doubles:)`, whose `wireGraph` parameter has type `_ComposeFixture_bindMockWireGraph<…>` and whose `doubles` parameter has type `_ComposeFixture_bindMockDoubles`
 
-Pinned by: `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`seedScopeWithOnlySeedAliasingProducesScopeStruct`, `containerScopeEmissionTargetsContainerWireGraphAsParent`), `Tests/IntegrationTests/EagerSingletonBindTypeTests.swift` (`eagerBindTypedBindingIsDroppedFromTheVariantAppGraph`), `Tests/IntegrationTests/GenericSeedFacadeBindTypeTests.swift` (`genericSeedSubjectConcretizesToMockOverTheVariantGraph`), `GoldenHarness/Golden/_WireGraph.swift.golden`. The omission of the facade for a proxy-entered seed is pinned by nothing yet.
+Pinned by: `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`seedScopeWithOnlySeedAliasingProducesScopeStruct`, `containerScopeEmissionTargetsContainerWireGraphAsParent`), `Tests/IntegrationTests/EagerSingletonBindTypeTests.swift` (`eagerBindTypedBindingIsDroppedFromTheVariantAppGraph`), `Tests/IntegrationTests/GenericSeedFacadeBindTypeTests.swift` (`genericSeedSubjectConcretizesToMockOverTheVariantGraph`), `GoldenHarness/Golden/_WireGraph.swift.golden`. The omission of the facade for a proxy-entered seed is pinned only by the golden harness, which records no `bootstrap…Scope` facade for `ProxyRequestSeed`, `AggregateRequestSeed` or any other proxy-entered seed; no unit test asserts it.
 
 ### Requirement: A variant contributor facade is `bootstrap<Variant>_<Subject>Contributor(wireGraph:)`
-For each bridging proxy whose subject a testing variant touches, WireGen SHALL emit
+For each contributor proxy whose subject a testing variant touches, whether a bridging proxy or
+the hold proxy of an app-`@Singleton` subject the key rebuilds seedlessly, WireGen SHALL emit
 `static func bootstrap<Variant>_<Subject>Contributor(wireGraph _wireGraph: <ReusedGraph>) -> <VariantProxy>`
 on the facade, neither `async` nor `throws`, that binds the borrowed singletons and lifted
-factories as locals off `_wireGraph` outside the thunk and returns the variant proxy. The
+factories as locals off `_wireGraph` outside the thunk and returns the variant proxy. A
+mock-consuming lifted factory SHALL instead be bound to a new `_<Variant>_WireFactory_<key>(…)`
+built from the graph's non-mocked dependencies. The
 per-subject doubles struct SHALL be `_<Variant>_<Subject>Doubles` and the key-wide one
 `_<Variant>Doubles`.
 
@@ -250,7 +287,11 @@ per-subject doubles struct SHALL be `_<Variant>_<Subject>Doubles` and the key-wi
 - **WHEN** the `GenProxyFixture.bindMock` key touches `GenProxyRouteController`
 - **THEN** `Wire.bootstrapGenProxyFixture_bindMock_GenProxyRouteControllerContributor(wireGraph:)` returns a proxy whose `_wireEnterScope` takes `_GenProxyFixture_bindMock_GenProxyRouteControllerDoubles`
 
-Pinned by: `Tests/WireGenCoreTests/ContributorProxyFacadeEmissionTests.swift` (`facadeThreadsDoublesPrunesAndTearsDown`, `facadeBindsBorrowedSingletonsAsLocalsOutsideTheThunk`, `facadeBindsLiftedFactoryInstanceFromTheGraph`), `Tests/WireGenCoreTests/TestingGraphTests.swift` (`doublesStructTypeNameJoinsReferenceComponents`), `Tests/IntegrationTests/ScopeEntryProjectionTests.swift` (`aSubjectsTypeIsRecoverableFromItsThunk`), `Tests/IntegrationTests/SubjectDoublesTests.swift` (`subjectDoublesCarryOnlyTheSlotsTheSubjectReaches`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
+#### Scenario: a seedless root with a mock-consuming factory
+- **WHEN** the `AppScopedFixture.bindMock` key touches the held `AppScopedController`, whose lifted `AppScopedKeys.audit` factory consumes the mocked repository
+- **THEN** `Wire.bootstrapAppScopedFixture_bindMock_AppScopedControllerContributor(wireGraph:)` binds `appScopedLog` off `_wireGraph` and binds the factory as `_AppScopedFixture_bindMock_WireFactory_AppScopedKeys_audit(log: _wireGraph.appScopedLog)`
+
+Pinned by: `Tests/WireGenCoreTests/ContributorProxyFacadeEmissionTests.swift` (`facadeThreadsDoublesPrunesAndTearsDown`, `facadeBindsBorrowedSingletonsAsLocalsOutsideTheThunk`, `facadeBindsLiftedFactoryInstanceFromTheGraph`), `Tests/WireGenCoreTests/TestingGraphTests.swift` (`doublesStructTypeNameJoinsReferenceComponents`), `Tests/IntegrationTests/ScopeEntryProjectionTests.swift` (`aSubjectsTypeIsRecoverableFromItsThunk`), `Tests/IntegrationTests/SubjectDoublesTests.swift` (`subjectDoublesCarryOnlyTheSlotsTheSubjectReaches`), `Tests/IntegrationTests/ScopableRouteContributorTests.swift` (`appScopedRouteContributorRebuildsSeedlesslyWithTheMock`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
 ### Requirement: Stored properties and locals are named from the binding's identity
 WireGen SHALL name every graph stored property, bootstrap local, scope-entry yield field and
@@ -280,8 +321,10 @@ Pinned by: `Tests/IntegrationTests/BootstrapTests.swift` (`storedPropertiesAreNa
 ### Requirement: The identifier sanitiser has four rules
 `sanitizeIdentifier` SHALL map `<` to `Of` and `,` to `And`, upper-casing the next character after
 either; keep letters, digits and `_` unchanged; and drop every other character (whitespace, `>`,
-`?`, `!`, `[`, `]`, `&`, `:`, `.`, `(`, `)`, `-`). The key sanitiser SHALL drop `.` and
-upper-case the character after it, and drop every other non-identifier character.
+`?`, `!`, `[`, `]`, `&`, `:`, `.`, `(`, `)`, `-`). The binding-key suffix sanitiser used by
+`identifierName(forType:key:)` SHALL drop `.` and upper-case the character after it, and drop every
+other non-identifier character. It is distinct from the key-fragment sanitiser used for factory
+and keyed-dependency names.
 
 #### Scenario: two generic arguments
 - **WHEN** `Pair<Left, Right>` is sanitised
