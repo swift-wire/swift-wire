@@ -33,15 +33,17 @@ The topological sort SHALL visit bindings in sorted identity order, so the same 
 yields the same order whatever order discovery produced them in.
 
 #### Scenario: shuffled input
-- **WHEN** the same bindings are passed to `buildDependencyGraph` in two different orders
-- **THEN** both results carry the same topological order
+- **WHEN** independent bindings `C`, `A` and `B` with no dependencies are passed to `buildDependencyGraph` in any order
+- **THEN** the topological order is `A`, `B`, `C`
 
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`topologicalOrderIsDeterministicAcrossInputOrders`).
+Pinned by: nothing yet. `Tests/WireGenCoreTests/GraphTests.swift` (`topologicalOrderIsDeterministicAcrossInputOrders`) passes only a chain, which has a single valid order, so it does not measure the sorted visit.
 
 ### Requirement: A cycle through init-time edges fails validation
 When the init-time edges contain a cycle, `buildDependencyGraph` SHALL return
-`.validationFailed` whose `cycles` lists it as the path from its first visited node back to that
-node. A cycle reached from several entry points SHALL be listed once.
+`.validationFailed` with at least one entry in `cycles`. Each entry SHALL be a cycle closed by a back
+edge of the depth-first traversal, written as the path from its first visited node back to that
+node. Cycles with the same node set SHALL be listed once, and a cycle closed only through a node
+the traversal has already finished SHALL NOT be listed, so not every elementary cycle is listed.
 
 #### Scenario: two nodes
 - **WHEN** `A` depends on `B` and `B` depends on `A`
@@ -55,14 +57,20 @@ node. A cycle reached from several entry points SHALL be listed once.
 - **WHEN** `A` and `B` form a cycle and an unrelated `C` has no dependencies
 - **THEN** `cycles` has exactly one entry
 
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`twoNodeCycleDetected`, `threeNodeCycleDetected`, `selfLoopDetectedAsCycle`, `disjointGraphsSomeCyclesOnlyReportsCycles`).
+#### Scenario: a second cycle through an already visited node
+- **WHEN** `A` depends on `B` and `C`, `B` depends on `C`, and `C` depends on `A`
+- **THEN** `cycles` has one entry, `A`, `B`, `C`, `A`, and the cycle `A`, `C`, `A` is not listed
+
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`twoNodeCycleDetected`, `threeNodeCycleDetected`, `selfLoopDetectedAsCycle`, `disjointGraphsSomeCyclesOnlyReportsCycles`). The omission of a second cycle through an already visited node is pinned by nothing yet.
 
 ### Requirement: The cycle error is anchored at the first node and names the path
 `renderValidationErrors` SHALL render each cycle as one line
 `<file>:<line>:<col>: error: dependency cycle: <path>`, located at the cycle's first node, where
 `<path>` joins each node's display name (the type name for a scope-bound type, the access path for a
-provider) with ` → ` and repeats the first node at the end. Cycle lines SHALL follow the
-duplicate-binding lines and precede the missing-binding lines.
+provider, the collection type for a multibinding aggregate) with ` → ` and repeats the first node at
+the end. Cycle lines SHALL follow the duplicate-binding lines and precede the missing-binding lines;
+`buildDependencyGraph` never returns duplicates and cycles together, so the duplicate half of that
+order applies only to a hand-built `ValidationErrors`.
 
 #### Scenario: two nodes
 - **WHEN** `@Singleton struct A { @Inject var b: B }` and `@Singleton struct B { @Inject var a: A }` are in `AB.swift`
@@ -80,7 +88,7 @@ duplicate-binding lines and precede the missing-binding lines.
 - **WHEN** the validation errors hold both a cycle and a missing binding
 - **THEN** both `dependency cycle: A → B → A` and `no binding produces 'Missing'` are rendered
 
-Pinned by: `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`twoNodeCycleRendersWithArrowsAtFirstNode`, `threeNodeCycleRendersFullPath`, `selfLoopRendersAsSingleArrow`), `Tests/WireGenCoreTests/GraphTests.swift` (`renderValidationErrorsCyclesOnly`, `renderValidationErrorsBothCyclesAndMissingBindings`, `renderValidationErrorsMultipleCyclesEachOnItsOwnLine`).
+Pinned by: `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`twoNodeCycleRendersWithArrowsAtFirstNode`, `threeNodeCycleRendersFullPath`, `selfLoopRendersAsSingleArrow`), `Tests/WireGenCoreTests/GraphTests.swift` (`renderValidationErrorsCyclesOnly`, `renderValidationErrorsBothCyclesAndMissingBindings`, `renderValidationErrorsMultipleCyclesEachOnItsOwnLine`). The line order across categories and the aggregate display name are pinned by nothing yet.
 
 ### Requirement: `weak let` and `unowned` edges participate in cycle detection
 An `@Inject weak let` or `@Inject unowned` property SHALL be an init-time edge like an owning
@@ -113,7 +121,7 @@ produce no diagnostic.
 - **WHEN** `A` declares `@Inject unowned let b: B` and `B` declares `@Inject var a: A`
 - **THEN** the output contains `note: 'b' is an '@Inject unowned' that closes this cycle` and `change it to 'weak var' to break the cycle`
 
-Pinned by: `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`weakLetClosingCycleRendersBreakWithWeakVarNote`, `cycleThroughTwoWeakLetEdgesNotesBoth`, `unownedClosingCycleRendersBreakWithWeakVarNote`), `Tests/WireGenCoreTests/DiscoveryTests.swift` (`weakInjectLetEmitsNoBlanketDiagnostic`).
+Pinned by: `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`weakLetClosingCycleRendersBreakWithWeakVarNote`, `cycleThroughTwoWeakLetEdgesNotesBoth`, `unownedClosingCycleRendersBreakWithWeakVarNote`), `Tests/WireGenCoreTests/DiscoveryTests.swift` (`weakInjectLetEmitsNoBlanketDiagnostic`, `unownedInjectBecomesInitDependencyFlaggedNonOwning`).
 
 ### Requirement: `@Inject weak var` edges are excluded from cycle detection
 The parameter of an `@Inject weak var` member injection SHALL NOT be an edge of the sorted graph,
