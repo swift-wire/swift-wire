@@ -223,3 +223,4 @@ Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`singletonInScopeBlock
 - [concurrency-posture](../concurrency-posture/spec.md)
 - [testing-variants](../testing-variants/spec.md)
 - [adapter-annotations](../adapter-annotations/spec.md)
+- [providers](../providers/spec.md)
