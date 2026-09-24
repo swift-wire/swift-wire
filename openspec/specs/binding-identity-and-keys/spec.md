@@ -6,9 +6,10 @@ How WireGen decides which producer satisfies a dependency. A binding's identity,
 dependency's, is the canonical text of the type expression as written plus an optional key text.
 WireGen reads syntax only, so it resolves no conformances and unwraps no typealiases. Each
 dependency has exactly one matching producer, or the graph fails with a duplicate-binding or a
-missing-binding error. `BindingKey<T>` keys a binding, `_WireKeyChecks.swift` makes the compiler
-check each key against its site's type, and a generic `@Provides func` is specialised per
-instantiation a consumer asks for.
+missing-binding error. `BindingKey<T>` keys a binding, and `_WireKeyChecks.swift` makes the compiler
+check each key against its site's type. How a generic `@Provides func` is specialised per
+instantiation is specified in [providers](../providers/spec.md); when a specialisation and another
+producer both match, the duplicate is reported here.
 
 Rationale: [OptionalMatchingAndCycles](../../../Documentation/Notes/OptionalMatchingAndCycles.md), [OpaqueTypesSupport](../../../Documentation/Notes/OpaqueTypesSupport.md).
 Documentation: [ResolutionAndKeys](../../../Sources/Wire/Wire.docc/ResolutionAndKeys.md).
@@ -157,16 +158,6 @@ trimmed source text of the expression and compare keys by that text.
 
 Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesWithMemberAccessKeyExtractsCanonicalText`, `injectPropertyWithKeyExtractsCanonicalText`, `injectInitParameterWithBindKeyExtractsCanonicalText`, `bareIdentifierKeyExtractsAsIs`).
 
-### Requirement: Only a `@Provides` binding carries a key
-A `@Singleton` or `@Scoped` binding SHALL have no key in the graph; the `static key` its macro
-synthesises SHALL NOT key it.
-
-#### Scenario: a singleton's synthesised key
-- **WHEN** `@Singleton struct Repo` is bound and a consumer declares `@Inject(Repo.key) var repo: Repo`
-- **THEN** the consumer's keyed dependency does not resolve to `Repo`
-
-Pinned by: nothing yet.
-
 ### Requirement: `BindingKey<T>` is a stateless phantom type
 `BindingKey<Value>` SHALL be a public `Sendable` struct with a single `public init()` and no stored
 state.
@@ -213,33 +204,6 @@ check.
 
 Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`anyProtocolBindingsAreSkipped`, `someProtocolBindingsAreSkipped`, `differentKeysProduceSeparateFunctions`, `differentTypesProduceSeparateFunctions`), `GoldenHarness/Golden/_WireKeyChecks.swift.golden`.
 
-### Requirement: A generic `@Provides func` is specialised per requested instantiation
-WireGen SHALL keep a `@Provides func` with generic parameters out of the graph as a template and,
-for each dependency whose type is `<Base><<Args>>` with the template's base name, argument count and
-key, add one specialised binding of that concrete type, repeating until no new specialisation
-arises. Consumers of the same instantiation SHALL share one specialised binding.
-
-#### Scenario: one parameter
-- **WHEN** `@Provides func makeContainer<T: Sendable>(item: T) -> Container<T>` is declared and `GenericConsumer` injects `Container<DataPoint>`
-- **THEN** the graph calls `makeContainer` with `T = DataPoint` and exposes `containerOfDataPoint`
-
-#### Scenario: no consumer
-- **WHEN** a generic `@Provides func` has no consumer of any instantiation
-- **THEN** it appears among the generic templates and not in the topological order
-
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`singleParamGenericProviderSpecialisedForConcreteConsumer`, `multiParamGenericProviderSpecialisedForConcreteConsumer`, `genericProviderFunctionSpecialisedCarriesConcreteArguments`, `multipleConsumersOfSameSpecialisationShareOneBinding`, `specialisedBindingDepThatIsAlsoGenericChainsThroughFixpoint`, `specialisationHonoursWhitespaceCanonicalisation`, `genericProviderFunctionIsSkippedFromGraph`), `Tests/IntegrationTests/BootstrapTests.swift` (`genericSingletonSpecialisedForConcreteConsumer`).
-
-### Requirement: Specialisation substitutes bare parameters only
-When specialising, WireGen SHALL replace a dependency's type only when it is exactly one of the
-template's generic parameter names. A dependency that mentions a parameter inside a larger type
-SHALL pass through unchanged.
-
-#### Scenario: a nested parameter
-- **WHEN** `makeWrapper<T>(box: Box<T>) -> Wrapper<T>` is specialised for `Wrapper<Int>`
-- **THEN** the specialised binding still depends on `Box<T>`, which is reported as a missing binding
-
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`nestedSubstitutionInDepTypeStaysUnsubstitutedAndMissingBindingFires`).
-
 ### Requirement: An instantiation with two candidate producers is a duplicate
 When a dependency's instantiation is bound both by a concrete binding the user declared and by a
 matching generic template, or by two or more matching generic templates, WireGen SHALL report a
@@ -282,3 +246,4 @@ Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`bindingsWithCollidingAcce
 - [multibindings](../multibindings/spec.md)
 - [scope-entry-and-generated-names](../scope-entry-and-generated-names/spec.md)
 - [build-plugin-and-wiregen-cli](../build-plugin-and-wiregen-cli/spec.md)
+- [providers](../providers/spec.md)
