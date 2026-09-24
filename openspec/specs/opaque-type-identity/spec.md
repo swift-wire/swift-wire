@@ -16,14 +16,16 @@ Documentation: [ChoosingAnAbstraction](../../../Sources/Wire/Wire.docc/ChoosingA
 
 ### Requirement: `some P` is an identity of its own
 WireGen SHALL identify a binding whose type is written `some P` by the qualifier `some` and the
-canonical text of `P`, and SHALL match it only to a dependency written `some P` or, by promotion,
-`any P`. It SHALL NOT match a dependency on `P` or on any concrete type conforming to `P`.
+canonical text of `P`, and SHALL match it only to a dependency written `some P`, a lift node's bare
+generic parameter constrained to `P` (see the bridge requirement below), or, by promotion, `any P`
+and the optional forms of either. It SHALL NOT match a dependency on `P` or on any concrete type
+conforming to `P`.
 
 #### Scenario: a `some P` consumer
 - **WHEN** `@Provides` binds `some Logger` and `Service` depends on `some Logger`
 - **THEN** the dependency resolves and no existential promotion is recorded
 
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`promotionIsNotRecordedWithoutAnExistentialConsumer`, `constrainedParameterBridgeResolvesOpaqueChain`), `Tests/WireGenCoreTests/BindingIdentityTests.swift` (`aConcreteProducerNeverSatisfiesAnExistential`).
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`promotionIsNotRecordedWithoutAnExistentialConsumer`), `Tests/WireGenCoreTests/BindingIdentityTests.swift` (`anyConsumerBorrowsTheSomeProducer`, `optionalAndExistentialPromotionsCompose`). That a `some P` producer does not satisfy a dependency on `P` or on a concrete type is pinned by nothing yet.
 
 ### Requirement: `@Singleton(as: P.self)` binds the type as `some P`
 WireGen SHALL record a `@Singleton(as: P.self)` type with the identity `some P` and SHALL construct
@@ -50,7 +52,7 @@ node SHALL NOT be bridged.
 - **WHEN** `@Provides` binds `some DBTable & Sendable`, `Repo<Table: DBTable & Sendable>` is `@Singleton(as: TaskRepo.self)` injecting `table: Table`, and `Controller<Repository: TaskRepo>` is `@Singleton(as: API.self)` injecting `repository: Repository`
 - **THEN** the order is `some DBTable & Sendable`, `some TaskRepo`, `some API` and no generic template is recorded
 
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`constrainedParameterBridgeResolvesOpaqueChain`), `Tests/WireGenCoreTests/TransitiveLiftTests.swift` (`bridgesBareParameterToSomeConstraint`, `doesNotBridgeForNonLiftNode`, `leavesNonParameterDependencyUnchanged`), `Tests/WireGenCoreTests/BindingIdentityTests.swift` (`bridgesAReorderedConstraintToTheSameIdentity`).
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`constrainedParameterBridgeResolvesOpaqueChain`), `Tests/WireGenCoreTests/TransitiveLiftTests.swift` (`bridgesBareParameterToSomeConstraint`, `leavesNonParameterDependencyUnchanged`), `Tests/WireGenCoreTests/BindingIdentityTests.swift` (`bridgesAReorderedConstraintToTheSameIdentity`). That a binding which is not a lift node is not bridged is pinned by nothing yet.
 
 ### Requirement: A parameter inside a dependency's generic arguments bridges transitively
 When a lift node's dependency mentions one of its determined generic parameters as a generic argument
@@ -72,13 +74,19 @@ Pinned by: `Tests/WireGenCoreTests/TransitiveLiftTests.swift` (`parameterAsGener
 A generic `@Singleton` without `as:` whose every generic parameter is constrained to at least one
 protocol other than `Sendable`, `AnyObject` or `Any`, and appears in its dependencies bare or as a
 generic argument, SHALL be a lift node with the identity `<Type><some C1, …>`. WireGen SHALL resolve
-it as a single graph node and SHALL NOT specialise it.
+it as a single graph node and SHALL NOT specialise it. Only a constraint written inline in the
+generic parameter clause (`<R: TaskRepo>`) counts; a parameter constrained only in a `where` clause
+is undetermined.
 
 #### Scenario: a controller over an opaque repository
 - **WHEN** plain `@Singleton Controller<Repository: TaskRepo>` injects `repository: Repository` and `some TaskRepo` is bound
 - **THEN** the order ends `some TaskRepo`, `Controller<some TaskRepo>` and no generic template is recorded
 
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`determinedGenericSingletonResolvesAsStructuralLiftNode`), `Tests/WireGenCoreTests/TransitiveLiftTests.swift` (`bareParameterDependencyStillDetermines`, `unconstrainedParameterNeverDetermines`). The marker-protocol-only constraint is pinned by nothing yet.
+#### Scenario: a `where`-clause constraint
+- **WHEN** plain `@Singleton struct Controller<Repository>` declares `where Repository: TaskRepo` and injects `repository: Repository`
+- **THEN** the graph fails with one invalid generic singleton whose undetermined parameters are `["Repository"]`
+
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`determinedGenericSingletonResolvesAsStructuralLiftNode`), `Tests/WireGenCoreTests/TransitiveLiftTests.swift` (`bareParameterDependencyStillDetermines`, `unconstrainedParameterNeverDetermines`). The marker-protocol-only constraint and the `where`-clause case are pinned by nothing yet.
 
 ### Requirement: An undetermined generic `@Singleton` is an error
 A generic `@Singleton` without `as:` with any undetermined generic parameter SHALL fail the graph
@@ -94,9 +102,9 @@ it resolves to one binding), or use '@Provides func' for a parameterised factory
 Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`genericSingletonWithUndeterminedParameterIsError`). The rendered message is pinned by nothing yet.
 
 ### Requirement: `some P` satisfies `any P`, never the reverse
-WireGen SHALL resolve an `any P` dependency to an `any P` producer when one exists and otherwise to
-a `some P` producer under the same key. It SHALL NOT resolve a `some P` dependency to an `any P`
-producer.
+WireGen SHALL resolve an `any P` dependency whose slot is bound as `some P` to that `some P`
+producer under the same key; a slot cannot be bound as both `any P` and `some P` (see the duplicate
+requirement below). It SHALL NOT resolve a `some P` dependency to an `any P` producer.
 
 #### Scenario: an existential consumer
 - **WHEN** `some Logger` is bound and `Service` depends on `any Logger`
@@ -106,12 +114,13 @@ producer.
 - **WHEN** only `any Logger` is bound and `Service` depends on `some Logger`
 - **THEN** the dependency is a missing binding
 
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`anyConsumerResolvesToTheSomeProducer`, `aSomeConsumerIsNotSatisfiedByAnAnyProducer`), `Tests/WireGenCoreTests/BindingIdentityTests.swift` (`anyConsumerBorrowsTheSomeProducer`, `someConsumerNeverBorrowsTheAnyProducer`, `anExactAnyProducerWinsOverThePromotion`, `promotionRespectsKeys`).
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`anyConsumerResolvesToTheSomeProducer`, `aSomeConsumerIsNotSatisfiedByAnAnyProducer`), `Tests/WireGenCoreTests/BindingIdentityTests.swift` (`anyConsumerBorrowsTheSomeProducer`, `someConsumerNeverBorrowsTheAnyProducer`, `promotionRespectsKeys`).
 
 ### Requirement: A promoted producer is boxed once per body
 For each `some P` producer that an `any P` consumer in a body resolved to, the generated body SHALL
-declare one `let any<P>: <existential as written> = <producer local>` and pass it to every such
-consumer. It SHALL follow the producer's construction line, or open the body when the producer is
+declare one `let any<P>: <existential as written> = <producer>` and pass it to every such consumer,
+where `<producer>` is the producer's local, or its access path on the parent graph when a seed
+scope's bootstrap borrows it (`= _wireGraph.someGreeting`). It SHALL follow the producer's construction line, or open the body when the producer is
 borrowed rather than constructed there, and SHALL be omitted when nothing in the body promotes.
 
 #### Scenario: two consumers
@@ -137,11 +146,22 @@ keys SHALL coexist.
 - **WHEN** they are keyed `Log.opaque` and `Log.boxed`
 - **THEN** the graph validates
 
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`someAndAnyProducersForOneProtocolAreDuplicates`, `keysSeparateSomeAndAnyProducers`, `aConcreteBindingIsNotADuplicateOfTheExistential`).
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`someAndAnyProducersForOneProtocolAreDuplicates`, `keysSeparateSomeAndAnyProducers`).
+
+### Requirement: A bare `P` producer is not folded into the `any P` slot
+WireGen SHALL treat a producer whose type is written `P`, with no qualifier, as a slot separate from
+`any P`, so producers of `P` and `any P` coexist without a duplicate binding.
+
+#### Scenario: a bare and an existential producer
+- **WHEN** `boxedLogger: any Logger` is bound and a producer whose bound type is written `Logger` is bound, both unkeyed
+- **THEN** the graph validates
+
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`aConcreteBindingIsNotADuplicateOfTheExistential`).
 
 ### Requirement: Each bare `some P` binding lifts a parameter onto the graph struct
 For each binding in a graph whose type is written with a leading `some `, in topological order, the
-generated struct SHALL declare a generic parameter `T<n>: <P>`, store that binding as `T<n>`, and the
+generated struct SHALL declare a generic parameter `T<n>: <P>`, store that binding as `T<n>` (except
+for a second keyed binding of the same `some P`, described in the next requirement), and the
 bootstrap and `Wire` facade SHALL return `<Struct><some P0, …>`. A graph with no such binding SHALL
 keep the bare struct name.
 
@@ -155,6 +175,18 @@ keep the bare struct name.
 
 Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`opaqueBindingsLiftGenericParametersOntoWireGraph`), `Tests/WireGenCoreTests/RetentionTests.swift` (`anOpaqueLiftedBindingIsStored`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
+### Requirement: Keyed bindings of one `some P` share the first one's parameter
+When the same `some P` is bound more than once under different keys, the generated struct SHALL
+declare a generic parameter for each binding but SHALL type every one of their stored properties with
+the first binding's parameter, which is tracked as a defect in
+https://github.com/swift-wire/swift-wire/issues/368.
+
+#### Scenario: two keyed opaque loggers
+- **WHEN** `some Logger` is bound under `Log.a` and again under `Log.b`, in that topological order
+- **THEN** the struct declares `T0: Logger, T1: Logger` and both stored properties are typed `T0`
+
+Pinned by: nothing yet.
+
 ### Requirement: A structural lift node reuses its bridge targets' parameters
 A determined generic `@Singleton` SHALL lift no parameter of its own; its stored property SHALL be
 typed `<Type><T<n>, …>`, each argument the lifted parameter of the `some <constraint>` binding its
@@ -166,25 +198,43 @@ generic parameter bridges to.
 
 Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`structuralLiftNodeReusesBridgeTargetParameterAsNestedField`, `multiParamStructuralLiftNodeSubstitutesEachParameterIndependently`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
-### Requirement: A bare `some P` binding is always stored
-A binding whose type is written with a leading `some ` SHALL be a stored property of the generated
-graph struct whether or not a root reaches it.
+### Requirement: A constructed bare `some P` binding is always stored
+A binding whose type is written with a leading `some ` that the graph constructs SHALL be a stored
+property of the generated graph struct whether or not it is a declared root. Its `some P` type does
+not make it a reachability root, so an opaque binding that no root reaches is pruned before emission
+like any other binding.
 
-#### Scenario: an unrooted opaque provider
-- **WHEN** the only binding is `@Provides` of `some Greeting`
+#### Scenario: an opaque provider that is not a root
+- **WHEN** the emitted order holds only `@Provides` of `some Greeting`, which is not a declared root
 - **THEN** the struct stores `let someGreeting: T0`
 
-Pinned by: `Tests/WireGenCoreTests/RetentionTests.swift` (`anOpaqueLiftedBindingIsStored`).
+Pinned by: `Tests/WireGenCoreTests/RetentionTests.swift` (`anOpaqueLiftedBindingIsStored`). The pruning of an unreachable opaque binding is pinned by nothing yet.
 
-### Requirement: A seed scope names its opaque parent graph by the erased type
-When the parent graph lifts parameters, the seed scope's bootstrap function and facade SHALL take
-`wireGraph: <Struct><some P0, …>` rather than the bare struct name.
+### Requirement: A seed scope's facade names its opaque parent graph by the erased type
+When the parent graph lifts parameters, the seed scope's `Wire` facade SHALL take the parent graph
+as `<Struct><some P0, …>` rather than the bare struct name, under the parent-graph label (`wireGraph:`
+for `_WireGraph`, `testContainerWireGraph:` for `_TestContainerWireGraph`).
 
 #### Scenario: an opaque parent
 - **WHEN** the app graph is `_WireGraph<T0: TodoRepository>` and a seed scope `HBRequestSeed` borrows from it
 - **THEN** the facade is `static func bootstrapHBRequestSeedScope(seed: HBRequestSeed, wireGraph: _WireGraph<some TodoRepository>)`
 
-Pinned by: `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`seedScopeNamesOpaqueParentGraphWithItsLiftedParameters`).
+Pinned by: `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`seedScopeNamesOpaqueParentGraphWithItsLiftedParameters`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
+
+### Requirement: A seed scope's bootstrap function lifts the parent axes its stored bindings use
+When the parent graph lifts parameters, the seed scope's private bootstrap function SHALL take the
+parent graph as `<Struct><…>` in which each axis that one of the scope's stored bindings uses becomes
+one of the function's own generic parameters `T<n>` and every other axis stays `some P`.
+
+#### Scenario: no stored opaque binding
+- **WHEN** the app graph is `_WireGraph<T0: TodoRepository>` and the seed scope `HBRequestSeed` stores only `RequestLogger`
+- **THEN** the bootstrap function takes `wireGraph _wireGraph: _WireGraph<some TodoRepository>`
+
+#### Scenario: a stored binding over one axis
+- **WHEN** the seed scope `GenSeedRequestSeed` stores a binding over the parent's `some GenBackend` axis
+- **THEN** the bootstrap function is `_wireBootstrapGenSeedRequestSeedScope<T0: GenBackend>` taking `wireGraph _wireGraph: _WireGraph<some AggregateSearchBackend, some GenAppBackend, T0, some GenProxyRepository, some GenSomethingElse, some Greeting, some TeardownResource>`
+
+Pinned by: `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`seedScopeNamesOpaqueParentGraphWithItsLiftedParameters`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
 ## Related specifications
 
