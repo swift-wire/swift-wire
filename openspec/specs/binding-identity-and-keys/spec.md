@@ -7,7 +7,7 @@ dependency's, is the canonical text of the type expression as written plus an op
 WireGen reads syntax only, so it resolves no conformances and unwraps no typealiases. Each
 dependency has exactly one matching producer, or the graph fails with a duplicate-binding or a
 missing-binding error. `BindingKey<T>` keys a binding, and `_WireKeyChecks.swift` makes the compiler
-check each key against its site's type. How a generic `@Provides func` is specialised per
+check the key of each keyed provider and keyed init-time dependency against its site's type. How a generic `@Provides func` is specialised per
 instantiation is specified in [providers](../providers/spec.md); when a specialisation and another
 producer both match, the duplicate is reported here.
 
@@ -28,7 +28,7 @@ with every whitespace character removed. Generated code SHALL keep the type as w
 - **WHEN** `(Int) -> String` is canonicalised
 - **THEN** the identity text is `(Int)->String`
 
-Pinned by: `Tests/WireGenCoreTests/BindingIdentityTests.swift` (`stripsWhitespaceInGenericArguments`, `leavesAFunctionTypeIntact`), `Tests/WireGenCoreTests/GraphTests.swift` (`bindingsOfSameTypeWithDifferentWhitespaceAreDuplicates`, `consumerWithDifferentWhitespaceResolvesToProvider`, `internalAndOuterWhitespaceAreAllStripped`).
+Pinned by: `Tests/WireGenCoreTests/BindingIdentityTests.swift` (`stripsWhitespaceInGenericArguments`, `leavesAFunctionTypeIntact`), `Tests/WireGenCoreTests/GraphTests.swift` (`bindingsOfSameTypeWithDifferentWhitespaceAreDuplicates`, `consumerWithDifferentWhitespaceResolvesToProvider`, `internalAndOuterWhitespaceAreAllStripped`), `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`multipleGenericParametersUseAndSeparator`).
 
 ### Requirement: Top-level composition members are sorted
 WireGen SHALL sort the members of a protocol composition that are separated by `&` at bracket depth
@@ -51,8 +51,8 @@ distinct from the unqualified type of the same name. A type name that merely beg
 letters SHALL NOT be read as qualified.
 
 #### Scenario: a type named like a qualifier
-- **WHEN** `someThing` is canonicalised
-- **THEN** the identity text is `someThing` with no qualifier
+- **WHEN** `anything & Zed` is canonicalised
+- **THEN** the identity text is `Zed&anything`, not `anyZed&thing`
 
 Pinned by: `Tests/WireGenCoreTests/BindingIdentityTests.swift` (`doesNotMistakeATypeNameForAQualifier`, `keepsTheOpaqueQualifierLeading`).
 
@@ -65,26 +65,31 @@ dependency, and SHALL NOT collide with a producer of `any P`.
 - **WHEN** a producer binds `Logger` and a consumer injects `any Logger`
 - **THEN** the consumer's dependency is a missing binding
 
-Pinned by: `Tests/WireGenCoreTests/BindingIdentityTests.swift` (`aConcreteProducerNeverSatisfiesAnExistential`), `Tests/WireGenCoreTests/GraphTests.swift` (`aConcreteBindingIsNotADuplicateOfTheExistential`).
+Pinned by: `Tests/WireGenCoreTests/BindingIdentityTests.swift` (`aConcreteProducerNeverSatisfiesAnExistential`), `Tests/WireGenCoreTests/GraphTests.swift` (`aConcreteBindingIsNotADuplicateOfTheExistential`). The `some P` dependency case is pinned by nothing yet.
 
 ### Requirement: Typealiases are not unwrapped
 WireGen SHALL resolve a dependency written as a typealias name by that name only. When the
 dependency is missing and a module-scope, non-generic typealias of that name has an underlying type
 that is bound under the same key, the missing-binding error SHALL carry the note "'<Alias>' is a
 typealias of '<Underlying>' which is bound; typealiases aren't unwrapped at resolution, so inject
-'<Underlying>' directly or add a separate binding for '<Alias>'" at the typealias.
+'<Underlying>' directly or add a separate binding for '<Alias>'" at the typealias. A dependency
+written as an optional of the alias (`UserID?`) gets no such note, which is tracked as a defect in
+https://github.com/swift-wire/swift-wire/issues/424.
 
 #### Scenario: an alias of a bound type
 - **WHEN** `typealias UserID = UUID` is declared, `@Provides let uuid: UUID = UUID()` is bound, and `Service` declares `@Inject var userID: UserID`
 - **THEN** the output contains "error: no binding produces 'UserID'" and "note: 'UserID' is a typealias of 'UUID'"
 
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`missingBindingForTypealiasAttachesHintWhenUnderlyingIsBound`, `missingBindingWithTypealiasButUnboundUnderlyingHasNoHint`), `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`missingBindingForTypealiasRendersNoteAtUnderlyingType`), `Tests/WireGenCoreTests/DiscoveryTests.swift` (`moduleScopeTypealiasIsCaptured`, `nestedTypealiasIsNotCaptured`, `genericTypealiasIsNotCaptured`).
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`missingBindingForTypealiasAttachesHintWhenUnderlyingIsBound`, `missingBindingWithTypealiasButUnboundUnderlyingHasNoHint`), `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`missingBindingForTypealiasRendersNoteAtUnderlyingType`), `Tests/WireGenCoreTests/DiscoveryTests.swift` (`moduleScopeTypealiasIsCaptured`, `nestedTypealiasIsNotCaptured`, `genericTypealiasIsNotCaptured`). The optional-alias case is pinned by nothing yet.
 
 ### Requirement: Two producers of one identity are a duplicate-binding error
-When two or more bindings in one partition have the same identity, WireGen SHALL report
+When two or more bindings in one partition have the same identity, and none of them is an
+honoured `@Replaces` binding (which supersedes the others, see
+[multi-module-composition](../multi-module-composition/spec.md)), WireGen SHALL report
 "type '<T>' has multiple bindings; the dependency graph is ambiguous" at the first and
 "also bound here" notes at each other, naming the key as `'<T>' keyed '<Key>'` for a keyed slot.
-When the bindings come from different modules, each line SHALL end with ` (module '<Module>')`.
+When the bindings come from different modules, the error line and each "also bound here" note
+SHALL end with ` (module '<Module>')`.
 
 #### Scenario: two singletons
 - **WHEN** `Logger.swift` declares `@Singleton struct Logger` at line 2 and again at line 6
@@ -94,19 +99,21 @@ When the bindings come from different modules, each line SHALL end with ` (modul
 - **WHEN** module `LibA` and module `LibB` each declare `@Provides let …: Cache = Cache()`
 - **THEN** the duplicate error names `module 'LibA'` and `module 'LibB'`
 
-Pinned by: `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`twoSingletonsForSameTypeFlagWithNoteOnSecond`, `singletonAndProviderForSameTypeIsAlsoAmbiguous`, `keyedDuplicateBindingNamesTheKeyAndOmitsFixItNote`), `Tests/WireGenCoreTests/GraphTests.swift` (`twoSingletonsForSameTypeAreFlaggedAsDuplicate`, `singletonAndProviderForSameTypeAreFlaggedAsDuplicate`, `sameTypeWithSameKeyIsDuplicate`), `Tests/WireGenCoreTests/CrossLibraryValidationTests.swift` (`crossLibraryAmbiguityNamesConflictingModules`, `sameModuleDuplicateKeepsOriginalWording`).
+Pinned by: `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`twoSingletonsForSameTypeFlagWithNoteOnSecond`, `singletonAndProviderForSameTypeIsAlsoAmbiguous`, `keyedDuplicateBindingNamesTheKeyAndOmitsFixItNote`), `Tests/WireGenCoreTests/GraphTests.swift` (`twoSingletonsForSameTypeAreFlaggedAsDuplicate`, `singletonAndProviderForSameTypeAreFlaggedAsDuplicate`, `sameTypeWithSameKeyIsDuplicate`), `Tests/WireGenCoreTests/CrossLibraryValidationTests.swift` (`crossLibraryAmbiguityNamesConflictingModules`, `sameModuleDuplicateKeepsOriginalWording`), `Tests/WireGenCoreTests/ReplacesTests.swift` (`providesReplacesSupersedesConcreteSingleton`, `replacesSupersedesSameKeyBindingFromAnotherModule`, `plainDuplicateStillErrorsWithoutReplaces`).
 
 ### Requirement: An unkeyed duplicate carries a key fix-it note
 For an unkeyed duplicate, WireGen SHALL add the note "to disambiguate, declare named keys (e.g.
 `static let primary = BindingKey<<T>>()`) and tag each binding/consumer with
 `@Provides(<T>.primary)` / `@Inject(<T>.primary)`" at the first binding. A keyed duplicate SHALL
-carry no such note.
+carry no such note. `<T>` is the canonical identity text, so for a `some` or `any` type the note
+suggests `BindingKey<anyLogger>()`, which is not valid Swift; this is tracked as a defect in
+https://github.com/swift-wire/swift-wire/issues/423.
 
 #### Scenario: two unkeyed databases
 - **WHEN** two unkeyed providers bind `Database`
 - **THEN** the report contains `BindingKey<Database>()`, `@Provides(Database.primary)` and `@Inject(Database.primary)`
 
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`renderUnkeyedDuplicateAppendsFixItNote`, `renderDuplicateKeyedBindingsNamesTheKey`), `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`unkeyedDuplicateBindingShowsFixItNote`, `keyedDuplicateBindingNamesTheKeyAndOmitsFixItNote`).
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`renderUnkeyedDuplicateAppendsFixItNote`, `renderDuplicateKeyedBindingsNamesTheKey`, `someAndAnyProducersForOneProtocolAreDuplicates`), `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`unkeyedDuplicateBindingShowsFixItNote`, `keyedDuplicateBindingNamesTheKeyAndOmitsFixItNote`).
 
 ### Requirement: Duplicates stop validation before resolution
 When any duplicate binding is found, WireGen SHALL fail the graph with the duplicates alone and
@@ -124,7 +131,7 @@ When no producer's identity satisfies a dependency, WireGen SHALL report "no bin
 dependency's own source location.
 
 #### Scenario: an unbound injected property
-- **WHEN** `@Singleton struct Greeter { @Inject var logger: Logger }` is the whole graph
+- **WHEN** `Greeter.swift` is the whole graph and holds `@Singleton` on line 1, `struct Greeter {` on line 2 and `    @Inject var logger: Logger` on line 3
 - **THEN** the output contains "Greeter.swift:3:17: error: no binding produces 'Logger'"
 
 #### Scenario: an unbound key
@@ -149,14 +156,17 @@ one unkeyed, SHALL coexist.
 Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`sameTypeWithDifferentKeysCoexist`, `keyedAndUnkeyedSameTypeCoexist`, `keyedDependencyResolvesToKeyedBinding`, `keyedDependencyDoesNotMatchUnkeyedBinding`, `unkeyedDependencyDoesNotMatchKeyedBinding`), `Tests/IntegrationTests/BootstrapTests.swift` (`keyedConsumerInjectsTheMatchingKeyedProvider`, `keyedInitParameterInjectsTheMatchingKeyedProvider`).
 
 ### Requirement: A key is identified by its written text
-WireGen SHALL record a key reference (`@Provides(<key>)`, `@Inject(<key>)`, `@Bind(<key>)`) as the
-trimmed source text of the expression and compare keys by that text.
+WireGen SHALL record a key reference (`@Provides(<key>)`, `@Inject(<key>)`, or `@Bind(<key>)` on an
+`@Inject init` or `@Provides func` parameter) as the trimmed source text of the expression and
+compare keys by that text. A `@Bind(<key>)` on an `@Inject func` parameter is not read, so that
+parameter is recorded as unkeyed, which is tracked as a defect in
+https://github.com/swift-wire/swift-wire/issues/367.
 
 #### Scenario: a member-access key
 - **WHEN** `@Provides(Database.primary) let db: Database = Database()` is discovered
 - **THEN** the provider's key is `Database.primary`
 
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesWithMemberAccessKeyExtractsCanonicalText`, `injectPropertyWithKeyExtractsCanonicalText`, `injectInitParameterWithBindKeyExtractsCanonicalText`, `bareIdentifierKeyExtractsAsIs`).
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesWithMemberAccessKeyExtractsCanonicalText`, `injectPropertyWithKeyExtractsCanonicalText`, `injectInitParameterWithBindKeyExtractsCanonicalText`, `bareIdentifierKeyExtractsAsIs`). The `@Inject func` parameter case is pinned by nothing yet.
 
 ### Requirement: `BindingKey<T>` is a stateless phantom type
 `BindingKey<Value>` SHALL be a public `Sendable` struct with a single `public init()` and no stored
@@ -189,10 +199,15 @@ Pinned by: `Tests/WireGenCoreTests/BindingKeyDiscoveryTests.swift` (`bindingKeyO
 
 ### Requirement: Key checks skip `some` and `any` sites
 `_WireKeyChecks.swift` SHALL emit a `_check(<key>, <Type>.self)` call, wrapped in
-`#sourceLocation` for the site, for each keyed provider and keyed dependency whose written type
-does not begin with `some ` or `any `, so a key whose `BindingKey<T>` disagrees with the site's type
-fails to compile at the user's line. Sites whose type begins with `some ` or `any ` SHALL get no
-check.
+`#sourceLocation` for the site, for each keyed provider and each keyed init-time dependency whose
+key is not a multibinding key (`CollectedKey`, `MappedKey`, `BuilderKey`) or a generated
+injection-rewrite key and whose written type does not begin with `some ` or `any `, so a key whose
+`BindingKey<T>` disagrees with the site's type fails to compile at the user's line. Sites whose type
+begins with `some ` or `any ` SHALL get no check. A keyed member injection (`@Inject(<key>) weak
+var`) gets no check, noted in https://github.com/swift-wire/swift-wire/issues/425. An optional
+site's check names the optional type (`_check(K.primary, Database?.self)`), which fails to compile
+even for a matching key; this is tracked as a defect in
+https://github.com/swift-wire/swift-wire/issues/421.
 
 #### Scenario: an existential keyed provider
 - **WHEN** a provider keyed `Logger.fancy` binds `any Logger`
@@ -202,7 +217,7 @@ check.
 - **WHEN** WireGen runs over `Tests/IntegrationTests`
 - **THEN** `_WireKeyChecks.swift` contains `_check(AppName.alternate, AppName.self)` under `#sourceLocation(file: "Tests/IntegrationTests/KeyedExample.swift", line: 21)`
 
-Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`anyProtocolBindingsAreSkipped`, `someProtocolBindingsAreSkipped`, `differentKeysProduceSeparateFunctions`, `differentTypesProduceSeparateFunctions`), `GoldenHarness/Golden/_WireKeyChecks.swift.golden`.
+Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`anyProtocolBindingsAreSkipped`, `someProtocolBindingsAreSkipped`, `differentKeysProduceSeparateFunctions`, `differentTypesProduceSeparateFunctions`), `GoldenHarness/Golden/_WireKeyChecks.swift.golden`. The multibinding-key, rewrite-key, member-injection and optional-site cases are pinned by nothing yet.
 
 ### Requirement: An instantiation with two candidate producers is a duplicate
 When a dependency's instantiation is bound both by a concrete binding the user declared and by a
@@ -210,14 +225,15 @@ matching generic template, or by two or more matching generic templates, WireGen
 duplicate binding for that identity. A template with a different key SHALL NOT be a candidate.
 
 #### Scenario: concrete and generic
-- **WHEN** a concrete `@Singleton` binding of `Repository<DynamoDBTable>` and `@Provides func makeRepository<T>(table: T) -> Repository<T>` are both declared and `App` injects `Repository<DynamoDBTable>`
+- **WHEN** `@Provides let repo: Repository<DynamoDBTable> = Repository()` and `@Provides func makeRepository<T>() -> Repository<T>` are both declared and `App` injects `Repository<DynamoDBTable>`
 - **THEN** one duplicate binding for `Repository<DynamoDBTable>` lists both producers
 
 Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`concreteAndGenericForSameInstantiationIsAmbiguous`, `concreteAndGenericWithDifferentKeysCoexist`, `multipleGenericCandidatesProduceAmbiguityError`), `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`multipleGenericCandidatesEmitDuplicateBindingError`).
 
 ### Requirement: A dependency matching no template is missing
-A dependency naming a generic type for which no template of matching base name and argument count
-exists, or naming the template's base type without arguments, SHALL be a missing binding.
+A dependency naming a generic instantiation that no concrete binding produces and for which no
+template of matching base name, argument count and key exists, or naming the template's base type
+without arguments, SHALL be a missing binding.
 
 #### Scenario: the bare base name
 - **WHEN** `makeRepository<Model>() -> Repository<Model>` is declared and `App` injects `Repository`
@@ -247,3 +263,4 @@ Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`bindingsWithCollidingAcce
 - [scope-entry-and-generated-names](../scope-entry-and-generated-names/spec.md)
 - [build-plugin-and-wiregen-cli](../build-plugin-and-wiregen-cli/spec.md)
 - [providers](../providers/spec.md)
+- [multi-module-composition](../multi-module-composition/spec.md)
