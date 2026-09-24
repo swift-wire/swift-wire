@@ -39,12 +39,14 @@ Pinned by: `Tests/IntegrationTests/IntrospectionTests.swift` (`generatedGraphCon
 
 ### Requirement: Every graph struct conforms to `Introspectable`
 WireGen SHALL declare each app graph, container graph and testing-variant graph struct as
-`internal struct <Name>: Introspectable, Teardownable` and emit `func introspect() -> WiringModel` in
-it. Seed-scope structs SHALL carry neither.
+`internal struct <Name>: Introspectable, Teardownable`, or as
+`internal struct <Name><T0: P0, …>: Introspectable, Teardownable` when the graph lifts its opaque
+`some P` bindings to generic parameters, and emit `func introspect() -> WiringModel` in it. Seed-scope
+structs SHALL carry neither.
 
 #### Scenario: the default and a variant graph
 - **WHEN** WireGen generates the integration target's graph
-- **THEN** `_WireGraph`, the variant graphs such as `_AppScopedFixture_bindMockWireGraph`, and the container graph `_ParallelSchedulerContainerWireGraph` are declared `: Introspectable, Teardownable` with `func introspect() -> WiringModel`
+- **THEN** `_WireGraph` and the variant graphs such as `_AppScopedFixture_bindMockWireGraph` are declared `<T0: AggregateSearchBackend, …>: Introspectable, Teardownable`, the container graph is declared `internal struct _ParallelSchedulerContainerWireGraph: Introspectable, Teardownable`, and each has `func introspect() -> WiringModel`
 
 Pinned by: `GoldenHarness/Golden/_WireGraph.swift.golden`, `.github/workflows/swift.yml` (`GoldenHarness`).
 
@@ -52,7 +54,7 @@ Pinned by: `GoldenHarness/Golden/_WireGraph.swift.golden`, `.github/workflows/sw
 `introspect()` SHALL return a `WiringModel` whose `bindings` hold one `BindingInfo(...)` literal per
 binding in the graph's topological order, and `WiringModel(bindings: [])` for an empty graph. The
 bindings SHALL be those the graph constructs, whether or not the graph stores them, and SHALL NOT
-include bindings reachability pruned.
+include bindings reachability pruned. The exclusion of pruned bindings is pinned by nothing yet.
 
 #### Scenario: a leaf behind a root
 - **WHEN** a graph holds an unrooted `Leaf` and a rooted `Consumer` that depends on it
@@ -62,7 +64,7 @@ include bindings reachability pruned.
 - **WHEN** `Coordinator` depends on `View`
 - **THEN** the `View` literal precedes the `Coordinator` literal
 
-Pinned by: `Tests/WireGenCoreTests/RetentionTests.swift` (`introspectionStillDescribesEveryBinding`), `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`propertyAssignmentMemberInjectionEmitsAsDirectAssignmentAfterConstruction`).
+Pinned by: `Tests/WireGenCoreTests/RetentionTests.swift` (`introspectionStillDescribesEveryBinding`, `aReachedButUnrootedBindingIsConstructedAndNotStored`), `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`propertyAssignmentMemberInjectionEmitsAsDirectAssignmentAfterConstruction`).
 
 ### Requirement: `type` and `key` are the binding's identity text
 Each `BindingInfo` SHALL carry the binding's bound type as written for its identity in `type` (for
@@ -75,18 +77,23 @@ example `some AggregateSearchBackend` or `[any Sendable]`), and its key's writte
 
 Pinned by: `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
-### Requirement: `kind` and `scope` follow the producing declaration
-WireGen SHALL emit `kind: .singleton` for a `@Singleton` type, `kind: .scoped` with the seed type as
-`scope` for a scope-bound type carrying a seed, `kind: .provider` with the provider's seed (or `nil`)
-as `scope` for a `@Provides` binding, and `kind: .aggregate` with `scope: nil` for a synthesised
-aggregate. Because only app, container and variant graphs are introspected, every emitted `scope` is
-`nil`.
+### Requirement: `kind` follows the binding case, with `scope: nil`
+WireGen SHALL emit `kind: .singleton` for a scope-bound binding (a `@Singleton` type, or a
+plugin-synthesised contributor or factory struct), `kind: .provider` for a provider binding (a
+`@Provides` binding, or a `@GraphInputs` property), and `kind: .aggregate` for a synthesised
+aggregate, each with `scope: nil`. No generated `introspect()` SHALL contain `kind: .scoped` or a
+non-nil `scope`, since the introspected app, container and variant graphs hold no seeded binding.
+That a `@GraphInputs` property surfaces as `kind: .provider` is pinned by nothing yet.
 
 #### Scenario: the fixture's root
 - **WHEN** the integration graph is introspected
 - **THEN** `IntrospectionRoot` has `kind == .singleton` and `scope == nil`, and the model contains both `.provider` and `.aggregate` bindings
 
-Pinned by: `Tests/IntegrationTests/IntrospectionTests.swift` (`introspectSurfacesKindsScopesAndEdges`).
+#### Scenario: a synthesised contributor
+- **WHEN** the integration graph synthesises the aggregate contributor `_WireAggregateContributor_beta`
+- **THEN** its literal is `BindingInfo(type: "_WireAggregateContributor_beta", key: nil, kind: .singleton, scope: nil, …)`
+
+Pinned by: `Tests/IntegrationTests/IntrospectionTests.swift` (`introspectSurfacesKindsScopesAndEdges`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
 ### Requirement: `dependencies` lists initialiser edges, or an aggregate's contributors
 Each `BindingInfo` SHALL list, as `DependencyEdge(type:key:)`, the binding's initialiser or provider
@@ -126,7 +133,7 @@ the graph, so the model carries no binding value and offers no path back into th
 - **WHEN** a graph constructs `Leaf` without storing it
 - **THEN** `introspect()` still describes `Leaf` while the struct has no `leaf` stored property
 
-Pinned by: `Tests/WireGenCoreTests/RetentionTests.swift` (`introspectionStillDescribesEveryBinding`).
+Pinned by: `Tests/WireGenCoreTests/RetentionTests.swift` (`introspectionStillDescribesEveryBinding`, `aReachedButUnrootedBindingIsConstructedAndNotStored`), `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`propertyAssignmentMemberInjectionEmitsAsDirectAssignmentAfterConstruction`).
 
 ## Related specifications
 
