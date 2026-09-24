@@ -13,10 +13,13 @@ Documentation: [WritingAnAdapter](../../../Sources/Wire/Wire.docc/WritingAnAdapt
 
 ## Requirements
 
-### Requirement: A conformance is a `let` initialised with `WireGraphConformanceV1`
-WireGen SHALL recognise a graph conformance as a single-binding `let` whose initialiser is a call
-to `WireGraphConformanceV1`, at module scope or as a `static` member of a type, and SHALL NOT
-recognise an instance property or a declaration whose initialiser calls anything else.
+### Requirement: A conformance is a binding initialised with a bare `WireGraphConformanceV1` call
+WireGen SHALL recognise a graph conformance as a single-binding `let` or `var` (the binding
+specifier is not checked) whose initialiser is a call spelled with the bare type name
+`WireGraphConformanceV1(...)`, at module scope or as a `static` member of a type, and SHALL NOT
+recognise an instance property, a module-qualified call such as `Wire.WireGraphConformanceV1(...)`,
+an implicit-member initialiser such as `let c: WireGraphConformanceV1 = .init(...)`, or a
+declaration whose initialiser calls anything else.
 
 #### Scenario: a static member of an enum
 - **WHEN** an enum declares `static let conformance = WireGraphConformanceV1(conformsTo: (any HummingbirdComposable).self, members: [.init("routes", from: HummingbirdKeys.routes), .init("middleware", from: HummingbirdKeys.middleware)])`
@@ -30,7 +33,11 @@ recognise an instance property or a declaration whose initialiser calls anything
 - **WHEN** an enum declares `static let primary = BindingKey<Database>()` and `static let count = 3`
 - **THEN** discovery yields no conformance
 
-Pinned by: `Tests/WireGenCoreTests/GraphConformanceDiscoveryTests.swift` (`capturesProtocolAndMemberMappings`, `plainProtocolMetatypeAlsoWorks`, `nonConformanceDeclarationsIgnored`). The instance-property exclusion is pinned by nothing yet.
+#### Scenario: a module-qualified call
+- **WHEN** an enum declares `static let conformance = Wire.WireGraphConformanceV1(conformsTo: HummingbirdComposable.self, members: [])`
+- **THEN** discovery yields no conformance and WireGen emits no `extension _WireGraph: HummingbirdComposable`
+
+Pinned by: `Tests/WireGenCoreTests/GraphConformanceDiscoveryTests.swift` (`capturesProtocolAndMemberMappings`, `plainProtocolMetatypeAlsoWorks`, `nonConformanceDeclarationsIgnored`). The instance-property exclusion, the acceptance of `var`, and the rejection of module-qualified and implicit-member initialisers are pinned by nothing yet.
 
 ### Requirement: The protocol and the keys are read as text
 WireGen SHALL read the protocol name from the `conformsTo:` metatype expression, accepting both
@@ -78,7 +85,8 @@ Pinned by: `Tests/WireGenCoreTests/GraphConformanceEmissionTests.swift` (`noConf
 When a member's key has no aggregate in the graph, WireGen SHALL emit
 `var <member>: [<Element>] { [] }` for a `CollectedKey<Element>` and
 `var <member>: [<Key>: <Value>] { [:] }` for a `MappedKey<Key, Value>`, and SHALL omit the member
-for a `BuilderKey` or a key it cannot find, so the incomplete conformance fails at compile time.
+for a `BuilderKey` or a key it cannot find, without a diagnostic, so the incomplete conformance
+fails at compile time unless the protocol supplies a default implementation for that member.
 
 #### Scenario: two collected keys with no contributors
 - **WHEN** a conformance maps `routes` to `App.routes` and `services` to `App.services`, both declared `CollectedKey`s with no contributors
@@ -117,7 +125,7 @@ them. The conformances SHALL NOT be passed as roots when pruning a `@Container` 
 - **WHEN** the composition harness consumer declares a conformance mapping `contributors` to the library's `HarnessRouteKeys.contributors`
 - **THEN** `(graph as any HarnessComposable).contributors.map(\.label)` is `["external-route"]`
 
-Pinned by: `Tests/WireGenCoreTests/ReachabilityTests.swift` (`conformanceNamedAggregateIsARoot`), `CompositionHarness/Consumer/Sources/WireHarnessConsumer/main.swift` via the `CompositionHarness` job in `.github/workflows/swift.yml`.
+Pinned by: `Tests/WireGenCoreTests/ReachabilityTests.swift` (`conformanceNamedAggregateIsARoot`), `CompositionHarness/Consumer/Sources/WireHarnessConsumer/main.swift` via the `CompositionHarness` job in `.github/workflows/swift.yml`. The `@Container` exclusion is pinned by nothing yet.
 
 ### Requirement: An aggregate a conformance names is stored on the graph
 The generated graph SHALL keep a stored property for an aggregate a conformance names, since the
