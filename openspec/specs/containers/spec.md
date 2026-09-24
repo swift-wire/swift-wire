@@ -11,7 +11,7 @@ and diagnoses the combinations that do not do what they look like. The generated
 entry-point names are specified in
 [scope-entry-and-generated-names](../scope-entry-and-generated-names/spec.md), and a `@Provides` in
 a plain `extension` of a container, which falls through to the default graph with a warning, in
-[binding-lifetimes](../binding-lifetimes/spec.md).
+[providers](../providers/spec.md).
 
 Documentation: [ProvidingValues](../../../Sources/Wire/Wire.docc/ProvidingValues.md), [HowWireCompares](../../../Sources/Wire/Wire.docc/HowWireCompares.md).
 
@@ -178,3 +178,4 @@ Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`containerCombinedWith
 - [multi-module-composition](../multi-module-composition/spec.md)
 - [build-plugin-and-wiregen-cli](../build-plugin-and-wiregen-cli/spec.md)
 - [testing-variants](../testing-variants/spec.md)
+- [providers](../providers/spec.md)
