@@ -55,7 +55,7 @@ one pattern binding, SHALL be skipped without a diagnostic.
 - **WHEN** `@Provides let logger = Logger.shared` is discovered
 - **THEN** no provider is recorded
 
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesLetInferredFromConstructorCallIsDiscovered`, `providesLetInferredFromGenericConstructorCall`, `providesLetTypeAnnotationTakesPrecedenceOverConstructorCall`, `providesLetFromMemberAccessIsSkipped`, `providesLetFromLowercaseFunctionCallIsSkipped`, `providesLetFromLiteralIsSkipped`).
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesLetInferredFromConstructorCallIsDiscovered`, `providesLetInferredFromGenericConstructorCall`, `providesLetTypeAnnotationTakesPrecedenceOverConstructorCall`, `providesLetFromMemberAccessIsSkipped`, `providesLetFromLowercaseFunctionCallIsSkipped`, `providesLetFromLiteralIsSkipped`). The skip of a declaration with more than one pattern binding, and the absence of a diagnostic for any skip, are pinned by nothing yet.
 
 ### Requirement: A `@Provides` computed property carries its getter's effects
 WireGen SHALL record a `@Provides` computed property with the `async` and `throws` specifiers of its
@@ -96,7 +96,7 @@ trimmed source text. A leading labelled argument SHALL mean the provider has no 
 
 Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesWithoutKeyArgumentHasNilKeyIdentifier`, `providesWithMemberAccessKeyExtractsCanonicalText`, `providesFunctionWithKeyExtractsCanonicalText`, `allowUnusedTrueIsCapturedOnProvides`, `keyedProvidesWithAllowUnusedCapturesBoth`).
 
-### Requirement: Only a `@Provides` binding carries a key
+### Requirement: A `@Singleton` or `@Scoped` binding carries no key
 A `@Singleton` or `@Scoped` binding SHALL have no key in the graph; the `static key` its macro
 synthesises SHALL NOT key it.
 
@@ -104,13 +104,17 @@ synthesises SHALL NOT key it.
 - **WHEN** `@Singleton struct Repo` is bound and a consumer declares `@Inject(Repo.key) var repo: Repo`
 - **THEN** the consumer's keyed dependency does not resolve to `Repo`
 
-Pinned by: nothing yet.
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`keyedDependencyDoesNotMatchUnkeyedBinding`).
 
 ### Requirement: `@Provides` in an unannotated extension falls through to the default graph
 A `@Provides` inside an `extension` that does not carry `@Container` SHALL be recorded in the
-enclosing partition, not the extended type's container. When the extended type is a `@Container`,
-WireGen SHALL warn "@Provides '<name>' in an unannotated extension of '<Type>' falls through to the
-default graph — mark the extension @Container to contribute to '<Type>'s container instead."
+enclosing partition, not the extended type's container. For each `@Provides` declared directly in
+such an extension, WireGen SHALL warn "@Provides '<name>' in an unannotated extension of '<Type>'
+falls through to the default graph — mark the extension @Container to contribute to '<Type>'s
+container instead." when the extended type is a `@Container` that has at least one binding of its
+own. A `@Container` with no bindings of its own, and a `@Provides` in a type nested inside the
+extension, get no warning, which is tracked as a defect in
+https://github.com/swift-wire/swift-wire/issues/430.
 
 #### Scenario: an extension of a container
 - **WHEN** `@Container enum TestContainer` is declared and `extension TestContainer { @Provides static let extra: Extra = Extra() }` is discovered
@@ -119,22 +123,36 @@ default graph — mark the extension @Container to contribute to '<Type>'s conta
 Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesInUnannotatedExtensionFallsThroughToDefault`, `unannotatedExtensionProvidesIsRecordedAsCandidate`, `containerAnnotatedExtensionProvidesIsNotACandidate`). The warning text is pinned by nothing yet.
 
 ### Requirement: `@Provides` in an extension of an undeclared type is a warning
-When the extended type is neither a `@Container` nor a type declared in the module, and its written
-name contains no `.` or `<`, WireGen SHALL warn "@Provides '<name>' in an extension of '<Type>' —
-'<Type>' isn't declared in this module, so the binding falls through to the default graph and any
-@Container on '<Type>' elsewhere isn't visible to discovery. …"
+When the extended type is neither a `@Container` nor a type name declared in the sources WireGen
+scanned, and the extended type's recorded name contains no `.` or `<`, WireGen SHALL warn
+"@Provides '<name>' in an extension of '<Type>' — '<Type>' isn't declared in this module, so the
+binding falls through to the default graph and any @Container on '<Type>' elsewhere isn't visible
+to discovery. …" A generic specialisation such as `extension Array<Int>` is recorded by its base
+name `Array` and warns; a member type such as `extension Foo.Bar` is recorded as written and does
+not. The declared names are taken from every module WireGen scanned in the run and matched by
+simple name, which is tracked as a defect in https://github.com/swift-wire/swift-wire/issues/434.
 
 #### Scenario: an imported type
 - **WHEN** `extension Logger { @Provides static let appLogger: Logger = Logger() }` is discovered and no `Logger` is declared in the module
 - **THEN** one warning containing "'Logger' isn't declared in this module" is reported
 
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`crossModuleExtensionWarningFiresForUndeclaredType`, `crossModuleExtensionWarningSkipsLocallyDeclaredType`, `crossModuleExtensionWarningDefersToContainerWarning`, `crossModuleExtensionWarningSkipsMemberTypeTargets`).
+#### Scenario: a generic specialisation
+- **WHEN** `extension Array<Int> { @Provides static let empty: [Int] = [] }` is discovered
+- **THEN** one warning containing "'Array' isn't declared in this module" is reported
+
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`crossModuleExtensionWarningFiresForUndeclaredType`, `crossModuleExtensionWarningSkipsLocallyDeclaredType`, `crossModuleExtensionWarningDefersToContainerWarning`, `crossModuleExtensionWarningSkipsMemberTypeTargets`, `crossModuleExtensionWarningTreatsGenericExtensionAsBaseName`).
 
 ### Requirement: A generic `@Provides func` is specialised per requested instantiation
-WireGen SHALL keep a `@Provides func` with generic parameters out of the graph as a template and,
-for each dependency whose type is `<Base><<Args>>` with the template's base name, argument count and
-key, add one specialised binding of that concrete type, repeating until no new specialisation
-arises. Consumers of the same instantiation SHALL share one specialised binding.
+WireGen SHALL keep a `@Provides func` with generic parameters out of the graph as a template. A
+template matches a dependency `<Base><A1, …, An>` when its return type's base name is `<Base>`, it
+declares exactly n generic parameters, and its key is the dependency's key. For a dependency that
+no binding written in source already satisfies and exactly one template matches, WireGen SHALL add
+one specialised binding of that concrete type, substituting `Ai` for the template's i-th generic
+parameter, and repeat until no new specialisation arises. Consumers of the same instantiation SHALL
+share one specialised binding. Because matching counts generic parameters and substitutes by
+position, a return type that does not list the generic parameters in declaration order is never
+matched or is specialised with the wrong substitution, which is tracked as a defect in
+https://github.com/swift-wire/swift-wire/issues/432.
 
 #### Scenario: one parameter
 - **WHEN** `@Provides func makeContainer<T: Sendable>(item: T) -> Container<T>` is declared and `GenericConsumer` injects `Container<DataPoint>`
@@ -145,6 +163,22 @@ arises. Consumers of the same instantiation SHALL share one specialised binding.
 - **THEN** it appears among the generic templates and not in the topological order
 
 Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`singleParamGenericProviderSpecialisedForConcreteConsumer`, `multiParamGenericProviderSpecialisedForConcreteConsumer`, `genericProviderFunctionSpecialisedCarriesConcreteArguments`, `multipleConsumersOfSameSpecialisationShareOneBinding`, `specialisedBindingDepThatIsAlsoGenericChainsThroughFixpoint`, `specialisationHonoursWhitespaceCanonicalisation`, `genericProviderFunctionIsSkippedFromGraph`), `Tests/IntegrationTests/BootstrapTests.swift` (`genericSingletonSpecialisedForConcreteConsumer`).
+
+### Requirement: A generic template that competes for an instantiation is a duplicate binding
+When a binding written in source already has a dependency's identity and a generic template also
+matches it, or when two or more templates match it, WireGen SHALL report a duplicate binding listing
+the competing producers instead of specialising, as described in
+[binding-identity-and-keys](../binding-identity-and-keys/spec.md).
+
+#### Scenario: a concrete binding and a template
+- **WHEN** a concrete binding of `Repository<DynamoDBTable>` and `makeRepository<T>(table: T) -> Repository<T>` are declared and `App` depends on `Repository<DynamoDBTable>`
+- **THEN** one duplicate binding for `Repository<DynamoDBTable>` lists the concrete binding and the template
+
+#### Scenario: two templates
+- **WHEN** `makeRepoA<T>() -> Repository<T>` and `makeRepoB<T>() -> Repository<T>` are declared and `App` depends on `Repository<DynamoDBTable>`
+- **THEN** one duplicate binding for `Repository<DynamoDBTable>` lists both templates
+
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`concreteAndGenericForSameInstantiationIsAmbiguous`, `multipleGenericCandidatesProduceAmbiguityError`).
 
 ### Requirement: Specialisation substitutes bare parameters only
 When specialising, WireGen SHALL replace a dependency's type only when it is exactly one of the
