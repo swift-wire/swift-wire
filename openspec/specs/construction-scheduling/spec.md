@@ -14,9 +14,11 @@ Documentation: [LifecycleAndTeardown](../../../Sources/Wire/Wire.docc/LifecycleA
 ## Requirements
 
 ### Requirement: The bootstrap is always `async throws`
-WireGen SHALL declare every generated `_wireBootstrap` function and every `Wire` facade bootstrap
-method `async throws`, whatever the effects of the graph's bindings, and the facade SHALL call the
-bootstrap as `try await`.
+WireGen SHALL declare every generated `_wireBootstrap` function and every graph or seed-scope
+bootstrap entry on the `Wire` facade (`bootstrap`, `bootstrap<Name>`, `bootstrap<S>Scope`)
+`async throws`, whatever the effects of the graph's bindings, and the facade SHALL call the bootstrap as
+`try await`. This does not cover the test-variant `bootstrap…Contributor(wireGraph:)` facade methods,
+which build a proxy from a graph that already exists and are synchronous and non-throwing.
 
 #### Scenario: a wholly synchronous graph
 - **WHEN** a graph's only binding is a `@Singleton` with a synchronous, non-throwing initialiser
@@ -38,7 +40,7 @@ SHALL be treated as synchronous and non-throwing.
 - **WHEN** `@Singleton struct DatabasePool` declares `@Inject init() async throws`
 - **THEN** its construction line is `let databasePool = try await DatabasePool()`
 
-Pinned by: `Tests/WireGenCoreTests/EffectAwareEmissionTests.swift` (`asyncThrowsComputedPropertyEmitsTryAwaitPrefix`, `asyncThrowsInitOnScopeBoundEmitsTryAwaitPrefix`, `asyncInitOnScopeBoundEmitsAwaitPrefix`), `Tests/IntegrationTests/BootstrapTests.swift` (`asyncThrowsProviderFunctionResolvesThroughBootstrap`, `asyncThrowsComputedPropertyResolvesThroughBootstrap`, `asyncThrowsInjectInitResolvesThroughBootstrap`).
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`injectInitWithAsyncCapturesFlag`, `injectInitWithThrowsCapturesFlag`, `injectInitWithAsyncThrowsCapturesBothFlags`, `injectPropertySynthesizedInitIsSync`, `providesFunctionWithEffectsCapturesFlags`, `providesComputedPropertyWithEffectsCapturesFlags`, `providesStoredPropertyHasNoEffects`), `Tests/WireGenCoreTests/EffectAwareEmissionTests.swift` (`asyncThrowsComputedPropertyEmitsTryAwaitPrefix`, `asyncThrowsInitOnScopeBoundEmitsTryAwaitPrefix`, `asyncInitOnScopeBoundEmitsAwaitPrefix`), `Tests/IntegrationTests/BootstrapTests.swift` (`asyncThrowsProviderFunctionResolvesThroughBootstrap`, `asyncThrowsComputedPropertyResolvesThroughBootstrap`, `asyncThrowsInjectInitResolvesThroughBootstrap`). The shorthand-getter clause is pinned by nothing yet.
 
 ### Requirement: Each construction line carries exactly its own binding's prefix
 WireGen SHALL prefix a binding's construction expression with `try ` when it throws, `await ` when it
@@ -56,9 +58,11 @@ dependencies.
 Pinned by: `Tests/WireGenCoreTests/EffectAwareEmissionTests.swift` (`asyncFunctionProviderEmitsAwaitPrefix`, `throwsFunctionProviderEmitsTryPrefix`, `asyncThrowsFunctionProviderEmitsTryAwaitPrefix`, `syncFunctionProviderEmitsNoPrefix`, `syncInitOnScopeBoundEmitsNoPrefix`, `chainOfMixedEffectsRendersEachCallWithCorrectPrefix`).
 
 ### Requirement: A graph is scheduled only when two async bindings are independent
-WireGen SHALL emit the scheduled form for a graph if and only if it has two async bindings neither of
-which reaches the other through construction edges, sync bindings included. Otherwise the bootstrap
-SHALL be the linear `let` chain and SHALL NOT reference `_WireBindingState`. Aggregates SHALL count as
+WireGen SHALL emit the scheduled form for a graph only if it has two async bindings neither of which
+reaches the other through construction edges, sync bindings included; the exclusions in "Constructs the
+group cannot hold keep the whole graph on the chain" and "A scope-entry thunk in the group keeps the
+graph on the chain" can still keep such a graph on the chain. A graph without such a pair SHALL be
+built as the linear `let` chain and SHALL NOT reference `_WireBindingState`. Aggregates SHALL count as
 synchronous.
 
 #### Scenario: a single async binding
@@ -94,7 +98,7 @@ be built on the linear chain before the group opens and the suffix after the gro
 - **WHEN** `Host` reads `Service` and `Cache`
 - **THEN** `let host = Host(service: service, cache: cache)` is emitted after the seam and there is no `_wireState_host`
 
-Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aBindingUpstreamOfEveryAsyncOneStaysOnTheChain`, `aBindingWaitingOnOnlySomeAsyncBindingsIsScheduled`, `aBindingWaitingOnEveryAsyncOneReturnsToTheChain`), `Tests/IntegrationTests/AsyncScopeEntryTests.swift` (`theScopeStillBuildsEveryBindingAndSeedsThem`).
+Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aBindingUpstreamOfEveryAsyncOneStaysOnTheChain`, `aBindingWaitingOnOnlySomeAsyncBindingsIsScheduled`, `aBindingWaitingOnEveryAsyncOneReturnsToTheChain`).
 
 ### Requirement: The building struct holds one cell and one `add` per group binding
 For a scheduled graph WireGen SHALL emit a `~Copyable` struct named from the graph struct with the
@@ -115,17 +119,15 @@ Each `_wireAdd_<name>` SHALL first bind every group dependency with
 `guard _wireState_<name>.asPending() else { return }`. An async binding SHALL then hand its
 construction to `_wireGroup.addTask { .<name>(<construction>) }`; a synchronous binding SHALL construct
 in place with `_wireState_<name>.asResolved(<construction>)` and then call `try _wireAdd_<dependent>(&_wireGroup)`
-for each direct group dependent.
+for each direct group dependent. A specialised generic `@Provides func` is instead first bound to a
+type-annotated local, `let <name>: <T> = <construction>`, which the task returns as `.<name>(<name>)` or
+the cell resolves with as `asResolved(<name>)`.
 
 #### Scenario: a fan-in dependent is fired from each dependency
 - **WHEN** group binding `Service` reads two scheduled bindings
 - **THEN** `try _wireAdd_service(&_wireGroup)` appears twice and its dependency guard precedes its `asPending()` guard
 
-#### Scenario: a fan-in consumer at run time
-- **WHEN** `SchedulerService` reads two async bindings and one synchronous non-`Sendable` class and `Wire.bootstrapSchedulerContainer()` runs
-- **THEN** `graph.schedulerService.describe() == "config:scheduled:0"` and `graph.schedulerService.counter === graph.schedulerCounter`
-
-Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aDependentIsFiredFromEveryDependencyAndGuardedUntilAllResolve`, `aCollectedAggregateInTheGroupRegionIsScheduled`), `Tests/IntegrationTests/SchedulerContainerTests.swift` (`fanInConsumerSeesEveryDependencyResolved`, `aNonSendableBindingIsSharedNotReconstructed`, `anAggregateResolvesThroughTheCascadeInContributorOrder`).
+Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aDependentIsFiredFromEveryDependencyAndGuardedUntilAllResolve`, `aCollectedAggregateInTheGroupRegionIsScheduled`). The specialised generic form is pinned by nothing yet.
 
 ### Requirement: Child results return to the parent through `_wireUpdate`
 WireGen SHALL emit an enum named with the `WireTaskResult` suffix (`_WireTaskResult` for `_WireGraph`)
@@ -180,7 +182,7 @@ initialiser SHALL be emitted over those locals inside the group closure.
 - **WHEN** the independent pair `Pool` and `Cache` is scheduled
 - **THEN** the bootstrap contains `let pool = building._wireState_pool.take()`, `let cache = building._wireState_cache.take()` and `return _WireGraph(pool: pool, cache: cache)`
 
-Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`theSeamTurnsEveryScheduledBindingBackIntoALocal`, `aMemberInjectionNoLongerBlocksScheduling`, `aTeardownBindingNoLongerBlocksScheduling`), `Tests/IntegrationTests/SchedulerContainerTests.swift` (`aScheduledGraphStillIntrospectsEveryBinding`).
+Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`theSeamTurnsEveryScheduledBindingBackIntoALocal`, `aMemberInjectionNoLongerBlocksScheduling`, `aTeardownBindingNoLongerBlocksScheduling`), `Tests/IntegrationTests/ParallelSchedulerTests.swift` (`bothIndependentAsyncBindingsStillResolve`).
 
 ### Requirement: Constructs the group cannot hold keep the whole graph on the chain
 WireGen SHALL NOT schedule a graph whose group region contains a builder aggregate, a binding with an
@@ -199,10 +201,14 @@ Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aBuilder
 
 ### Requirement: A scope-entry thunk in the group keeps the graph on the chain
 WireGen SHALL NOT schedule an app graph whose group region contains a bridging proxy that carries a
-scope-entry thunk.
+scope-entry thunk. Regions are computed over construction edges only, and a proxy's link to the app
+singletons its thunk borrows is a `.scopeCapture` dependency, which is not one. So a proxy whose only
+path to a scheduled binding is its thunk's borrow lands in the prefix, this rule does not apply, and the
+thunk is emitted before the group opens, ahead of the seam that binds the captured local. That
+placement is tracked as a possible defect in https://github.com/swift-wire/swift-wire/issues/408.
 
-#### Scenario: a proxy downstream of an async binding
-- **WHEN** a bridging proxy's thunk is constructed in the group region of an otherwise scheduled graph
+#### Scenario: a proxy whose construction arguments reach an async binding
+- **WHEN** a bridging proxy with a scope-entry thunk reaches a scheduled async binding through an ordinary construction argument, so it lands in the group region of an otherwise scheduled graph
 - **THEN** the bootstrap is the linear chain
 
 Pinned by: nothing yet.
@@ -227,7 +233,7 @@ Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`everyBin
 
 ### Requirement: A scope-entry thunk schedules its own construction
 A seeded scope-entry thunk SHALL apply the same trigger and regions to the scope bindings it
-constructs, over the set pruned to what its subject reaches, declaring a local `enum _WireScopeWireTaskResult: Sendable`
+constructs, over the set pruned to what its subject and its yielded bindings reach, declaring a local `enum _WireScopeWireTaskResult: Sendable`
 and a local `struct _WireScopeWireBuilding: ~Copyable` inside the thunk and returning the entry struct
 from inside `withThrowingTaskGroup(of: _WireScopeWireTaskResult.self)`. It SHALL NOT emit sendable checks.
 
@@ -239,8 +245,9 @@ Pinned by: `Tests/IntegrationTests/AsyncScopeEntryTests.swift` (`bothIndependent
 
 ### Requirement: A scope whose group reads a closure local keeps the chain
 WireGen SHALL keep a scope-entry thunk on the linear chain when any binding in its group region reads a
-local that is not a constructed scope binding: the seed, the `doubles` parameter or a borrowed
-singleton.
+local that is not a constructed scope binding: the seed or a borrowed singleton. A `@BindType`d field of
+the `doubles` parameter is itself a constructed binding (`let <field> = doubles.<field>`), so a group
+binding that reads one does not keep the chain; the field crosses as a frontier value instead.
 
 #### Scenario: a group binding reads the seed
 - **WHEN** two independent async scope bindings exist and one of them takes the seed as an initialiser parameter
