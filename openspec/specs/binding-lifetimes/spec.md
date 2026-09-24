@@ -3,8 +3,9 @@
 ## Purpose
 
 The lifetime macros that make a type its own producer. `@Singleton` and `@Scoped(seed:)` synthesise
-the initialiser Wire calls and a `static key`, and WireGen records the type as a binding of the app
-partition or of the seed's scope, with its injected members as dependencies. `@Factory(key)` is the
+the initialiser Wire calls and a `static key`, and WireGen records the type as a binding of the
+enclosing `@Container`'s graph, or of the app graph when there is none, either unscoped or in the
+seed's scope, with its injected members as dependencies. `@Factory(key)` is the
 third lifetime macro and is exclusive with the other two. Producers declared with `@Provides` are
 specified in [providers](../providers/spec.md), and what `allowUnused:` does in
 [reachability-and-retention](../reachability-and-retention/spec.md).
@@ -19,7 +20,8 @@ The `@Singleton` macro SHALL add to the primary declaration the initialiser desc
 [injection-points](../injection-points/spec.md) (from `@Inject` stored properties in declaration
 order, or none when a single `@Inject init` is written) and a
 `static let key = BindingKey<<Type>>()`, both carrying the host type's access keyword with
-`internal` omitted.
+`internal` omitted. On an `open class` this copies `open` onto both, which Swift rejects; that is
+tracked as a defect in https://github.com/swift-wire/swift-wire/issues/407.
 
 #### Scenario: an empty singleton
 - **WHEN** `@Singleton struct A {}` is expanded
@@ -70,9 +72,9 @@ Pinned by: `Tests/WireMacrosImplTests/SingletonMacroTests.swift` (`test_singleto
 On a struct, class or actor the `@Scoped(seed:)` macro SHALL add the same members `@Singleton`
 adds, whatever the seed type.
 
-#### Scenario: two seed types
-- **WHEN** `@Scoped(seed: A.self)` and `@Scoped(seed: B.self)` are applied to identical structs
-- **THEN** both expansions add the same `init` and `static let key`
+#### Scenario: a seed other than the request seed
+- **WHEN** `@Scoped(seed: SQSMessage.self) struct Worker { @Inject var message: SQSMessage }` is expanded
+- **THEN** the expansion adds `init(message: SQSMessage)` and `static let key = BindingKey<Worker>()`, the members `@Singleton` would add
 
 Pinned by: `Tests/WireMacrosImplTests/ScopedMacroTests.swift` (`test_scopedOnEmptyStruct_generatesEmptyInitAndKey`, `test_scopedWithOneInject_generatesParameterisedInit`, `test_scopedWithDifferentSeedType_producesIdenticalMembers`).
 
@@ -100,23 +102,21 @@ to a struct, class, or actor."
 - **WHEN** `@Factory(MyMiddleware.session) struct SessionMiddleware<Ctx, Reader, Sender> { @Inject var store: SessionStore }` is expanded
 - **THEN** the expansion adds `init(store: SessionStore)` and nothing else
 
-Pinned by: `Tests/WireMacrosImplTests/FactoryMacroTests.swift` (`test_factoryWithInjectProperty_generatesInitFromInjectMembers`, `test_factoryWithNoInject_generatesEmptyInit`, `test_publicFactory_generatesPublicInit`).
+Pinned by: `Tests/WireMacrosImplTests/FactoryMacroTests.swift` (`test_factoryWithInjectProperty_generatesInitFromInjectMembers`, `test_factoryWithNoInject_generatesEmptyInit`, `test_publicFactory_generatesPublicInit`). The failure on another declaration is pinned by nothing yet.
 
 ### Requirement: An uninitialised non-injected stored property is an error
 When the lifetime macro synthesises the initialiser, it SHALL report "Stored property '<name>' must
 have a default value, be a computed property, or be marked @Inject." at each non-`static`
 stored property binding that has no `@Inject`, no initial value and no accessor block. It SHALL
-NOT report this when the declaration has a user-written initialiser.
+NOT report this when the declaration has a user-written initialiser. The macro skips `static` and
+`class` properties, but that only matters for source that already fails to compile, because Swift
+requires a static stored property to have an initial value.
 
 #### Scenario: a bare `let`
 - **WHEN** `@Singleton struct A` declares `@Inject var injected: Dep` and `let uninitialised: String`
 - **THEN** the macro reports the stored-property error at `uninitialised` and still adds `init(injected: Dep)`
 
-#### Scenario: a static property
-- **WHEN** a `@Singleton` declares a `static` property without a default
-- **THEN** no stored-property error is reported
-
-Pinned by: `Tests/WireMacrosImplTests/SingletonMacroTests.swift` (`test_singletonReportsUninitialisedStoredProperty`, `test_singletonReportsMultipleUninitialisedProperties`, `test_singletonAllowsStaticPropertyWithoutDefault`, `test_singletonSuppressesUninitialisedDiagnosticWhenInjectInitProvided`), `Tests/WireMacrosImplTests/WireDiagnosticTests.swift` (`test_uninitialisedStoredProperty_diagnosticID`).
+Pinned by: `Tests/WireMacrosImplTests/SingletonMacroTests.swift` (`test_singletonReportsUninitialisedStoredProperty`, `test_singletonReportsMultipleUninitialisedProperties`, `test_singletonSuppressesUninitialisedDiagnosticWhenInjectInitProvided`), `Tests/WireMacrosImplTests/WireDiagnosticTests.swift` (`test_uninitialisedStoredProperty_diagnosticID`). The skipping of `static` and `class` properties is pinned by nothing yet.
 
 ### Requirement: A declaration carries one lifetime macro
 When a declaration carries more than one of `@Singleton`, `@Scoped` and `@Factory`, the first in
@@ -150,7 +150,9 @@ Pinned by: `Tests/WireGenCoreTests/FactoryLifetimeDiagnosticsTests.swift` (`aSco
 ### Requirement: WireGen records a scope-bound type with its dependencies
 WireGen SHALL record each struct, class or actor carrying `@Singleton` or `@Scoped(seed:)` as a
 binding whose dependencies are the parameters of its `@Inject init`, in parameter order, when it has
-one, and otherwise its `@Inject` stored properties in declaration order. A type cannot declare both;
+one, and otherwise its `@Inject` stored properties other than `weak var` ones, in declaration order.
+WireGen records each `@Inject weak var` as a post-construction member injection, not a dependency.
+A type cannot declare both an `@Inject init` and `@Inject` properties other than `weak var` ones;
 the macro rejects that, as specified in [injection-points](../injection-points/spec.md).
 
 #### Scenario: dependencies from an `@Inject init`
@@ -161,11 +163,16 @@ the macro rejects that, as specified in [injection-points](../injection-points/s
 - **WHEN** a `@Singleton` declares `@Inject var first: First`, `@Inject var second: Second` and `@Inject var third: Third`
 - **THEN** the recorded dependencies are `first`, `second` and `third`, in declaration order
 
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`singletonOnStructIsDiscovered`, `singletonOnClassIsDiscovered`, `singletonOnActorIsDiscovered`, `injectInitWithMultipleParametersPreservesOrder`, `multipleInjectPropertiesInOrder`, `unannotatedTypeIsIgnored`), `Tests/IntegrationTests/BootstrapTests.swift` (`bootstrapWiresFullDependencyChain`).
+#### Scenario: a weak injected property
+- **WHEN** a `@Singleton final class View` declares `@Inject var name: String` and `@Inject weak var coordinator: Coordinator?`
+- **THEN** the recorded dependencies are `name` alone, and `coordinator` is recorded as a property-assignment member injection
+
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`singletonOnStructIsDiscovered`, `singletonOnClassIsDiscovered`, `singletonOnActorIsDiscovered`, `injectInitWithMultipleParametersPreservesOrder`, `multipleInjectPropertiesInOrder`, `unannotatedTypeIsIgnored`, `weakInjectVarBecomesPropertyAssignmentMemberInjection`, `weakAndStrongInjectPropertiesPartitionAcrossInitAndMemberInjections`), `Tests/WireMacrosImplTests/SingletonMacroTests.swift` (`test_injectWeakVar_coexistsWithStrongInjectInit`), `Tests/IntegrationTests/BootstrapTests.swift` (`bootstrapWiresFullDependencyChain`).
 
 ### Requirement: A scope-bound type is recorded in its lifetime's partition
-WireGen SHALL record a `@Singleton` in the app partition and a `@Scoped(seed: S.self)` in the
-partition of seed `S`.
+WireGen SHALL record a `@Singleton` in the unscoped partition, and a `@Scoped(seed: S.self)` in the
+partition of seed `S`, of the enclosing `@Container` when there is one and of the app graph
+otherwise (see [containers](../containers/spec.md)).
 
 #### Scenario: a scoped type
 - **WHEN** `@Scoped(seed: RequestSeed.self) struct RequestLogger` is discovered
@@ -175,7 +182,15 @@ partition of seed `S`.
 - **WHEN** a module declares a `@Singleton` and a `@Scoped(seed:)` type
 - **THEN** each is recorded in its own partition
 
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`scopedTypeRoutedToPerSeedPartition`, `singletonAndScopedCoexistInSeparatePartitions`).
+#### Scenario: a singleton inside a container
+- **WHEN** `@Container enum TestContainer { @Singleton struct MockService { @Inject var logger: Logger } }` is discovered
+- **THEN** `MockService` is recorded in `TestContainer`'s unscoped partition and the app graph's bindings are empty
+
+#### Scenario: a scoped type inside a container
+- **WHEN** `@Container enum TestContainer { @Scoped(seed: RequestSeed.self) struct TestRequestLogger {} }` is discovered
+- **THEN** it is recorded in the partition of container `TestContainer` and seed `RequestSeed`, and in neither unscoped partition
+
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`scopedTypeRoutedToPerSeedPartition`, `singletonAndScopedCoexistInSeparatePartitions`, `nestedSingletonInsideContainerRoutedToContainerBucket`, `scopedInsideContainerRoutesToContainerAndSeedPartition`).
 
 ## Related specifications
 
