@@ -31,9 +31,11 @@ implemented by `TeardownMacro`, which SHALL expand to no declarations.
 Pinned by: `Tests/WireMacrosImplTests/TeardownMacroTests.swift` (`test_bareTeardownOnMethod_producesNoPeers`, `test_teardownClosureOnFunction_producesNoPeers`, `test_teardownFunctionReferenceOnFunction_producesNoPeers`).
 
 ### Requirement: The member form records the method name and its effects
-WireGen SHALL record a bare `@Teardown` on an instance method of a `@Singleton` or `@Scoped` type as
-that binding's teardown, keeping the method's name, which may be any name, and whether it is `async`
-and whether it `throws`.
+WireGen SHALL record a bare `@Teardown` on an instance method declared in the body of a `@Singleton` or
+`@Scoped` type as that binding's teardown, keeping the method's name, which may be any name, and whether
+it is `async` and whether it `throws`. A `@Teardown` method declared in an extension of the type is not
+seen: no teardown is recorded and no diagnostic is reported, which is tracked as a possible defect in
+https://github.com/swift-wire/swift-wire/issues/429.
 
 #### Scenario: an async throwing teardown method
 - **WHEN** `@Singleton struct Pool` declares `@Teardown func teardown() async throws {}`
@@ -43,7 +45,11 @@ and whether it `throws`.
 - **WHEN** `@Singleton final class Cache` declares `@Teardown func close() { }`
 - **THEN** the binding's teardown is the member `close` with neither effect
 
-Pinned by: `Tests/WireGenCoreTests/TeardownDiscoveryTests.swift` (`memberTeardownRecordsMethodNameAndEffects`, `syncMemberTeardownHasNoEffects`, `scopedTypeMemberTeardownIsRecorded`).
+#### Scenario: a teardown method in an extension
+- **WHEN** `@Singleton final class Pool` declares only `@Inject init() {}` and `extension Pool` declares `@Teardown func close() async throws {}`
+- **THEN** the binding has no teardown, the generated graph has no `_wireTeardown` and no `close()` call, and no error is reported
+
+Pinned by: `Tests/WireGenCoreTests/TeardownDiscoveryTests.swift` (`memberTeardownRecordsMethodNameAndEffects`, `syncMemberTeardownHasNoEffects`, `scopedTypeMemberTeardownIsRecorded`). The extension case is pinned by nothing yet.
 
 ### Requirement: A malformed member teardown is an error and records nothing
 WireGen SHALL report an error and record no teardown when a member `@Teardown` method is `static`,
@@ -133,9 +139,8 @@ binding.
 Pinned by: `Tests/WireGenCoreTests/TeardownDiscoveryTests.swift` (`teardownActionsEmitReverseOrderCalls`), `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`propertyAssignmentMemberInjectionEmitsAsDirectAssignmentAfterConstruction`), `Tests/IntegrationTests/TeardownTests.swift` (`teardownRunsActionsInReverseDependencyOrder`).
 
 ### Requirement: Each built binding records its action where it is constructed
-The bootstrap SHALL declare `var _wireTeardownActions: [@Sendable () async -> [any Error]] = []` and,
-immediately after constructing each `@Teardown` binding on the linear chain, append a closure that runs
-that binding's action against the construction local. A member action SHALL be called as
+The bootstrap SHALL, immediately after constructing each `@Teardown` binding on the linear chain, append
+to `_wireTeardownActions` a closure that runs that binding's action against the construction local. A member action SHALL be called as
 `<prefix><local>.<method>()` with the prefix from the method's effects; a producer action SHALL be
 bound as `let action: @Sendable (<T>) async throws -> Void = <expression>` and called as
 `try await action(<local>)`.
@@ -150,6 +155,23 @@ bound as `let action: @Sendable (<T>) async throws -> Void = <expression>` and c
 
 Pinned by: `Tests/WireGenCoreTests/TeardownDiscoveryTests.swift` (`teardownActionsEmitReverseOrderCalls`, `opaqueLiftTeardownCallsConcreteLocalNotLiftedProperty`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
+### Requirement: The bootstrap declares its accumulator only when it unwinds
+The bootstrap SHALL declare `var _wireTeardownActions: [@Sendable () async -> [any Error]] = []` only
+when it also wraps construction in `do`/`catch` (see the unwind requirement below). A graph with a
+`@Teardown` binding whose bootstrap is not wrapped still appends to and captures `_wireTeardownActions`
+without declaring it, so the generated file does not compile, which is tracked as a defect in
+https://github.com/swift-wire/swift-wire/issues/366.
+
+#### Scenario: a bootstrap that unwinds
+- **WHEN** the default graph holds `@Teardown` bindings and its construction can throw
+- **THEN** `private func _wireBootstrap()` opens with `var _wireTeardownActions: [@Sendable () async -> [any Error]] = []` followed by `do {`
+
+#### Scenario: a bootstrap that cannot throw
+- **WHEN** `@Singleton(allowUnused: true) final class Cache` declares `@Inject init() {}` and `@Teardown func close() async {}`
+- **THEN** the bootstrap contains `_wireTeardownActions.append({` and `{ [_wireTeardownActions] in` but no `var _wireTeardownActions` line
+
+Pinned by: `GoldenHarness/Golden/_WireGraph.swift.golden`. The missing declaration is pinned by nothing yet.
+
 ### Requirement: `teardown()` runs actions in reverse construction order and collects errors
 The captured `_wireTeardown` SHALL run the accumulated actions `.reversed()`, appending each action's
 returned errors to the result. Within an action, a throwing member call or a producer action SHALL be
@@ -162,7 +184,7 @@ a non-throwing member call SHALL be a bare call with `let errors`.
 
 #### Scenario: a non-throwing member teardown
 - **WHEN** the only teardown is `@Teardown func close() async` on `Cache`
-- **THEN** the action declares `let errors: [any Error] = []`, calls `await cache.close()`, and contains no `errors.append(error)`
+- **THEN** the action declares `let errors: [any Error] = []`, calls `await cache.close()`, and contains no `errors.append(error)`, although the surrounding bootstrap does not compile because it never declares `_wireTeardownActions` (https://github.com/swift-wire/swift-wire/issues/366)
 
 Pinned by: `Tests/IntegrationTests/TeardownTests.swift` (`teardownRunsActionsInReverseDependencyOrder`), `Tests/WireGenCoreTests/TeardownDiscoveryTests.swift` (`teardownActionsEmitReverseOrderCalls`, `nonThrowingMemberTeardownBindsErrorsWithLet`).
 
@@ -191,19 +213,20 @@ Pinned by: `Tests/IntegrationTests/PartialTeardownTests.swift` (`aThrowingInitTe
 
 ### Requirement: A scope entry carries its own teardown
 Each scope-entry thunk SHALL build a `_wireScopeTeardown: @Sendable () async -> [any Error]` over the
-`@Teardown` bindings it constructed, restricted to those its subject reaches and excluding borrowed
-singletons, and SHALL return it on the entry struct. Each call of the thunk SHALL have its own
+`@Teardown` bindings it constructed, restricted to those reachable from its subject and any bindings it
+yields (every scope binding when the scope carries no resolved edges or none of those roots is found in
+it) and excluding borrowed singletons, and SHALL return it on the entry struct. Each call of the thunk SHALL have its own
 teardown.
 
 #### Scenario: a scoped resource beside a borrowed singleton
 - **WHEN** the scope builds `RequestConn` with `@Teardown func close() async` and borrows `TodoRepository`
-- **THEN** the thunk emits `let _wireScopeTeardown: @Sendable () async -> [any Error] = {` containing `await requestConn.close()` and no `todoRepository.close()`
+- **THEN** the thunk records an action calling `await requestConn.close()` in `_wireScopeTeardownActions` after `let requestConn = RequestConn(seed: requestSeed)`, folds that accumulator into `let _wireScopeTeardown: @Sendable () async -> [any Error] = { [_wireScopeTeardownActions] in`, and emits no `todoRepository.close()`
 
 #### Scenario: two entries
 - **WHEN** two entries are made and only the first's `_wireScopeTeardown()` is awaited
 - **THEN** the first entry's session is closed and the second's is not
 
-Pinned by: `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`scopeEntryThunkTearsDownScopedBindings`, `scopeEntryThunkPrunesUnreachableBindings`), `Tests/IntegrationTests/AsyncScopeEntryTests.swift` (`eachEntryGetsItsOwnScopeAndItsOwnTeardown`).
+Pinned by: `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`scopeEntryThunkTearsDownScopedBindings`), `GoldenHarness/Golden/_WireGraph.swift.golden`, `Tests/IntegrationTests/AsyncScopeEntryTests.swift` (`eachEntryGetsItsOwnScopeAndItsOwnTeardown`). `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`scopeEntryThunkPrunesUnreachableBindings`) pins only that an unreachable binding is not constructed; that an unreachable binding's teardown is not run is pinned by nothing yet.
 
 ### Requirement: A scope entry that throws unwinds what it built and rethrows
 A scope-entry thunk with a `@Teardown` binding SHALL declare its own
