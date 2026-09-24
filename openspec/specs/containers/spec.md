@@ -50,17 +50,23 @@ name SHALL carry the enclosing type names.
 - **WHEN** `struct Helper { @Provides static let value: Value = Value() }` is nested in `@Container enum TestContainer`
 - **THEN** it is recorded in `TestContainer`'s partition with access path `TestContainer.Helper.value`
 
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesInsideContainerRoutedToContainerBucket`, `nestedSingletonInsideContainerRoutedToContainerBucket`, `providesInsideHelperTypeNestedInContainerStillRoutesToContainer`, `containerOnStructRoutesBindingsToContainer`, `containerOnClassRoutesBindingsToContainer`, `containerOnActorRoutesBindingsToContainer`).
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesInsideContainerRoutedToContainerBucket`, `nestedSingletonInsideContainerRoutedToContainerBucket`, `providesInsideHelperTypeNestedInContainerStillRoutesToContainer`, `containerOnStructRoutesBindingsToContainer`, `containerOnClassRoutesBindingsToContainer`, `containerOnActorRoutesBindingsToContainer`, `scopedInsideContainerRoutesToContainerAndSeedPartition`).
 
 ### Requirement: A type without `@Container` does not open a container
 A `@Provides` declared as a `static` member of a type that neither carries `@Container` nor is
-nested in one SHALL be recorded in the default graph.
+nested in one SHALL be recorded in a partition with no container: the default graph, or, when the
+type is a `@Scoped(seed:)` namespace enum or is nested in one, the default graph's seed scope for
+that seed.
 
 #### Scenario: a configuration namespace
 - **WHEN** `enum Config { @Provides static let baseURL: URL = URL(string: "...")! }` is discovered
 - **THEN** it is a default-graph binding and no container partition exists
 
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`bindingsInNonContainerEnclosingTypeStayInDefaultGraph`).
+#### Scenario: a scope-block namespace
+- **WHEN** `@Scoped(seed: RequestSeed.self) enum RequestProviders { @Provides static func makeFoo() -> Foo { Foo() } }` is discovered
+- **THEN** the partition with no container and seed `RequestSeed` holds one binding and the default partition is absent
+
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`bindingsInNonContainerEnclosingTypeStayInDefaultGraph`, `scopeBlockRoutesProvidersOutOfDefaultGraph`).
 
 ### Requirement: Every `@Container` declaration of one name merges into one container
 WireGen SHALL key a container by the declared or extended type's name, so that a primary
@@ -80,7 +86,7 @@ when no primary declaration carries `@Container`.
 - **WHEN** only `@Container extension SomeType { @Provides static let value: Value = Value() }` is declared
 - **THEN** `SomeType`'s partition holds that provider
 
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesInContainerAnnotatedExtensionMergesIntoContainer`, `containerAnnotatedExtensionWithoutPrimaryDeclarationStillContributes`, `containerAnnotatedExtensionProvidesIsNotACandidate`), `Tests/IntegrationTests/TestContainer.swift`, `Tests/IntegrationTests/TestContainer+Extra.swift`, `Tests/IntegrationTests/BootstrapTests.swift` (`testContainerProducesWiredGraphFromOwnBindings`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesInContainerAnnotatedExtensionMergesIntoContainer`, `containerAnnotatedExtensionWithoutPrimaryDeclarationStillContributes`), `Tests/IntegrationTests/TestContainer.swift`, `Tests/IntegrationTests/TestContainer+Extra.swift`, `Tests/IntegrationTests/BootstrapTests.swift` (`testContainerProducesWiredGraphFromOwnBindings`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
 ### Requirement: A container's graph is built from its own bindings only
 WireGen SHALL build each container's graph from that container's singleton partition alone, and
@@ -104,14 +110,15 @@ selecting its whole binding set.
 Pinned by: `Tests/IntegrationTests/BootstrapTests.swift` (`testContainerProducesWiredGraphFromOwnBindings`, `defaultGraphAndTestContainerAreIndependent`), `Tests/WireGenCoreTests/DiscoveryTests.swift` (`mixedContainerAndModuleScopeBindingsArePartitioned`, `multipleContainersProduceIndependentBuckets`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
 ### Requirement: Reaching into a container from outside is a missing binding with a note
-When a binding outside a container depends on a type bound only inside one, WireGen SHALL report
+When a binding outside a container, other than a consumer synthesised for a `@Factory` template,
+depends on a type bound only in one container's singleton partition, WireGen SHALL report
 `error: no binding produces '<Type>'`, a note `'<Type>' is bound in @Container <Name> scope, not
 <consumer scope>` at the binding, and the note "container graphs are atomic; '<consumer>' can't
 reach bindings declared inside a different container — move the binding or activate the right
-graph". When several containers bind the type, it SHALL add one `is also bound in` note per further
-container, in container-name order, and the note "'<consumer>' can't reach any of the listed scopes;
-consolidate the binding into a single reachable scope or extract the cross-scope concern into a
-wrapper".
+graph". When several partitions bind the type, it SHALL add one `is also bound in` note per further
+partition that binds it, ordered by container name and then seed, and end with the note
+"'<consumer>' can't reach any of the listed scopes; consolidate the binding into a single reachable
+scope or extract the cross-scope concern into a wrapper" instead.
 
 #### Scenario: a singleton storing a container's type
 - **WHEN** `@Singleton struct Foo` injects `TestContainer.Logger`, a `@Singleton` nested in `@Container enum TestContainer`
@@ -124,13 +131,20 @@ wrapper".
 Pinned by: `Tests/WireGenCoreTests/CrossScopeDiagnosticsTests.swift` (`singletonStoringContainerBindingRendersCrossScopeNote`, `sameTypeBoundInMultipleContainersListsAllAsNotes`).
 
 ### Requirement: Containers are flat
-The `@Container` macro SHALL take no argument naming another container, and WireGen SHALL give a
-`@Container` declaration nested in another container a container of its own, named by its simple
-name, whose graph includes none of the outer container's bindings and is included in none of its.
+The `@Container` macro SHALL take no argument naming another container, and WireGen SHALL key a
+`@Container` declaration nested in another container by its simple name, in a container whose graph
+includes none of the outer container's bindings and is included in none of its. Containers whose
+simple names collide, nested or not, merge into one container, and a `@Container extension
+Outer.Inner` is keyed `Outer.Inner` and does not contribute to the nested `Inner` container; both are
+tracked as a defect in https://github.com/swift-wire/swift-wire/issues/403.
 
 #### Scenario: a container nested in a container
 - **WHEN** `@Container enum Inner` is declared inside `@Container enum Outer`
 - **THEN** bindings inside `Inner` are recorded under container `Inner`, and `Outer`'s graph does not hold them
+
+#### Scenario: two nested containers of one simple name
+- **WHEN** `@Container enum Box` is declared inside both `@Container enum A` and `@Container enum B`
+- **THEN** the bindings of both are recorded under the one container `Box`
 
 Pinned by: nothing yet.
 
@@ -157,7 +171,7 @@ separate graphs. Split into two declarations: a @<Macro> type for the binding, a
 @Container type for the grouping."
 
 #### Scenario: a container that is also a singleton
-- **WHEN** `Mixed.swift` declares `@Container @Singleton struct Mixed {}` starting on line 1
+- **WHEN** `Mixed.swift` declares `@Container` on line 1, `@Singleton` on line 2 and `struct Mixed {}` on line 3
 - **THEN** the rendered output contains `Mixed.swift:3:8: warning: 'Mixed' carries both @Container and @Singleton` and the split advice
 
 #### Scenario: a container that is also scoped
