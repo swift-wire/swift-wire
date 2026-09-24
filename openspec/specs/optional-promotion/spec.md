@@ -3,7 +3,7 @@
 ## Purpose
 
 How WireGen matches a dependency to a producer across optionality. A binding identity records
-whether its type carries one top-level optional layer; the matcher lets a `T` producer satisfy a
+whether its type ends in one optional marker (`?` or `!`); the matcher lets a `T` producer satisfy a
 `T?` or `T!` dependency, never the reverse, and never satisfies an optional dependency with an
 absent producer. The missing-binding diagnostics explain both refusals, and a `T` and a `T?`
 producer under one key are rejected as a generated-name collision.
@@ -13,11 +13,14 @@ Documentation: [InjectionPoints](../../../Sources/Wire/Wire.docc/InjectionPoints
 
 ## Requirements
 
-### Requirement: An identity strips at most one top-level optional layer
+### Requirement: An identity strips at most one trailing optional marker
 `optionalityStripped` SHALL remove one trailing `?` or `!` from a canonical type and report it as
 `isOptional == true`, and SHALL leave every other type unchanged with `isOptional == false`. A
 binding's and a dependency's `BindingIdentity` SHALL be built from that split, so `T?` and `T!`
-share one identity whose `displayType` is `T?`.
+share one identity whose `displayType` is `T?`. The test is on the last character only, so a
+function type whose result is optional (`() -> Foo?`) is read as optional and a parenthesised
+optional keeps its parentheses in the base, which is tracked as a defect in
+https://github.com/swift-wire/swift-wire/issues/426.
 
 #### Scenario: the three spellings
 - **WHEN** `optionalityStripped` is applied to `Foo`, `Foo?` and `Foo!`
@@ -31,7 +34,11 @@ share one identity whose `displayType` is `T?`.
 - **WHEN** `optionalityStripped` is applied to `Foo??`
 - **THEN** it yields base `Foo?` with `isOptional == true`
 
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`optionalityStrippedSplitsTopLevelOptional`). The doubly optional scenario is pinned by nothing yet.
+#### Scenario: a function type with an optional result
+- **WHEN** `optionalityStripped` is applied to `()->Foo?`
+- **THEN** it yields base `()->Foo` with `isOptional == true`
+
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`optionalityStrippedSplitsTopLevelOptional`). The doubly optional and function type scenarios are pinned by nothing yet. The shared `T?` and `T!` identity and its `T?` `displayType` are pinned by nothing yet.
 
 ### Requirement: A `T` producer satisfies a `T?` or `T!` dependency
 When no producer has the dependency's exact optional identity, `matchProducer` SHALL resolve a
@@ -56,21 +63,23 @@ Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`weakOptionalDepPromotesTo
 When an init-time `T?` dependency resolves to a `T` producer, the graph edge SHALL point at the
 `T` producer's identity, so the producer is ordered before its consumer.
 
-#### Scenario: an init-time optional dependency
-- **WHEN** `View` depends at init on `coordinator: Coordinator?` and `Coordinator` is a singleton
-- **THEN** the topological order is `Coordinator`, `View`
+#### Scenario: a cycle closed through a promoted dependency
+- **WHEN** `A` depends at init on `b: B?`, `B` depends at init on `a: A`, and both are singletons
+- **THEN** the graph reports one cycle
 
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`initTimeOptionalDepPromotesAndFormsEdge`).
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`weakLetInitDependencyParticipatesInCycleDetection`).
 
 ### Requirement: An exact optional producer is matched before promotion
 `matchProducer` SHALL try the dependency's own identity first, so a `T?` dependency resolves to a
-`T?` producer when one exists under the same key.
+`T?` producer when one exists under the same key. In a graph build a `T` and a `T?` producer under
+one key are rejected as an identifier collision before matching, so this precedence over promotion
+is observable only in a direct `matchProducer` call.
 
 #### Scenario: an explicit optional provider
 - **WHEN** `App` depends on `logger: Logger?` and `Config.logger` is provided as `Logger?`
 - **THEN** the graph validates with order `Logger?`, `App`
 
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`optionalDepMatchesExplicitOptionalProducerExactly`).
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`optionalDepMatchesExplicitOptionalProducerExactly`). The precedence of the exact `T?` producer over a `T` producer is pinned by nothing yet.
 
 ### Requirement: A `T?` producer never satisfies a `T` dependency
 `matchProducer` SHALL NOT resolve a non-optional dependency to an optional producer. When only the
