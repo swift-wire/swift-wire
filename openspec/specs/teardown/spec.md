@@ -266,3 +266,4 @@ Pinned by: `Tests/WireGenCoreTests/RetentionTests.swift` (`aTeardownBindingIsSto
 - [binding-lifetimes](../binding-lifetimes/spec.md)
 - [injection-points](../injection-points/spec.md)
 - [build-plugin-and-wiregen-cli](../build-plugin-and-wiregen-cli/spec.md)
+- [providers](../providers/spec.md)
