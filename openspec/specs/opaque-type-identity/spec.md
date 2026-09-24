@@ -195,3 +195,4 @@ Pinned by: `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`seedScopeName
 - [reachability-and-retention](../reachability-and-retention/spec.md)
 - [scope-entry-and-generated-names](../scope-entry-and-generated-names/spec.md)
 - [build-plugin-and-wiregen-cli](../build-plugin-and-wiregen-cli/spec.md)
+- [providers](../providers/spec.md)
