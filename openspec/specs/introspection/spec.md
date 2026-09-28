@@ -22,7 +22,7 @@ with the cases `singleton`, `scoped`, `provider` and `aggregate`. Each SHALL be 
 `Sendable` and `Codable`, with a public memberwise initialiser on every struct.
 
 #### Scenario: a JSON round trip
-- **WHEN** a test encodes `try await Wire.bootstrap().introspect()` with `JSONEncoder` and decodes it as `WiringModel`
+- **WHEN** the model returned by `try await Wire.bootstrap().introspect()` is encoded with `JSONEncoder` and decoded as `WiringModel`
 - **THEN** the decoded model has as many bindings as the original
 
 Pinned by: `Tests/IntegrationTests/IntrospectionTests.swift` (`introspectIsCodable`).
@@ -45,8 +45,8 @@ WireGen SHALL declare each app graph, container graph and testing-variant graph 
 structs SHALL carry neither.
 
 #### Scenario: the default and a variant graph
-- **WHEN** WireGen generates the integration target's graph
-- **THEN** `_WireGraph` and the variant graphs such as `_AppScopedFixture_bindMockWireGraph` are declared `<T0: AggregateSearchBackend, …>: Introspectable, Teardownable`, the container graph is declared `internal struct _ParallelSchedulerContainerWireGraph: Introspectable, Teardownable`, and each has `func introspect() -> WiringModel`
+- **WHEN** a module's app graph lifts its `some` bindings to generic parameters, the first being `some AggregateSearchBackend`, and the module declares the testing variant `AppScopedFixture.bindMock` and `@Container ParallelSchedulerContainer`
+- **THEN** `_WireGraph` and the variant graph `_AppScopedFixture_bindMockWireGraph` are declared `<T0: AggregateSearchBackend, …>: Introspectable, Teardownable`, the container graph is declared `internal struct _ParallelSchedulerContainerWireGraph: Introspectable, Teardownable`, and each has `func introspect() -> WiringModel`
 
 Pinned by: `GoldenHarness/Golden/_WireGraph.swift.golden`, `.github/workflows/swift.yml` (`GoldenHarness`).
 
@@ -72,7 +72,7 @@ example `some AggregateSearchBackend` or `[any Sendable]`), and its key's writte
 `nil` when unkeyed. An aggregate's `key` SHALL be its multibinding key reference.
 
 #### Scenario: an aggregate
-- **WHEN** the integration graph synthesises the aggregate for `WireTestAggregateKeys.controllers`
+- **WHEN** the graph synthesises the aggregate for the key `WireTestAggregateKeys.controllers`, a `CollectedKey<any Sendable>`
 - **THEN** its literal is `BindingInfo(type: "[any Sendable]", key: "WireTestAggregateKeys.controllers", kind: .aggregate, …)`
 
 Pinned by: `GoldenHarness/Golden/_WireGraph.swift.golden`.
@@ -86,11 +86,11 @@ non-nil `scope`, since the introspected app, container and variant graphs hold n
 That a `@GraphInputs` property surfaces as `kind: .provider` is pinned by nothing yet.
 
 #### Scenario: the fixture's root
-- **WHEN** the integration graph is introspected
+- **WHEN** a graph holding `@Singleton IntrospectionRoot`, a `@Provides` binding and a multibinding aggregate is introspected
 - **THEN** `IntrospectionRoot` has `kind == .singleton` and `scope == nil`, and the model contains both `.provider` and `.aggregate` bindings
 
 #### Scenario: a synthesised contributor
-- **WHEN** the integration graph synthesises the aggregate contributor `_WireAggregateContributor_beta`
+- **WHEN** an adapter annotation synthesises the unkeyed contributor struct `_WireAggregateContributor_beta` into the graph
 - **THEN** its literal is `BindingInfo(type: "_WireAggregateContributor_beta", key: nil, kind: .singleton, scope: nil, …)`
 
 Pinned by: `Tests/IntegrationTests/IntrospectionTests.swift` (`introspectSurfacesKindsScopesAndEdges`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
@@ -116,11 +116,11 @@ its declaration's path and line as passed to WireGen. A synthesised aggregate's 
 multibinding key's declaration.
 
 #### Scenario: the fixture's root
-- **WHEN** the integration graph is introspected
+- **WHEN** `IntrospectionRoot` is declared in `IntrospectionExample.swift` and the graph is introspected
 - **THEN** `IntrospectionRoot`'s `location.module` is non-empty, `location.file` ends with `IntrospectionExample.swift` and `location.line` is positive
 
 #### Scenario: an aggregate from a library key
-- **WHEN** the aggregate for `WireTestAggregateKeys.controllers` is introspected
+- **WHEN** `WireTestAggregateKeys.controllers` is declared in module `WireTestLibrary` on line 84 of the file WireGen is passed as `Sources/WireTestLibrary/RouteControllerAdapter.swift`, and its aggregate is introspected
 - **THEN** its location is `SourceLocation(module: "WireTestLibrary", file: "Sources/WireTestLibrary/RouteControllerAdapter.swift", line: 84)`
 
 Pinned by: `Tests/IntegrationTests/IntrospectionTests.swift` (`introspectSurfacesKindsScopesAndEdges`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
