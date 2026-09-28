@@ -73,19 +73,19 @@ the end. Cycle lines SHALL follow the duplicate-binding lines and precede the mi
 order applies only to a hand-built `ValidationErrors`.
 
 #### Scenario: two nodes
-- **WHEN** `@Singleton struct A { @Inject var b: B }` and `@Singleton struct B { @Inject var a: A }` are in `AB.swift`
+- **WHEN** `AB.swift` begins with `@Singleton` on line 1 and `struct A {` on line 2, declaring `@Inject var b: B`, and then declares `@Singleton struct B { @Inject var a: A }`
 - **THEN** the output contains `AB.swift:2:8: error: dependency cycle: A → B → A`
 
 #### Scenario: three nodes
-- **WHEN** `A` injects `B`, `B` injects `C` and `C` injects `A` in `ABC.swift`
+- **WHEN** `ABC.swift` begins with `@Singleton` on line 1 and `struct A {` on line 2, and `A` injects `B`, `B` injects `C` and `C` injects `A`
 - **THEN** the output contains `ABC.swift:2:8: error: dependency cycle: A → B → C → A`
 
 #### Scenario: a self-loop
-- **WHEN** `@Singleton struct A { @Inject var a: A }` is in `A.swift`
+- **WHEN** `A.swift` holds `@Singleton` on line 1 and `struct A {` on line 2, declaring `@Inject var a: A`
 - **THEN** the output contains `A.swift:2:8: error: dependency cycle: A → A`
 
 #### Scenario: a cycle and a missing binding together
-- **WHEN** the validation errors hold both a cycle and a missing binding
+- **WHEN** the validation errors hold both the cycle `A`, `B`, `A` and a missing binding for `A`'s dependency of type `Missing`
 - **THEN** both `dependency cycle: A → B → A` and `no binding produces 'Missing'` are rendered
 
 Pinned by: `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`twoNodeCycleRendersWithArrowsAtFirstNode`, `threeNodeCycleRendersFullPath`, `selfLoopRendersAsSingleArrow`), `Tests/WireGenCoreTests/GraphTests.swift` (`renderValidationErrorsCyclesOnly`, `renderValidationErrorsBothCyclesAndMissingBindings`, `renderValidationErrorsMultipleCyclesEachOnItsOwnLine`). The line order across categories and the aggregate display name are pinned by nothing yet.
@@ -137,7 +137,7 @@ ordered before its target when the target depends on it at init.
 - **THEN** the graph validates with both in the order
 
 #### Scenario: end to end
-- **WHEN** `Coordinator` takes `View` in its `@Inject init` and `View` declares `@Inject package weak var coordinator: Coordinator?`
+- **WHEN** `Coordinator` takes `View` in its `@Inject init` and stores it as `view`, and `View` declares `@Inject package weak var coordinator: Coordinator?`
 - **THEN** `Wire.bootstrap()` succeeds and `graph.coordinator.view === graph.view`
 
 Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`cycleThroughWeakInjectIsLegal`, `cycleEntirelyThroughWeakEdgesIsLegal`), `Tests/IntegrationTests/BootstrapTests.swift` (`weakInjectionBreaksSingletonCycle`, `iuoWeakVarBreaksSingletonCycle`, `weakInjectionOnActorRoutesThroughGeneratedSetterExtension`).
