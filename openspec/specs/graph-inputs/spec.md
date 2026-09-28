@@ -83,8 +83,8 @@ SHALL be unkeyed.
 - **THEN** their keys are `InputKeys.region`, `InputKeys.stage` and none
 
 #### Scenario: a keyed input reaches a consumer
-- **WHEN** `DeploymentTarget` takes `@Bind(InputKeys.region) region: String` and `@Bind(InputKeys.stage) stage: String`
-- **THEN** it receives `"ap-southeast-2"` and `"prod"` from the inputs passed to `Wire.bootstrap(inputs:)`
+- **WHEN** `DeploymentTarget` takes `@Bind(InputKeys.region) region: String` and `@Bind(InputKeys.stage) stage: String`, and the inputs passed to `Wire.bootstrap(inputs:)` have `region` `r` and `stage` `s`
+- **THEN** `DeploymentTarget` receives `r` as `region` and `s` as `stage`
 
 Pinned by: `Tests/WireGenCoreTests/GraphInputsDiscoveryTests.swift` (`providesKeysAnInputSoSameTypedInputsCoexist`), `GraphInputsHarness/Consumer/Sources/GraphInputsHarnessConsumer/main.swift` (run by the `GraphInputsHarness` job in `.github/workflows/swift.yml`).
 
@@ -100,7 +100,7 @@ reachability root.
 
 #### Scenario: one input, two consumers
 - **WHEN** `DeploymentTarget` and `EndpointProbe` both inject `RuntimeConfiguration`
-- **THEN** both read `"https://example.test"` from the one value passed in
+- **THEN** both receive the `configuration` value passed to `Wire.bootstrap(inputs:)`
 
 Pinned by: `Tests/WireGenCoreTests/GraphInputsDiscoveryTests.swift` (`eachInputBecomesAProviderReadingTheBootstrapParameter`), `GraphInputsHarness/Consumer/Sources/GraphInputsHarnessConsumer/main.swift` (run by the `GraphInputsHarness` job in `.github/workflows/swift.yml`).
 
@@ -111,8 +111,8 @@ bootstrap SHALL declare the same parameter. A `@Container` graph's bootstrap SHA
 graph SHALL contain no input binding.
 
 #### Scenario: bootstrapping with inputs
-- **WHEN** the harness calls `try await Wire.bootstrap(inputs: AppInputs(configuration: RuntimeConfiguration(endpoint: "https://example.test"), region: "ap-southeast-2", stage: "prod"))`
-- **THEN** `graph.deploymentTarget.summary` is `"https://example.test|ap-southeast-2|prod"`
+- **WHEN** the honoured `@GraphInputs struct AppInputs` declares `let configuration: RuntimeConfiguration`, `@Provides(InputKeys.region) let region: String` and `@Provides(InputKeys.stage) let stage: String`, `DeploymentTarget` injects all three, and the caller writes `try await Wire.bootstrap(inputs: AppInputs(configuration: c, region: r, stage: s))`
+- **THEN** the call compiles, and the returned graph's `DeploymentTarget` is constructed from `c`, `r` and `s`
 
 #### Scenario: a container beside inputs
 - **WHEN** a module declaring `@GraphInputs` also declares `@Container enum TestContainer`
