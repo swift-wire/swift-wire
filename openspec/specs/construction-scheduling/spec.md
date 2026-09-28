@@ -48,11 +48,11 @@ is async, `try await ` when both, and nothing when neither, independently of the
 dependencies.
 
 #### Scenario: one prefix per colour
-- **WHEN** `@Provides func makeFoo() async`, `@Provides func makeBar() throws` and `@Provides func makeQux()` are bound
+- **WHEN** `@Provides func makeFoo() async -> Foo`, `@Provides func makeBar() throws -> Bar` and `@Provides func makeQux() -> Qux` are bound
 - **THEN** the lines are `let foo = await makeFoo()`, `let bar = try makeBar()` and `let qux = makeQux()`
 
 #### Scenario: a mixed chain
-- **WHEN** a synchronous `Logger` is consumed by an `async throws` `DatabasePool`, which is consumed by an `async throws` `Application`
+- **WHEN** a synchronous `Logger` is injected as `logger` into an `async throws` `DatabasePool`, which is injected as `pool` into an `async throws` `Application`
 - **THEN** the lines are `let logger = Logger()`, `let databasePool = try await DatabasePool(logger: logger)` and `let application = try await Application(pool: databasePool)`
 
 Pinned by: `Tests/WireGenCoreTests/EffectAwareEmissionTests.swift` (`asyncFunctionProviderEmitsAwaitPrefix`, `throwsFunctionProviderEmitsTryPrefix`, `asyncThrowsFunctionProviderEmitsTryAwaitPrefix`, `syncFunctionProviderEmitsNoPrefix`, `syncInitOnScopeBoundEmitsNoPrefix`, `chainOfMixedEffectsRendersEachCallWithCorrectPrefix`).
@@ -87,15 +87,15 @@ of the overlap set SHALL be in the suffix; every other binding SHALL be in the g
 be built on the linear chain before the group opens and the suffix after the group drains.
 
 #### Scenario: an upstream binding stays on the chain
-- **WHEN** sync `Config` is read by async `Pool`, and async `Cache` is independent of `Pool`
+- **WHEN** sync `Config` is read by async `Pool`, async `Cache` is independent of `Pool`, sync `Service` reads only `Pool`, and sync `Host` injects `service: Service` and `cache: Cache`
 - **THEN** `let config = Config()` is emitted before the group opens and there is no `_wireState_config`
 
 #### Scenario: a binding waiting on only some async bindings is scheduled
-- **WHEN** sync `Service` reads only `Pool`
+- **WHEN** sync `Config` is read by async `Pool`, async `Cache` is independent of `Pool`, sync `Service` reads only `Pool`, and sync `Host` injects `service: Service` and `cache: Cache`
 - **THEN** the building struct declares `var _wireState_service: _WireBindingState<Service> = .unmarked`
 
 #### Scenario: a binding waiting on every async binding returns to the chain
-- **WHEN** `Host` reads `Service` and `Cache`
+- **WHEN** sync `Config` is read by async `Pool`, async `Cache` is independent of `Pool`, sync `Service` reads only `Pool`, and sync `Host` injects `service: Service` and `cache: Cache`
 - **THEN** `let host = Host(service: service, cache: cache)` is emitted after the seam and there is no `_wireState_host`
 
 Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aBindingUpstreamOfEveryAsyncOneStaysOnTheChain`, `aBindingWaitingOnOnlySomeAsyncBindingsIsScheduled`, `aBindingWaitingOnEveryAsyncOneReturnsToTheChain`).
@@ -158,8 +158,8 @@ until the group is empty.
 - **THEN** the bootstrap calls `try building._wireAdd_pool(&_wireGroup)` and `try building._wireAdd_cache(&_wireGroup)` and not `try building._wireAdd_service(&_wireGroup)`
 
 #### Scenario: a dependent of the fast binding is built while the slow one is in flight
-- **WHEN** `Wire.bootstrapParallelSchedulerContainer()` builds `FastDependent` from `makeFastSignal()` while `makeSlowSignal(clock:)` waits for it
-- **THEN** `graph.fastDependent.sawSlowAlready == false` and `graph.constructionClock.timeline == ["dependent", "slow"]`
+- **WHEN** a container holds the independent async providers `makeFastSignal()` and `makeSlowSignal(clock:)` and the sync `FastDependent`, which reads only `makeFastSignal()`'s value, and `makeSlowSignal` stays suspended until `FastDependent` has been constructed (giving up after about a second)
+- **THEN** its bootstrap constructs `FastDependent` before `makeSlowSignal` returns, the order the linear chain would invert
 
 Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`onlyReadyBindingsAreDrivenFromTheBootstrap`, `theDrainRunsUntilTheGroupEmpties`), `Tests/IntegrationTests/ParallelSchedulerTests.swift` (`aDependentOfTheFastBindingRunsBeforeTheSlowOneFinishes`, `bothIndependentAsyncBindingsStillResolve`).
 
@@ -190,7 +190,7 @@ opaque `some` bound type, or either endpoint of an existential promotion. The sa
 prefix or suffix SHALL NOT prevent scheduling, and collected and mapped aggregates SHALL be scheduled.
 
 #### Scenario: a builder fold in the prefix
-- **WHEN** a builder aggregate reads only a synchronous contributor and two independent async bindings exist
+- **WHEN** a builder aggregate for `Keys.routes` over `any Route` reads only a synchronous contributor and two independent async bindings exist
 - **THEN** the graph is scheduled and the fold is emitted as `func _wireFoldKeysRoutes() -> [any Route] {`
 
 #### Scenario: a builder fold in the group
@@ -222,7 +222,7 @@ binding such a binding reads, `_check((<T>).self)` wrapped in
 SHALL be asserted.
 
 #### Scenario: a scheduled binding and the frontier value it captures
-- **WHEN** the three-region graph schedules `Pool` (reading `Config`) and `Cache`, with `Service` in the group and `Host` in the suffix
+- **WHEN** sync `Config` is read by async `Pool`, async `Cache` is independent of `Pool`, sync `Service` reads only `Pool`, and sync `Host` injects `service: Service` and `cache: Cache`, so `Pool` and `Cache` are scheduled with `Service` in the group and `Host` in the suffix
 - **THEN** the checks contain `_check((Config).self)`, `_check((Pool).self)` and `_check((Cache).self)` and neither `_check((Service).self)` nor `_check((Host).self)`
 
 #### Scenario: the directive names the declaring line
@@ -238,8 +238,8 @@ and a local `struct _WireScopeWireBuilding: ~Copyable` inside the thunk and retu
 from inside `withThrowingTaskGroup(of: _WireScopeWireTaskResult.self)`. It SHALL NOT emit sendable checks.
 
 #### Scenario: two independent async scope bindings
-- **WHEN** `AsyncScopeFast` and `AsyncScopeSlow` each have an `async throws` initialiser and neither reads the other
-- **THEN** a single `_wireEnterScope(AsyncScopeSeed(id: "overlap"))` call has both in flight at once, so `entry._wireSubject.slow.sawPartner` is `true`
+- **WHEN** a bridged subject's scope reaches `AsyncScopeFast` and `AsyncScopeSlow`, neither reading the other, each with an `async throws` initialiser that records its start and then waits (up to about a second) for the other to start
+- **THEN** a single `_wireEnterScope` call has both initialisers in flight at once, so `AsyncScopeSlow`'s initialiser sees `AsyncScopeFast` start
 
 Pinned by: `Tests/IntegrationTests/AsyncScopeEntryTests.swift` (`bothIndependentAsyncBindingsAreInFlightAtOnce`, `theScopeStillBuildsEveryBindingAndSeedsThem`, `eachEntryGetsItsOwnScopeAndItsOwnTeardown`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
