@@ -494,6 +494,52 @@ struct SeedScopeEmissionTests {
         #expect(output == expected)
     }
 
+    @Test func seedScopeOmitsBorrowedSingletonNoScopeBindingInjects() {
+        // Every default-graph singleton is offered to the scope as a borrow, whether or not a scope
+        // binding injects it, so an unused one still sits in the scope's topological order and in
+        // `borrowedBindingPropertyNames`. Emission must drop it: neither the scope struct nor the
+        // scope bootstrap names it.
+        let scope = SeedScopeEmission(
+            seedTypeExpression: "HBRequestSeed",
+            identifierSuffix: "HBRequestSeed",
+            parentGraphType: "_WireGraph",
+            topologicalOrder: [
+                syntheticProvider(boundType: "HTTPClient", accessPath: "_wireGraph.hTTPClient"),
+                syntheticProvider(boundType: "Logger", accessPath: "_wireGraph.logger"),
+                syntheticProvider(boundType: "HBRequestSeed", accessPath: "hBRequestSeed"),
+                scopedSingleton(
+                    "RequestLogger",
+                    seed: "HBRequestSeed",
+                    dependencies: [
+                        (name: "base", type: "Logger"),
+                        (name: "seed", type: "HBRequestSeed"),
+                    ]
+                ),
+            ],
+            borrowedBindingPropertyNames: ["hTTPClient", "logger"]
+        )
+        let expectedScope = """
+            internal struct _HBRequestSeedWireScope {
+                let hBRequestSeed: HBRequestSeed
+                let requestLogger: RequestLogger
+            }
+
+            private func _wireBootstrapHBRequestSeedScope(seed hBRequestSeed: HBRequestSeed, wireGraph _wireGraph: _WireGraph) async throws -> _HBRequestSeedWireScope {
+                let requestLogger = RequestLogger(base: _wireGraph.logger, seed: hBRequestSeed)
+                return _HBRequestSeedWireScope(hBRequestSeed: hBRequestSeed, requestLogger: requestLogger)
+            }
+            """
+        let output = renderWireGraph(
+            imports: [],
+            topologicalOrder: [singleton("HTTPClient"), singleton("Logger")],
+            seedScopeOrders: [scope]
+        )
+        #expect(output.contains(expectedScope))
+        let scopeOutput = output.split(separator: "internal struct _HBRequestSeedWireScope").last.map(String.init) ?? ""
+        #expect(!scopeOutput.contains("hTTPClient"))
+        #expect(!scopeOutput.contains("HTTPClient"))
+    }
+
     @Test func multipleSeedScopesEmitInSortedOrder() {
         // Two distinct seed types produce two `_<Suffix>WireScope`
         // structs, emitted in identifier-suffix sort order regardless
