@@ -128,7 +128,7 @@ synthesises for the key. Remove @<this>." at its attribute.
 
 #### Scenario: `@Singleton` then `@Factory`
 - **WHEN** `@Singleton @Factory(ControllerMiddleware.screenAccess) struct ScreenAccess<Ctx>` is expanded
-- **THEN** one `init` and one `static var key` are added and the error names `@Factory` for removal, at line 2
+- **THEN** one `init` and one `static var key` are added and the error names `@Factory` for removal, at the `@Factory` attribute
 
 #### Scenario: `@Factory` then `@Scoped`
 - **WHEN** `@Factory(…)` precedes `@Scoped(seed: HTTPRequest.self)` on one struct
@@ -165,7 +165,7 @@ the macro rejects that, as specified in [injection-points](../injection-points/s
 
 #### Scenario: a weak injected property
 - **WHEN** a `@Singleton final class View` declares `@Inject var name: String` and `@Inject weak var coordinator: Coordinator?`
-- **THEN** the recorded dependencies are `name` alone, and `coordinator` is recorded as a property-assignment member injection
+- **THEN** the recorded dependencies are `name` alone, and `coordinator` is recorded as a post-construction member injection that assigns the `coordinator` property
 
 Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`singletonOnStructIsDiscovered`, `singletonOnClassIsDiscovered`, `singletonOnActorIsDiscovered`, `injectInitWithMultipleParametersPreservesOrder`, `multipleInjectPropertiesInOrder`, `unannotatedTypeIsIgnored`, `weakInjectVarBecomesPropertyAssignmentMemberInjection`, `weakAndStrongInjectPropertiesPartitionAcrossInitAndMemberInjections`), `Tests/WireMacrosImplTests/SingletonMacroTests.swift` (`test_injectWeakVar_coexistsWithStrongInjectInit`), `Tests/IntegrationTests/BootstrapTests.swift` (`bootstrapWiresFullDependencyChain`).
 
