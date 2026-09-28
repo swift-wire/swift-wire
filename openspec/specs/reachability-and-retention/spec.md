@@ -66,8 +66,8 @@ An aggregate that a graph conformance names SHALL be a reachability root of the 
 specified in [graph-conformance](../graph-conformance/spec.md), and SHALL bring its contributors with it.
 
 #### Scenario: an external contributor behind a conformance
-- **WHEN** the composition harness consumer declares `HarnessComposableConformance` over a library key and nothing injects the aggregate
-- **THEN** `composable.contributors.map(\.label)` is `["external-route"]` at run time
+- **WHEN** the composition harness consumer declares `HarnessComposableConformance` over a library key that the library's `ExternalRouteContributor` contributes to, and nothing injects the aggregate
+- **THEN** at run time the conformance member yields exactly one element, the `ExternalRouteContributor`
 
 Pinned by: `Tests/WireGenCoreTests/ReachabilityTests.swift` (`conformanceNamedAggregateIsARoot`), `CompositionHarness/Consumer/Sources/WireHarnessConsumer/main.swift`, `.github/workflows/swift.yml` (`CompositionHarness`).
 
@@ -146,7 +146,7 @@ pruned per routed root. That the app graph's edges never resolve is tracked as a
 https://github.com/swift-wire/swift-wire/issues/401.
 
 #### Scenario: a request-scoped controller behind a singleton proxy
-- **WHEN** a `.singleton` contributor proxy bridges `SessionController`, declared `@Scoped(seed: RequestSeed)`
+- **WHEN** a `.singleton` contributor proxy with prefix `_WireRouteContributor_` bridges `SessionController`, declared `@Scoped(seed: RequestSeed)`
 - **THEN** `_WireRouteContributor_SessionController` is in the app partition with a `_wireEnterScope` thunk dependency, and `SessionController` stays in the `RequestSeed` partition
 
 #### Scenario: the thunk prunes per routed root
@@ -165,7 +165,7 @@ reachable set, home-module bindings included. The reachable set SHALL be closed 
 
 #### Scenario: an unreached binding that traps on construction
 - **WHEN** the composition harness consumer declares `UnreachedHomeBinding`, whose `init` calls `fatalError`, and nothing reaches it
-- **THEN** the consumer bootstraps and prints `OK: unreached home binding was pruned`
+- **THEN** the consumer's bootstrap completes, so `UnreachedHomeBinding` was never constructed
 
 Pinned by: `Tests/WireGenCoreTests/ReachabilityTests.swift` (`unreachedLibraryBindingIsNotEmitted`, `unreachedHomeBindingIsPruned`, `retentionIsClosedUnderDependencies`), `.github/workflows/swift.yml` (`CompositionHarness`).
 
@@ -199,7 +199,7 @@ graph directly (as 'graph.<property>')." for each pruned binding whose origin mo
 - **THEN** the warning is still reported
 
 #### Scenario: the harness build log
-- **WHEN** `CompositionHarness/run-harness.sh` builds the consumer
+- **WHEN** `CompositionHarness/run-harness.sh` builds the consumer, which declares a home binding `UnreachedHomeBinding` that nothing reaches
 - **THEN** the build log contains `'UnreachedHomeBinding' is declared but nothing reachable` and `mark it 'allowUnused: true'`
 
 Pinned by: `Tests/WireGenCoreTests/PrunedBindingDiagnosticsTests.swift` (`internalPrunedIsReported`, `visibilityDoesNotGateTheReport`, `transitivelyDeadBindingIsReported`), `CompositionHarness/run-harness.sh`. The keyed-slot rendering is pinned by nothing yet.
