@@ -79,7 +79,7 @@ when no primary declaration carries `@Container`.
 - **THEN** `TestContainer`'s partition holds `TestContainer.logger` and `TestContainer.extra` and the default partition is empty
 
 #### Scenario: across files
-- **WHEN** `TestContainer.swift` declares `@Container enum TestContainer` with `banner` and `MockBannerService`, and `TestContainer+Extra.swift` declares `@Container extension TestContainer` with `testMode`
+- **WHEN** `TestContainer.swift` declares `@Container enum TestContainer` providing `banner` as `Banner(text: "test container")` beside the singleton `MockBannerService`, and `TestContainer+Extra.swift` declares `@Container extension TestContainer` providing `testMode` as `TestMode(value: "integration-test")`
 - **THEN** `Wire.bootstrapTestContainer()` returns a graph whose `testMode.value` is `"integration-test"` and whose `banner.text` is `"test container"`
 
 #### Scenario: an extension alone
@@ -97,11 +97,11 @@ selecting its whole binding set.
 
 #### Scenario: the same type bound in both
 - **WHEN** the default graph builds `Banner` through `makeBanner(appName:buildNumber:)` and `TestContainer` provides a fixed `Banner`
-- **THEN** `Wire.bootstrap()` yields `banner.text == "IntegrationTests #42"` and `Wire.bootstrapTestContainer()` yields `banner.text == "test container"`
+- **THEN** `Wire.bootstrap()` yields the `banner` that `makeBanner` builds from the default graph's bindings and `Wire.bootstrapTestContainer()` yields `TestContainer`'s fixed `banner`
 
 #### Scenario: the emitted container graph
-- **WHEN** the integration module declares module-scope bindings and `TestContainer`
-- **THEN** `_TestContainerWireGraph` stores exactly `banner`, `mockBannerService` and `testMode`
+- **WHEN** the integration module declares module-scope bindings and `TestContainer`, whose singleton partition binds `banner`, `MockBannerService` and `testMode`
+- **THEN** `_TestContainerWireGraph` stores exactly `banner`, `mockBannerService` and `testMode`, and none of the module-scope bindings
 
 #### Scenario: two containers
 - **WHEN** `ProdContainer` and `TestContainer` each provide a `Logger`
@@ -155,8 +155,8 @@ which borrows only that container's singletons, as specified in
 [seeded-scopes](../seeded-scopes/spec.md).
 
 #### Scenario: one key, two partitions of one container
-- **WHEN** `WidgetContainer` has a singleton and a `WidgetSeed`-scoped binding both contributing to `WidgetContainer.widgets`
-- **THEN** `Wire.bootstrapWidgetContainer()` yields `["singleton"]` and `Wire.bootstrapWidgetContainer_WidgetSeedScope(seed: WidgetSeed(theme: "dark"), widgetContainerWireGraph:)` yields `["scoped:dark"]`
+- **WHEN** `WidgetContainer` has a singleton `SingletonWidget` and a `WidgetSeed`-scoped `ScopedWidget` both contributing to `WidgetContainer.widgets`, and a singleton `SingletonView` and a scoped `ScopedView` each injecting that key
+- **THEN** in `Wire.bootstrapWidgetContainer()`'s graph `singletonView` receives `SingletonWidget` alone, and in the scope `Wire.bootstrapWidgetContainer_WidgetSeedScope(seed:widgetContainerWireGraph:)` enters `scopedView` receives that entry's `ScopedWidget` alone
 
 #### Scenario: a container scope entered over its graph
 - **WHEN** `TestContainer.JobRunner` is `@Scoped(seed: TestJobSeed.self)`
