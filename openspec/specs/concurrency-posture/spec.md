@@ -50,12 +50,12 @@ or of a scope-entry thunk, not a binding such an async binding reads, not stored
 `Sendable` struct, and not captured by a generated `@Sendable` closure.
 
 #### Scenario: a non-`Sendable` class beside scheduled bindings
-- **WHEN** `SchedulerContainer` holds the non-`Sendable` class `SchedulerCounter`, read by the group binding `SchedulerService` alongside two async bindings
+- **WHEN** `SchedulerContainer` holds the non-`Sendable` class `SchedulerCounter`, read as `counter` by the group binding `SchedulerService` alongside two async bindings
 - **THEN** `Wire.bootstrapSchedulerContainer()` succeeds and `graph.schedulerService.counter === graph.schedulerCounter`
 
 #### Scenario: a non-`Sendable` struct in a linear graph
-- **WHEN** `PluginContainer`, which has no async bindings, holds `PluginConsumer`, a struct storing `[any ContainerPlugin]` over the non-`Sendable` protocol `ContainerPlugin`
-- **THEN** `Wire.bootstrapPluginContainer()` succeeds and `graph.pluginConsumer.plugins.map { $0.id() }` is `["alpha", "beta"]`
+- **WHEN** `PluginContainer`, which has no async bindings, holds `PluginConsumer`, a struct storing as `plugins` the `[any ContainerPlugin]` collected over the non-`Sendable` protocol `ContainerPlugin`, to which `AlphaPlugin` contributes at order 1 and `BetaPlugin` at order 2
+- **THEN** `Wire.bootstrapPluginContainer()` succeeds and `graph.pluginConsumer.plugins` holds the `AlphaPlugin` and then the `BetaPlugin` contribution
 
 Pinned by: `Tests/IntegrationTests/SchedulerContainerTests.swift` (`aNonSendableBindingIsSharedNotReconstructed`), `Tests/IntegrationTests/BootstrapTests.swift` (`containerMultibindingAggregatesContainerContributors`).
 
@@ -119,7 +119,7 @@ binding is required to be `Sendable`.
 - **THEN** the output contains `let _wireTeardown: @Sendable () async -> [any Error] = {` and `try await pool.teardown()` on the bootstrap's `pool` local
 
 #### Scenario: a borrowed singleton
-- **WHEN** a bridging proxy's subject `SessionController`, seeded by `RequestSeed`, reads the app singleton `TodoRepository`
+- **WHEN** a bridging proxy's subject `SessionController`, seeded by `RequestSeed`, injects the seed as `seed` and the app singleton `TodoRepository` as `repository`
 - **THEN** the thunk constructs `SessionController(seed: requestSeed, repository: todoRepository)` from the captured `todoRepository` local and never emits `let todoRepository = _wireGraph.todoRepository`
 
 Pinned by: `Tests/WireGenCoreTests/TeardownDiscoveryTests.swift` (`teardownActionsEmitReverseOrderCalls`), `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`bridgingProxyEmitsScopeEntryThunkCapturingSingletons`).
@@ -129,7 +129,7 @@ Pinned by: `Tests/WireGenCoreTests/TeardownDiscoveryTests.swift` (`teardownActio
 `@escaping @Sendable () async throws -> Value`, so a `Lazy` can be shared across tasks.
 
 #### Scenario: concurrent first callers
-- **WHEN** 100 child tasks call `get()` on one `Lazy<Int>`
+- **WHEN** 100 child tasks call `get()` on one `Lazy<Int>` whose factory returns `99`
 - **THEN** every task receives `99` and the factory ran once
 
 Pinned by: `Tests/WireTests/LazyTests.swift` (`factoryCalledOnceAcrossConcurrentFirstCallers`).
