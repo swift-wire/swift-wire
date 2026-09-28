@@ -37,7 +37,7 @@ name (`dependsOnWire`). Transitive dependencies SHALL NOT be activated, whatever
 
 #### Scenario: a transitively depended Wire-aware package
 - **WHEN** the composition harness consumer depends on `WireHarnessLibrary`, which depends on `WireHarnessTransitive`, and both the consumer and the transitive package declare `@Singleton HarnessSharedService`
-- **THEN** the consumer builds without a duplicate-binding error and `graph.harnessSharedService.origin` is `"consumer"`
+- **THEN** the consumer builds without a duplicate-binding error and `graph.harnessSharedService` is the consumer's own `HarnessSharedService`, not the transitive package's
 
 Pinned by: `Tests/IntegrationTests/CrossModuleCompositionTests.swift` (`samePackageLibraryBindingIsComposedAndConstructed`), `CompositionHarness/Consumer/Sources/WireHarnessConsumer/main.swift` via the `CompositionHarness` job in `.github/workflows/swift.yml`.
 
@@ -113,7 +113,7 @@ a line `in testing variant '<Key>' scope '<Seed>':`.
 - **THEN** every rendered line begins with a `file:line:col:` prefix
 
 #### Scenario: a discovery warning
-- **WHEN** `struct Mixed` in `Mixed.swift` carries both `@Container` and `@Singleton`
+- **WHEN** `Mixed.swift` holds `@Container` on line 1, `@Singleton` on line 2 and `struct Mixed {` from column 1 of line 3
 - **THEN** the rendered line begins `Mixed.swift:3:8: warning: 'Mixed' carries both @Container and @Singleton`
 
 #### Scenario: a pruning warning reaches the build log
@@ -200,7 +200,7 @@ struct and the bootstrap.
 - **THEN** the file declares `private struct _WireBuilding: ~Copyable {`, the bootstrap adds `_wireGroup.addTask { .pool(await Pool()) }`, and no `let pool = await Pool()` is emitted
 
 #### Scenario: prefix and suffix around the scheduled region
-- **WHEN** `Config` is upstream of the async `Pool`, `Service` waits on `Pool` only, and `Host` waits on both `Service` and the async `Cache`
+- **WHEN** `Config` is upstream of the async `Pool`, `Service` waits on `Pool` only, and `Host` injects `service: Service` and the async `cache: Cache`
 - **THEN** `let config = Config()` precedes `return try await withThrowingTaskGroup`, and `let host = Host(service: service, cache: cache)` follows the seam
 
 Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aWhollySyncGraphKeepsTheLinearChain`, `twoIndependentAsyncBindingsAreScheduled`, `aBindingUpstreamOfEveryAsyncOneStaysOnTheChain`, `aBindingWaitingOnEveryAsyncOneReturnsToTheChain`).
