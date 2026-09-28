@@ -23,15 +23,15 @@ SHALL be emitted into the generated graph and constructed by its bootstrap.
 
 #### Scenario: a same-package library singleton
 - **WHEN** `IntegrationTests` depends on the sibling target `WireTestLibrary`, which declares `public` `@Singleton(allowUnused: true) LibraryService`, a root because `WireTestLibrary` is a same-package module
-- **THEN** `try await Wire.bootstrap()` returns a graph whose `libraryService.name` is `"library"`
+- **THEN** `try await Wire.bootstrap()` returns a graph whose `libraryService` is the `LibraryService` built by the library's `@Inject init`
 
 #### Scenario: a package-visible library singleton
 - **WHEN** `WireTestLibrary` declares a `package` `@Singleton(allowUnused: true) PackageVisibleService`
-- **THEN** the bootstrapped graph's `packageVisibleService.label` is `"package-visible"`
+- **THEN** the consumer's generated graph compiles against the `package` type, and the bootstrapped graph's `packageVisibleService` is the `PackageVisibleService` built by its `@Inject init`
 
 #### Scenario: an external-package library
-- **WHEN** the composition harness consumer depends on the `WireHarnessLibrary` product and injects its unkeyed and keyed `ExternalService`
-- **THEN** the consumer bootstraps and both resolve to a service named `"external"`
+- **WHEN** a consumer depends on another package's `WireHarnessLibrary` product, which declares `public` `@Singleton ExternalService` and `@Provides(ExternalService.primary)` producing an `ExternalService`, and injects both the unkeyed and the keyed `ExternalService`
+- **THEN** the consumer bootstraps and both injections receive an `ExternalService` built by the library's `@Inject init`
 
 #### Scenario: an unreached library singleton
 - **WHEN** `WireHarnessLibrary` declares `public` `@Singleton UnreachedExternalService`, whose `init` traps, and nothing in the consumer reaches it
