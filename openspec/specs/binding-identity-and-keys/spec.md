@@ -92,7 +92,7 @@ When the bindings come from different modules, the error line and each "also bou
 SHALL end with ` (module '<Module>')`.
 
 #### Scenario: two singletons
-- **WHEN** `Logger.swift` declares `@Singleton struct Logger` at line 2 and again at line 6
+- **WHEN** `Logger.swift` declares `@Singleton` over `struct Logger {` written from column 1 of line 2, and the same again with `struct Logger {` on line 6
 - **THEN** the output contains "Logger.swift:2:8: error: type 'Logger' has multiple bindings; the dependency graph is ambiguous" and "Logger.swift:6:8: note: also bound here"
 
 #### Scenario: two libraries
@@ -211,10 +211,10 @@ https://github.com/swift-wire/swift-wire/issues/421.
 
 #### Scenario: an existential keyed provider
 - **WHEN** a provider keyed `Logger.fancy` binds `any Logger`
-- **THEN** no `_wireTypeCheck_` function is emitted for it
+- **THEN** `_WireKeyChecks.swift` contains no `_check` call for it
 
-#### Scenario: the integration fixtures
-- **WHEN** WireGen runs over `Tests/IntegrationTests`
+#### Scenario: a keyed provider in a source file
+- **WHEN** `Tests/IntegrationTests/KeyedExample.swift` declares `@Provides(AppName.alternate)` over `let alternateAppName: AppName = …` on line 21, and `AppName.alternate` is declared `BindingKey<AppName>()`
 - **THEN** `_WireKeyChecks.swift` contains `_check(AppName.alternate, AppName.self)` under `#sourceLocation(file: "Tests/IntegrationTests/KeyedExample.swift", line: 21)`
 
 Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`anyProtocolBindingsAreSkipped`, `someProtocolBindingsAreSkipped`, `differentKeysProduceSeparateFunctions`, `differentTypesProduceSeparateFunctions`), `GoldenHarness/Golden/_WireKeyChecks.swift.golden`. The multibinding-key, rewrite-key, member-injection and optional-site cases are pinned by nothing yet.
