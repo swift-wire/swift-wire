@@ -62,8 +62,8 @@ WireGen SHALL pool the key declarations discovered in every module of its parse 
 contribution or a consumer in one module can target a key declared in another activated module.
 
 #### Scenario: a library declares the key and contributes to it
-- **WHEN** a library declares `public static let contributors = CollectedKey<any HarnessRouteContributor>()` and a `@Singleton @Contributes(to: HarnessRouteKeys.contributors)` contributor, and the consuming application maps a graph conformance member to that key
-- **THEN** the consumer's graph aggregates the library's contributor and `composable.contributors.map(\.label)` is `["external-route"]`
+- **WHEN** a library declares `public static let contributors = CollectedKey<any HarnessRouteContributor>()` and a `@Singleton @Contributes(to: HarnessRouteKeys.contributors)` contributor `ExternalRouteContributor`, and the consuming application maps a graph conformance member to that key
+- **THEN** the consumer's graph aggregates the library's contributor, and the conformance member yields exactly one element, the `ExternalRouteContributor`
 
 Pinned by: `CompositionHarness/Library/Sources/WireHarnessLibrary/ExternalService.swift` and `CompositionHarness/Consumer/Sources/WireHarnessConsumer/main.swift`, run by the `CompositionHarness` job in `.github/workflows/swift.yml`.
 
@@ -187,12 +187,12 @@ the wrong number of generic arguments, which only arises in source the compiler 
 consumers.
 
 #### Scenario: the production/test container pattern
-- **WHEN** module-scope `ServiceRegistry.all` is contributed to by one service in `ProdContainer` and another in `TestEnvContainer`
-- **THEN** `Wire.bootstrapProdContainer()` yields `["real"]` and `Wire.bootstrapTestEnvContainer()` yields `["mock"]`
+- **WHEN** module-scope `ServiceRegistry.all` is contributed to by `RealService` in `ProdContainer` and by `MockService` in `TestEnvContainer`, and each container has a `ServiceHost` that injects it
+- **THEN** the `ServiceHost` of the graph `Wire.bootstrapProdContainer()` returns receives only `RealService`, and that of `Wire.bootstrapTestEnvContainer()` receives only `MockService`
 
 #### Scenario: seed-scope contributors
-- **WHEN** `@Scoped(seed: ReportSeed.self)` `HeaderSection` and `BodySection` contribute to `ReportRegistry.sections` and a scoped `Report` injects it
-- **THEN** `scope.report.render()` is `["header:Q3", "body"]` for seed name `"Q3"`
+- **WHEN** `@Scoped(seed: ReportSeed.self)` `HeaderSection`, which injects the `ReportSeed`, and `BodySection` contribute to `ReportRegistry.sections` with `withOrder:` 1 and 2, and a scoped `Report` injects it
+- **THEN** in a scope entered with seed `s`, `Report` receives `HeaderSection` then `BodySection`, and that `HeaderSection` holds `s`
 
 Pinned by: `Tests/WireGenCoreTests/MultibindingFanInTests.swift` (`aggregateSortsAfterAllContributors`, `consumerSortsAfterAggregate`, `mappedAggregateSortsAfterContributors`), `Tests/IntegrationTests/BootstrapTests.swift` (`moduleScopeKeyContributedPerContainer`, `containerMultibindingAggregatesContainerContributors`, `seedScopeMultibindingAggregatesScopeContributors`, `containerPartitionsPickTheirOwnContributions`).
 
@@ -202,7 +202,7 @@ otherwise in source order by file, then line, then column.
 
 #### Scenario: a three-way rank sort
 - **WHEN** `AlphaService`, `BravoService` and `CharlieService`, declared in that order, contribute to `ServiceGate.ranked` with `withOrder:` 3, 1 and 2, and to `ServiceGate.sourceOrdered` unranked
-- **THEN** `ranked` is `["bravo", "charlie", "alpha"]` and `sourceOrdered` is `["alpha", "bravo", "charlie"]`
+- **THEN** the `ranked` aggregate is `BravoService`, `CharlieService`, `AlphaService` and the `sourceOrdered` aggregate is `AlphaService`, `BravoService`, `CharlieService`
 
 Pinned by: `Tests/IntegrationTests/BootstrapTests.swift` (`collectedMultibindingAggregatesContributorsInRankOrder`, `collectedMultibindingRankSortsThreeContributors`, `collectedMultibindingPreservesSourceOrderWhenUnranked`).
 
@@ -213,7 +213,7 @@ and a `MappedKey<Key, Value>` aggregate as `[<atKey>: <contributor>, …] as [<K
 
 #### Scenario: a strategy map
 - **WHEN** `FastStrategy` and `SlowStrategy` contribute to `StrategyRegistry.byName` at `"fast"` and `"slow"`
-- **THEN** the injected `[String: any Strategy]` has two entries and `strategies["fast"]?.run()` is `"fast"`
+- **THEN** the injected `[String: any Strategy]` has two entries, `"fast"` holding the `FastStrategy` and `"slow"` the `SlowStrategy`
 
 Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`collectedAggregateEmitsConstructionAndIntrospection`), `Tests/IntegrationTests/BootstrapTests.swift` (`mappedMultibindingKeysContributorsByAtKey`, `collectedMultibindingAggregatesContributorsInRankOrder`). The empty `[:]` literal is pinned by nothing yet.
 
@@ -223,7 +223,7 @@ SHALL still synthesise its aggregate, so the consumer resolves to an empty colle
 
 #### Scenario: a hook registry nobody contributes to
 - **WHEN** `HookHost` injects `HookRegistry.all` and nothing contributes to it
-- **THEN** `graph.hookHost.hooks.isEmpty` is `true`
+- **THEN** the `[any Hook]` that `HookHost` receives is empty
 
 Pinned by: `Tests/WireGenCoreTests/MultibindingFanInTests.swift` (`emptyAggregateStillResolvesForConsumer`), `Tests/IntegrationTests/BootstrapTests.swift` (`emptyMultibindingBootstrapsToEmptyCollection`).
 
@@ -274,8 +274,8 @@ https://github.com/swift-wire/swift-wire/issues/422.
 - **THEN** the graph contains `func _wireFoldKeysRoutes() -> [any Route] {`
 
 #### Scenario: a ranked middleware pipeline
-- **WHEN** `AuthMiddleware` (`withOrder: 1`) and `LoggingMiddleware` (`withOrder: 2`) contribute to `BuilderKey<PipelineBuilder>`, `BuilderKey<MiddlewareListBuilder>` and `BuilderKey<ComposedMiddlewareBuilder>`
-- **THEN** `pipeline.steps` is `["auth", "log"]`, `list.map(\.step)` is `["auth", "log"]` and `composed.step` is `"auth>log"`
+- **WHEN** `AuthMiddleware` (`withOrder: 1`) and `LoggingMiddleware` (`withOrder: 2`) contribute to `BuilderKey<PipelineBuilder>`, `BuilderKey<MiddlewareListBuilder>` and `BuilderKey<ComposedMiddlewareBuilder>`, whose `buildBlock`s return a concrete `Pipeline`, an `[any Middleware]` and an `any Middleware` respectively
+- **THEN** each builder folds `AuthMiddleware` then `LoggingMiddleware`, and the consumer injecting each key receives that builder's `Pipeline`, `[any Middleware]` or `any Middleware` result
 
 Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aBuilderFoldInThePrefixDoesNotBlockScheduling`), `Tests/IntegrationTests/BootstrapTests.swift` (`builderMultibindingFoldsToConcreteResultInRankOrder`, `builderMultibindingFoldsToCollectionResult`, `builderMultibindingFoldsToExistentialResult`). The handling of a `some P` builder return is pinned by nothing yet.
 
