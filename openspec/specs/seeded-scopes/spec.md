@@ -78,7 +78,8 @@ WireGen SHALL build one dependency graph from the partition's bindings, one synt
 the seed, and one borrow binding per singleton of that container. The whole-scope facades of the
 seed scopes that no bridging contributor proxy enters (see
 [scope-entry-and-generated-names](../scope-entry-and-generated-names/spec.md)) SHALL be emitted in
-ascending order of their identifier suffix.
+ascending order of their identifier suffix, so that the generated source is identical from run to
+run whatever order the scopes were discovered in.
 
 #### Scenario: two seeds in one module
 - **WHEN** a module has bindings scoped to `RequestSeed` and to `JobSeed`
@@ -94,12 +95,12 @@ scope that has a whole-scope facade (one no bridging contributor proxy enters; s
 on the scope struct. No `let` line SHALL be emitted for the seed.
 
 #### Scenario: a scoped binding that reads only the seed
-- **WHEN** `RequestLogger` is `@Scoped(seed: HBRequestSeed.self)` and injects `HBRequestSeed`
+- **WHEN** `RequestLogger` is `@Scoped(seed: HBRequestSeed.self)` and injects `HBRequestSeed` as `seed`
 - **THEN** the bootstrap is `private func _wireBootstrapHBRequestSeedScope(seed hBRequestSeed: HBRequestSeed, wireGraph _wireGraph: _WireGraph)` containing `let requestLogger = RequestLogger(seed: hBRequestSeed)`, and `_HBRequestSeedWireScope` stores `let hBRequestSeed: HBRequestSeed` and `let requestLogger: RequestLogger`
 
 #### Scenario: reading the seed back
-- **WHEN** a test enters `Wire.bootstrapTestRequestSeedScope(seed: TestRequestSeed(id: "req-1"), wireGraph: graph)`
-- **THEN** `scope.testRequestSeed.id` is `"req-1"`
+- **WHEN** a `TestRequestSeed` scope is entered as `Wire.bootstrapTestRequestSeedScope(seed: s, wireGraph: graph)`
+- **THEN** the returned scope's `testRequestSeed` is `s`
 
 Pinned by: `Tests/WireGenCoreTests/SeedScopeOrchestrationTests.swift` (`scopeBindingDependingOnSeedOnlyValidates`), `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`seedScopeWithOnlySeedAliasingProducesScopeStruct`), `Tests/IntegrationTests/BootstrapTests.swift` (`seedScopeBootstrapInjectsSeedAndBorrowsSingleton`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
@@ -114,18 +115,18 @@ container; a testing variant's scope may lift `@TestScopable` singletons and `@B
 the scope (see [testing-variants](../testing-variants/spec.md)).
 
 #### Scenario: a scoped logger over the app logger
-- **WHEN** `@Scoped(seed: TestRequestSeed.self) struct RequestLogger` injects `TestRequestSeed` and the singleton `Logger`
+- **WHEN** `@Scoped(seed: TestRequestSeed.self) struct RequestLogger` injects `TestRequestSeed` as `testRequestSeed` and the singleton `Logger` as `logger`
 - **THEN** the scope bootstrap contains `let requestLogger = RequestLogger(testRequestSeed: testRequestSeed, logger: _wireGraph.logger)` and `_TestRequestSeedWireScope` has no `logger` property
 
 #### Scenario: an unused singleton
 - **WHEN** the default graph holds `HTTPClient` and no scoped binding injects it
-- **THEN** the scope graph lists it as borrowed (`hTTPClient`) and the emitted bootstrap does not mention it
+- **THEN** neither the scope struct nor the scope bootstrap mentions `HTTPClient`
 
 #### Scenario: a borrowed singleton promoted to an existential
-- **WHEN** `ScopedGreetingReporter`, scoped to `TestRequestSeed`, injects `any Greeting` and the default graph binds an opaque `Greeting` producer
+- **WHEN** `ScopedGreetingReporter`, scoped to `TestRequestSeed`, injects `TestRequestSeed` as `testRequestSeed` and `any Greeting` as `greeting`, and the default graph binds an opaque `Greeting` producer
 - **THEN** the bootstrap contains `let anyGreeting: any Greeting = _wireGraph.someGreeting` and constructs `ScopedGreetingReporter(testRequestSeed: testRequestSeed, greeting: anyGreeting)`
 
-Pinned by: `Tests/WireGenCoreTests/SeedScopeOrchestrationTests.swift` (`scopeBindingBorrowingSingletonValidates`, `unreferencedSingletonsStillAppearInTopologicalOrderButAreBorrowed`), `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`seedScopeBorrowingSingletonsExcludesThemFromStoredProperties`), `Tests/IntegrationTests/RequestLogger.swift`, `Tests/IntegrationTests/BootstrapTests.swift` (`seedScopeBootstrapInjectsSeedAndBorrowsSingleton`, `seedScopeBootstrapResolvesInScopeDependencies`, `scopedExistentialConsumerBorrowsThePromotedSingleton`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
+Pinned by: `Tests/WireGenCoreTests/SeedScopeOrchestrationTests.swift` (`scopeBindingBorrowingSingletonValidates`, `unreferencedSingletonsStillAppearInTopologicalOrderButAreBorrowed`), `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`seedScopeBorrowingSingletonsExcludesThemFromStoredProperties`, `seedScopeOmitsBorrowedSingletonNoScopeBindingInjects`), `Tests/IntegrationTests/RequestLogger.swift`, `Tests/IntegrationTests/BootstrapTests.swift` (`seedScopeBootstrapInjectsSeedAndBorrowsSingleton`, `seedScopeBootstrapResolvesInScopeDependencies`, `scopedExistentialConsumerBorrowsThePromotedSingleton`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
 ### Requirement: A container's seed scope borrows from that container's graph
 A seed scope inside `@Container <C>` SHALL take `_<C>WireGraph` as its parent graph and SHALL borrow
@@ -133,8 +134,8 @@ only that container's singletons, through the access path `_<c>WireGraph.<proper
 is `<C>` with its first letter lower-cased. It SHALL NOT borrow from the default graph.
 
 #### Scenario: a job runner inside the test container
-- **WHEN** `@Scoped(seed: TestJobSeed.self) struct JobRunner` inside `@Container enum TestContainer` injects `Banner`, which both the container and the default graph bind
-- **THEN** the scope constructs `TestContainer.JobRunner(testJobSeed: testJobSeed, banner: _testContainerWireGraph.banner)` and `jobRunner.run()` reads the container's banner, `"[high] running on test container"`
+- **WHEN** `@Scoped(seed: TestJobSeed.self) struct JobRunner` inside `@Container enum TestContainer` injects `TestJobSeed` as `testJobSeed` and `Banner` as `banner`, and both `TestContainer` and the default graph bind `Banner`
+- **THEN** the scope constructs `TestContainer.JobRunner(testJobSeed: testJobSeed, banner: _testContainerWireGraph.banner)`, so `JobRunner` receives `TestContainer`'s `Banner`, not the default graph's
 
 Pinned by: `Tests/WireGenCoreTests/SeedScopeOrchestrationTests.swift` (`containerScopeOrchestrationCarriesContainerSpecificParentGraphType`), `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`containerScopeEmissionTargetsContainerWireGraphAsParent`), `Tests/IntegrationTests/BootstrapTests.swift` (`containerScopeBootstrapBorrowsFromContainerWireGraph`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
@@ -146,8 +147,8 @@ it is given, while reading the same borrowed singletons from the graph it is pas
 value.
 
 #### Scenario: two entries over one graph
-- **WHEN** `Wire.bootstrapTestRequestSeedScope` is called with seeds `"a"` and `"b"` over the same graph
-- **THEN** the two scopes' loggers produce `"[log] [a] ping"` and `"[log] [b] ping"`
+- **WHEN** `@Scoped(seed: TestRequestSeed.self) struct RequestLogger` injects `TestRequestSeed` as `testRequestSeed`, and `Wire.bootstrapTestRequestSeedScope` is called twice with one graph, first with seed `a` and then with seed `b`
+- **THEN** the first scope's `requestLogger.testRequestSeed` is `a` and the second's is `b`
 
 #### Scenario: a property-form provider in a scope block
 - **WHEN** `@Scoped(seed: OrderSeed.self) enum OrderProviders` declares `@Provides static let auditTag: AuditTag`
@@ -215,8 +216,8 @@ directly or in a type nested in it, with `scopeKey` `ScopeKey(seed: "<Seed>")`, 
 the enclosing container and that seed, and SHALL NOT record it in the singleton partition.
 
 #### Scenario: function and property forms
-- **WHEN** `@Scoped(seed: OrderSeed.self) enum OrderProviders` declares `@Provides static func makeContext(seed: OrderSeed, logger: Logger) -> OrderContext` and `@Provides static let auditTag: AuditTag`
-- **THEN** both resolve inside the `OrderSeed` scope, the bootstrap contains `let orderContext = OrderProviders.makeContext(seed: orderSeed, logger: _wireGraph.logger)`, and `scope.orderProcessor.summary()` is `"[log] order:A-1 | audit | A-1"` for order `"A-1"`
+- **WHEN** `@Scoped(seed: OrderSeed.self) enum OrderProviders` declares `@Provides static func makeContext(seed: OrderSeed, logger: Logger) -> OrderContext` and `@Provides static let auditTag: AuditTag`, and `@Scoped(seed: OrderSeed.self) struct OrderProcessor` injects `OrderContext` as `context`, `AuditTag` as `auditTag` and `OrderSeed` as `seed`
+- **THEN** both resolve inside the `OrderSeed` scope: its bootstrap contains `let auditTag = OrderProviders.auditTag`, `let orderContext = OrderProviders.makeContext(seed: orderSeed, logger: _wireGraph.logger)` and `let orderProcessor = OrderProcessor(context: orderContext, auditTag: auditTag, seed: orderSeed)`
 
 #### Scenario: a block inside a container
 - **WHEN** `@Scoped(seed: RequestSeed.self) enum Providers` is nested in `@Container enum App`

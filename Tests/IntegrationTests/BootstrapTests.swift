@@ -420,9 +420,10 @@ struct BootstrapTests {
     @Test func seedScopeEntriesProduceDistinctInstances() async throws {
         // Each `bootstrap(seed:wireGraph:)` call constructs a fresh
         // scope. Two entries with distinct seeds yield distinct
-        // scope-bound instances and distinct seed-derived behaviour.
-        // Singletons are shared (same `graph` passed in both calls),
-        // so the underlying logger is the same instance both times.
+        // scope-bound instances: were the first entry's `RequestLogger`
+        // reused, the second scope's would hold seed "a". Both entries
+        // are passed the same `graph`, but `Logger` is a stateless
+        // struct, so sharing the borrowed singleton isn't observable here.
         let graph = try await Wire.bootstrap()
         let scopeA = try await Wire.bootstrapTestRequestSeedScope(
             seed: TestRequestSeed(id: "a"),
@@ -432,10 +433,10 @@ struct BootstrapTests {
             seed: TestRequestSeed(id: "b"),
             wireGraph: graph
         )
+        #expect(scopeA.requestLogger.testRequestSeed.id == "a")
+        #expect(scopeB.requestLogger.testRequestSeed.id == "b")
         #expect(scopeA.requestLogger.log("ping") == "[log] [a] ping")
         #expect(scopeB.requestLogger.log("ping") == "[log] [b] ping")
-        // The scope-bound types are value types here; "distinct
-        // instances" is observable via the seed-derived output above.
     }
 
     // MARK: - Multibindings
