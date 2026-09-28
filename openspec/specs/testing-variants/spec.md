@@ -82,11 +82,11 @@ error. For each routed subject the variant covers it SHALL also emit
 `init` when it reaches none.
 
 #### Scenario: the key-wide struct
-- **WHEN** `MyTests.testSetup` substitutes `backendRepository` and `clock`
+- **WHEN** `MyTests.testSetup` substitutes the slots whose doubles fields are `backendRepository` and `clock` with `MockBackendRepository` and `FakeClock`
 - **THEN** the file contains `internal struct _MyTests_testSetupDoubles: Sendable {`, `let backendRepository: MockBackendRepository`, `let clock: FakeClock` and `init(backendRepository: MockBackendRepository, clock: FakeClock)`
 
 #### Scenario: sibling subjects on one seed
-- **WHEN** `SubjectDoublesFixture.bindBoth` mocks `SubjectAlphaBackend` and `SubjectBetaBackend` and three `@Scoped(seed: SubjectSeed.self)` controllers consume alpha, beta and neither
+- **WHEN** `SubjectDoublesFixture.bindBoth` mocks `SubjectAlphaBackend` and `SubjectBetaBackend`, and three `@Scoped(seed: SubjectSeed.self)` controllers, `SubjectAlphaController`, `SubjectBetaController` and `SubjectPlainController`, reach the alpha backend, the beta backend and neither
 - **THEN** `_SubjectDoublesFixture_bindBoth_SubjectAlphaControllerDoubles(subjectAlphaBackend:)`, `_SubjectDoublesFixture_bindBoth_SubjectBetaControllerDoubles(subjectBetaBackend:)` and `_SubjectDoublesFixture_bindBoth_SubjectPlainControllerDoubles()` are each generated, and the key-wide `_SubjectDoublesFixture_bindBothDoubles` still takes both
 
 Pinned by: `Tests/WireGenCoreTests/TestingGraphTests.swift` (`doublesStructTypeNameJoinsReferenceComponents`, `renderDoublesStructEmitsPackageFieldsAndInit`), `Tests/IntegrationTests/SubjectDoublesTests.swift` (`subjectDoublesCarryOnlyTheSlotsTheSubjectReaches`, `siblingSubjectsOnOneSeedGetDisjointDoubles`, `subjectReachingNoMockEntersScopeWithNoDoubles`, `keyWideDoublesStillCarriesEverySlot`).
@@ -124,12 +124,12 @@ A seed scope a production bridging contributor proxy enters SHALL be reached onl
 per-subject contributor facade.
 
 #### Scenario: a direct substitution inside the scope
-- **WHEN** `WireDoublesFixture.bindMockRepo` mocks `any TodoRepository` consumed by a `@Scoped(seed: TodoRequestSeed.self)` controller
+- **WHEN** `WireDoublesFixture.bindMockRepo` mocks `any TodoRepository` with `MockTodoRepository`, consumed by the `@Scoped(seed: TodoRequestSeed.self)` `TodoController`
 - **THEN** `Wire.bootstrapWireDoublesFixture_bindMockRepo_TodoRequestSeedScope(seed:wireGraph:doubles:)` returns a scope whose `todoController` calls the supplied `MockTodoRepository` instance, and its bootstrap contains `let anyTodoRepository = doubles.todoRepository`
 
 #### Scenario: a generic seed subject over an opaque mocked backend
-- **WHEN** `GenSeedFixture.bindMock` mocks `GenBackend` for a generic `@Scoped(seed:)` consumer
-- **THEN** `Wire.bootstrapGenSeedFixture_bindMock_GenSeedRequestSeedScope(seed:wireGraph:doubles:)` yields `genSeedConsumerOfSomeGenBackend` reading the mock
+- **WHEN** `GenSeedFixture.bindMock` mocks `GenBackend`, provided in production as `some GenBackend`, for `@Scoped(seed: GenSeedRequestSeed.self) struct GenSeedConsumer<B: GenBackend>`, which injects it
+- **THEN** `Wire.bootstrapGenSeedFixture_bindMock_GenSeedRequestSeedScope(seed:wireGraph:doubles:)` yields `genSeedConsumerOfSomeGenBackend` holding the supplied mock
 
 #### Scenario: a seed a bridging proxy enters
 - **WHEN** `WireProxyFixture.bindMock` mocks `any ProxyRepository` consumed by `ProxyRouteController`, whose production bridging proxy enters `ProxyRequestSeed`
@@ -149,8 +149,8 @@ variant app graph with no variant proxy and no facade, which is tracked as a def
 https://github.com/swift-wire/swift-wire/issues/362.
 
 #### Scenario: a `@Scoped(seed:)` route controller
-- **WHEN** `WireProxyFixture.bindMock` mocks `any ProxyRepository` reached by `ProxyRouteController`
-- **THEN** `Wire.bootstrapWireProxyFixture_bindMock_ProxyRouteControllerContributor(wireGraph:)._wireEnterScope(ProxyRequestSeed(id: "req-1"), doubles)` yields a subject whose `tag()` reads the mock, and its teardown records on the same mock
+- **WHEN** `WireProxyFixture.bindMock` mocks `any ProxyRepository`, which the `@Scoped(seed: ProxyRequestSeed.self)` `ProxyRouteController` reaches through a `@TestScopable` app singleton that reads it in `init` and through a scoped session whose `@Teardown` calls it
+- **THEN** entering the proxy that `Wire.bootstrapWireProxyFixture_bindMock_ProxyRouteControllerContributor(wireGraph:)` returns with a seed and doubles holding a mock builds the subject over that mock instance, which the singleton's `init` calls, and the entry's teardown calls the same mock from the session's `@Teardown`
 
 #### Scenario: the variant entry struct
 - **WHEN** WireGen emits the variant proxy for `WireProxyFixture.bindMock` over `ProxyRouteController`
@@ -223,7 +223,7 @@ seed scope on each entry, so a read of the mocked slot in its `init` sees the do
 
 #### Scenario: an init-time read
 - **WHEN** `WireScopableFixture.bindMockRepo` mocks `any AccountRepository` and `AccountController` reads `repository.tag("init")` in `init`
-- **THEN** `Wire.bootstrapWireScopableFixture_bindMockRepo().introspect()` lists neither `AccountController` nor `any AccountRepository`, `Wire.bootstrap().introspect()` lists both, and the variant scope's `accountController.tag` is `"mock:init"`
+- **THEN** `Wire.bootstrapWireScopableFixture_bindMockRepo().introspect()` lists neither `AccountController` nor `any AccountRepository`, `Wire.bootstrap().introspect()` lists both, and the variant scope's `accountController` made that `init`-time call on the supplied mock rather than the production repository
 
 Pinned by: `Tests/IntegrationTests/ScopableCascadeTests.swift` (`liftedSingletonReadsDoubleAtInit`).
 
@@ -267,7 +267,7 @@ its keyed variant only.
 
 #### Scenario: a replaced slot that is also mocked
 - **WHEN** a library's `ComposeWidget` is superseded by the target's `@Replaces` fake and `ComposeFixture.bindMock` mocks `ComposeWidget`
-- **THEN** the production scope's consumer reads `"fake"`, the variant scope's consumer reads `"mock"`, and the library's real widget is never constructed
+- **THEN** the production scope's consumer holds the `@Replaces` fake, the variant scope's consumer holds the supplied mock, and the library's real widget is never constructed
 
 Pinned by: `Tests/IntegrationTests/ReplacesBindTypeComposeTests.swift` (`replacesAndBindTypeComposeWithCorrectPrecedence`).
 
@@ -289,7 +289,7 @@ with the test supplying the instance.
 
 #### Scenario: a replacement in every graph
 - **WHEN** the target's `@Replaces` fake supersedes a library's `ComposeWidget`
-- **THEN** `Wire.bootstrapComposeRequestSeedScope(seed:wireGraph:)` over `Wire.bootstrap()` yields a consumer reading `"fake"`, and the library's real widget is never constructed
+- **THEN** `Wire.bootstrapComposeRequestSeedScope(seed:wireGraph:)` over `Wire.bootstrap()` yields a consumer holding the `@Replaces` fake, and the library's real widget is never constructed
 
 Pinned by: `Tests/WireGenCoreTests/ReplacesTests.swift` (`providesReplacesSupersedesConcreteSingleton`, `homeModuleReplacesIsHonoured`), `Tests/IntegrationTests/ReplacesBindTypeComposeTests.swift` (`replacesAndBindTypeComposeWithCorrectPrecedence`). One `TestingKey` per target as served by an adapter is https://github.com/swift-wire/swift-wire/issues/336.
 
