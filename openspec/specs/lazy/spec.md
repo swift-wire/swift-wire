@@ -55,7 +55,7 @@ SHALL rethrow the same failure without invoking the factory again.
 - **THEN** every call throws a `TestError` and the factory ran once
 
 #### Scenario: concurrent callers of a failing factory
-- **WHEN** 50 child tasks call `get()` on a `Lazy<Int>` whose factory yields and then throws
+- **WHEN** 50 child tasks call `get()` on a `Lazy<Int>` whose factory yields and then throws a `TestError`
 - **THEN** every task catches a `TestError` and the factory ran once
 
 Pinned by: `Tests/WireTests/LazyTests.swift` (`factoryFailureRethrowsOnFirstGet`, `factoryFailureCachedOnSubsequentGets`, `factoryFailureCachedAcrossConcurrentCallers`).
@@ -65,7 +65,7 @@ A copy of a `Lazy` SHALL share its coordination state with the original, so the 
 across both.
 
 #### Scenario: get on the original, then on the copy
-- **WHEN** `let copy = lazy` and `get()` is called on `lazy` and then on `copy`
+- **WHEN** `lazy` is a `Lazy<Int>` whose factory returns `13`, `let copy = lazy`, and `get()` is called on `lazy` and then on `copy`
 - **THEN** both return `13` and the factory ran once
 
 Pinned by: `Tests/WireTests/LazyTests.swift` (`copiedLazySharesCachedValue`).
@@ -86,12 +86,12 @@ Bootstrap SHALL construct the `Lazy<T>` binding without calling `get()`; the fac
 consumer's first `get()` and its value SHALL be shared by later calls.
 
 #### Scenario: after bootstrap
-- **WHEN** `Wire.bootstrap()` returns
+- **WHEN** the provider `makeLazyResource(callCount:)` returns a `Lazy<LazyResource>` whose factory increments the `LazyResourceCallCount` binding's `value`, which starts at `0`, and `Wire.bootstrap()` returns
 - **THEN** `await graph.lazyResourceCallCount.value == 0`
 
 #### Scenario: first and later use
-- **WHEN** `graph.lazyResourceConsumer.materialise()` is called three times
-- **THEN** the three results are the same instance with `value == "materialised"` and the call count is `1`
+- **WHEN** that factory returns a new `LazyResource` instance, `LazyResourceConsumer.materialise()` returns `try await resource.get()` on its injected `Lazy<LazyResource>`, and `graph.lazyResourceConsumer.materialise()` is called three times after bootstrap
+- **THEN** the three results are the same instance and `graph.lazyResourceCallCount.value` is `1`
 
 Pinned by: `Tests/IntegrationTests/BootstrapTests.swift` (`userWrittenLazyProviderDoesNotInvokeFactoryAtBootstrap`, `userWrittenLazyProviderInvokesFactoryOnFirstGet`, `userWrittenLazyProviderCachesAcrossMultipleGets`).
 
