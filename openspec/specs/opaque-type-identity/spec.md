@@ -37,7 +37,7 @@ plain `@Singleton`. The discovery report SHALL list the binding as `some P (from
 - **THEN** its bound type is `some TaskRepository` and its type name is `DynamoDBTaskRepository`
 
 #### Scenario: the topological report
-- **WHEN** `SQLiteTodoRepository` declared `@Singleton(as: TodoRepository.self)` is reported
+- **WHEN** `SQLiteTodoRepository`, declared `@Singleton(as: TodoRepository.self)`, is the only binding reported
 - **THEN** the report line reads `1. some TodoRepository (from SQLiteTodoRepository)`
 
 Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`singletonAsDeclaresOpaqueGraphIdentity`, `singletonWithoutAsHasNoExplicitIdentity`, `singletonAsCoexistsWithAllowUnused`), `Tests/WireMacrosImplTests/SingletonMacroTests.swift` (`test_singletonWithAs_generatesSameMembers`), `Tests/WireGenCoreTests/GraphTests.swift` (`renderTopologicalOrderNamesOpaqueIdentityAndConcreteProducer`).
@@ -124,10 +124,10 @@ scope's bootstrap borrows it (`= _wireGraph.someGreeting`). It SHALL follow the 
 borrowed rather than constructed there, and SHALL be omitted when nothing in the body promotes.
 
 #### Scenario: two consumers
-- **WHEN** `Reporter` and `Auditor` both depend on `any Logger` and `some Logger` is bound
+- **WHEN** `Reporter` and `Auditor` both depend on `any Logger` as `logger` and `some Logger` is bound
 - **THEN** the bootstrap contains `let anyLogger: any Logger = someLogger` once, `Reporter(logger: anyLogger)` and `Auditor(logger: anyLogger)`
 
-#### Scenario: the integration fixture
+#### Scenario: a provided opaque greeting with two existential consumers
 - **WHEN** `@Provides var greeting: some Greeting` feeds `GreetingReporter` and `GreetingAuditor`, which inject `any Greeting`
 - **THEN** both use the one promoted binding and `graph.someGreeting` is still stored under its own identity
 
@@ -193,8 +193,8 @@ typed `<Type><T<n>, …>`, each argument the lifted parameter of the `some <cons
 generic parameter bridges to.
 
 #### Scenario: a controller over a lifted repository
-- **WHEN** `Controller<Repository: TaskRepo>` is a structural lift node over the `some TaskRepo` binding lifted as `T1`
-- **THEN** the graph struct stores it as `Controller<T1>` and has two generic parameters for the three-node chain
+- **WHEN** the graph is the chain `some DBTable & Sendable` (lifted as `T0`), `some TaskRepo` (lifted as `T1`) and `Controller<Repository: TaskRepo>`, a structural lift node over the `some TaskRepo` binding
+- **THEN** the graph struct stores the controller as `Controller<T1>` and declares only the two generic parameters `T0` and `T1`
 
 Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`structuralLiftNodeReusesBridgeTargetParameterAsNestedField`, `multiParamStructuralLiftNodeSubstitutesEachParameterIndependently`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
@@ -231,8 +231,8 @@ one of the function's own generic parameters `T<n>` and every other axis stays `
 - **THEN** the bootstrap function takes `wireGraph _wireGraph: _WireGraph<some TodoRepository>`
 
 #### Scenario: a stored binding over one axis
-- **WHEN** the seed scope `GenSeedRequestSeed` stores a binding over the parent's `some GenBackend` axis
-- **THEN** the bootstrap function is `_wireBootstrapGenSeedRequestSeedScope<T0: GenBackend>` taking `wireGraph _wireGraph: _WireGraph<some AggregateSearchBackend, some GenAppBackend, T0, some GenProxyRepository, some GenSomethingElse, some Greeting, some TeardownResource>`
+- **WHEN** the app graph `_WireGraph` lifts seven axes, the third of them `some GenBackend`, and the seed scope `GenSeedRequestSeed` stores a binding over that axis and over no other
+- **THEN** the bootstrap function is `_wireBootstrapGenSeedRequestSeedScope<T0: GenBackend>` and takes `wireGraph _wireGraph: _WireGraph<…>` with `T0` as the third argument and the `some P` of its axis as each of the other six
 
 Pinned by: `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`seedScopeNamesOpaqueParentGraphWithItsLiftedParameters`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
