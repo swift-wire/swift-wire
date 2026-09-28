@@ -98,7 +98,7 @@ parameter SHALL produce a non-generic factory binding.
 - **THEN** the factory binding is generic over `Repository: TodoRepository` and is a lift node
 
 #### Scenario: no injected parameter
-- **WHEN** a template generic over `Ctx, Reader, Sender` injects only `Store`
+- **WHEN** a template keyed `Keys.session` and generic over `Ctx, Reader, Sender` injects only `Store`
 - **THEN** the factory binding has no generic parameters and renders as `struct _WireFactory_Keys_session: Sendable {`
 
 Pinned by: `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`factoryBindingIsAGenericLiftNodeOverTheInjectedAxis`, `nonInjectedFactoryStaysNonGeneric`, `rendersFactoryGenericOverInjectedAxisCreateOverAssisted`). The undetermined case is pinned by nothing yet.
