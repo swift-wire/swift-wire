@@ -62,12 +62,12 @@ for each member whose key has an aggregate binding in the graph, one
 `var <member>: <aggregate product type> { self.<aggregate property> }` inside it.
 
 #### Scenario: a collected key with one contributor
-- **WHEN** `App.routes` is a `CollectedKey<any RouteContributor>` with a contributor and a conformance maps `routes` to `App.routes`
+- **WHEN** `App.routes` is a `CollectedKey<any RouteContributor>` with a contributor and a conformance to `HummingbirdComposable` maps `routes` to `App.routes`
 - **THEN** the generated file contains `extension _WireGraph: HummingbirdComposable {` and a line beginning `var routes: [any RouteContributor] { self.`
 
 #### Scenario: consumed generically through the protocol
-- **WHEN** a test declares `func labels<Graph: GraphComposable>(of graph: Graph)` and passes `try await Wire.bootstrap()` to it
-- **THEN** the call compiles and `graph.things` yields the two contributors to `ThingKeys.things`
+- **WHEN** a module declares a protocol `GraphComposable` requiring `things`, a conformance to it mapping `things` to `ThingKeys.things`, two `@Singleton` contributors to `ThingKeys.things`, and `func labels<Graph: GraphComposable>(of graph: Graph)`, and passes `try await Wire.bootstrap()` to `labels`
+- **THEN** the call compiles and, inside it, `graph.things` holds both contributors
 
 Pinned by: `Tests/WireGenCoreTests/GraphConformanceEmissionTests.swift` (`emitsExtensionMappingMemberToAggregateProperty`), `Tests/IntegrationTests/GraphConformanceTests.swift` (`generatedGraphConformsAndIsConsumedGenerically`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
@@ -89,7 +89,7 @@ for a `BuilderKey` or a key it cannot find, without a diagnostic, so the incompl
 fails at compile time unless the protocol supplies a default implementation for that member.
 
 #### Scenario: two collected keys with no contributors
-- **WHEN** a conformance maps `routes` to `App.routes` and `services` to `App.services`, both declared `CollectedKey`s with no contributors
+- **WHEN** a conformance maps `routes` to `App.routes`, a `CollectedKey<any RouteContributor>`, and `services` to `App.services`, a `CollectedKey<any Service>`, neither with contributors
 - **THEN** the extension contains `var routes: [any RouteContributor] { [] }` and `var services: [any Service] { [] }`
 
 #### Scenario: the empty accessor is consumed at runtime
@@ -122,8 +122,8 @@ them. The conformances SHALL NOT be passed as roots when pruning a `@Container` 
 - **THEN** `LibraryRoute` is reachable and an unrelated library binding is pruned
 
 #### Scenario: an external contributor across a package boundary
-- **WHEN** the composition harness consumer declares a conformance mapping `contributors` to the library's `HarnessRouteKeys.contributors`
-- **THEN** `(graph as any HarnessComposable).contributors.map(\.label)` is `["external-route"]`
+- **WHEN** a consumer package declares a protocol `HarnessComposable` and a conformance to it mapping `contributors` to a dependency package's `HarnessRouteKeys.contributors`, whose only contributor is a `@Singleton` declared in that dependency package, and nothing injects the aggregate
+- **THEN** the bootstrapped graph's `contributors`, read through `any HarnessComposable`, holds exactly that one contributor
 
 Pinned by: `Tests/WireGenCoreTests/ReachabilityTests.swift` (`conformanceNamedAggregateIsARoot`), `CompositionHarness/Consumer/Sources/WireHarnessConsumer/main.swift` via the `CompositionHarness` job in `.github/workflows/swift.yml`. The `@Container` exclusion is pinned by nothing yet.
 
@@ -132,7 +132,7 @@ The generated graph SHALL keep a stored property for an aggregate a conformance 
 emitted member reads it off `self`.
 
 #### Scenario: a collected aggregate with one contributor
-- **WHEN** `ServiceKey.services` aggregates `Alpha` and a conformance maps `services` to it
+- **WHEN** `ServiceKey.services` is a `CollectedKey<any Service>` aggregating `Alpha` and a conformance to `Composable` maps `services` to it
 - **THEN** the graph declares `let anyServiceKeyedServiceKeyServices: [any Service]` and `extension _WireGraph: Composable {`
 
 Pinned by: `Tests/WireGenCoreTests/RetentionTests.swift` (`anAggregateAGraphConformanceNamesIsStored`).
