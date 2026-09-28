@@ -39,7 +39,7 @@ declarations. Change to 'internal', 'package', or 'public'." at the name of a `@
 `@Scoped type`.
 
 #### Scenario: a private singleton
-- **WHEN** `Hidden.swift` declares `@Singleton private struct Hidden {}`
+- **WHEN** `Hidden.swift` holds `@Singleton` on line 1 and `private struct Hidden {` on line 2, followed by `}`
 - **THEN** the rendered output contains `Hidden.swift:2:16: error:` and `@Singleton type 'Hidden' is 'private'` and ends the message with `Change to 'internal', 'package', or 'public'`
 
 #### Scenario: a private scoped type
@@ -75,7 +75,7 @@ file and can't reference fileprivate/private declarations. Raise '<scope>' to 'i
 or 'public'.", naming the most restrictive enclosing scope.
 
 #### Scenario: a provider in a private namespace enum
-- **WHEN** `Config.swift` declares `private enum Config { @Provides static let baseURL: URL = URL(string: "...")! }`
+- **WHEN** `Config.swift` holds `private enum Config {` on line 1, `    @Provides static let baseURL: URL = URL(string: "...")!` (indented four spaces) on line 2, and `}`
 - **THEN** the rendered output contains `Config.swift:2:26: error:`, `@Provides declaration 'baseURL' is effectively 'private'`, `enclosing scope 'Config' is 'private'` and `Raise 'Config' to 'internal', 'package', or 'public'`
 
 #### Scenario: a singleton nested in a private type
@@ -146,7 +146,7 @@ rendered `'<Type>' (key <Key>)`. An unconsumed app-graph binding, such as a `@Si
 reachability instead and gets the pruned-binding warning.
 
 #### Scenario: an orphan internal scoped type
-- **WHEN** a seed scope holds an `internal` `@Scoped(seed: Req.self)` type `Orphan` that nothing injects and no proxy constructs
+- **WHEN** a seed scope holds an `internal` `@Scoped(seed: Req.self)` type `Orphan`, declared in `Orphan.swift`, that nothing injects and no proxy constructs
 - **THEN** one warning at `Orphan.swift` contains `'Orphan' is declared but nothing in the build consumes it` and `allowUnused: true`
 
 #### Scenario: an optional consumer keeps the producer live
