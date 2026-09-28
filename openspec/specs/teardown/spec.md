@@ -179,8 +179,8 @@ wrapped in `do { … } catch { errors.append(error) }`, so a failing action does
 a non-throwing member call SHALL be a bare call with `let errors`.
 
 #### Scenario: dependents before dependencies
-- **WHEN** `TeardownConsumer` holds `TeardownDatabasePool` and `TeardownHTTPClient`, all with teardown actions, and `graph.teardown()` runs
-- **THEN** the log contains `consumer`, `pool`, `client` and `opaque`, `consumer` precedes both `pool` and `client`, and the returned errors are empty
+- **WHEN** `TeardownConsumer` holds `TeardownDatabasePool` and `TeardownHTTPClient`, all three with teardown actions, an opaquely bound resource in the same graph has one too, and `graph.teardown()` runs
+- **THEN** all four actions run, `TeardownConsumer`'s before both `TeardownDatabasePool`'s and `TeardownHTTPClient`'s, and the returned errors are empty
 
 #### Scenario: a non-throwing member teardown
 - **WHEN** the only teardown is `@Teardown func close() async` on `Cache`
@@ -194,8 +194,8 @@ construction in `do { … } catch { for action in _wireTeardownActions.reversed(
 discarding teardown errors and rethrowing the construction's original error.
 
 #### Scenario: a throwing initialiser after a built resource
-- **WHEN** `ChainResource` is built and `ChainFailingConsumer`'s initialiser then throws `PartialTeardownFailure`
-- **THEN** `Wire.bootstrapPartialTeardownContainer()` throws `PartialTeardownFailure` and the recorded events are `["chain.built", "chain.closed"]`
+- **WHEN** in `@Container PartialTeardownContainer`, `ChainResource` is built and `ChainFailingConsumer`'s initialiser then throws `PartialTeardownFailure`
+- **THEN** `Wire.bootstrapPartialTeardownContainer()` throws `PartialTeardownFailure`, and `ChainResource`, built once, has been torn down once
 
 Pinned by: `Tests/IntegrationTests/PartialTeardownTests.swift` (`aThrowingInitTearsDownWhatTheChainAlreadyBuilt`, `theOriginalErrorPropagatesRatherThanATeardownOne`).
 
@@ -206,8 +206,8 @@ whose cell `isResolved()`, taken with `building._wireState_<name>.take()`, and t
 outer unwind runs it.
 
 #### Scenario: a sibling child task throws
-- **WHEN** `ScheduledResource` resolves in the group and an independent async sibling throws
-- **THEN** `Wire.bootstrapScheduledPartialTeardownContainer()` throws `PartialTeardownFailure` and the recorded events are `["scheduled.built", "scheduled.closed"]`
+- **WHEN** in `@Container ScheduledPartialTeardownContainer`, `ScheduledResource` resolves in the group and an independent async sibling throws `PartialTeardownFailure`
+- **THEN** `Wire.bootstrapScheduledPartialTeardownContainer()` throws `PartialTeardownFailure`, and `ScheduledResource`, built once, has been torn down once
 
 Pinned by: `Tests/IntegrationTests/PartialTeardownTests.swift` (`aThrowingInitTearsDownAScheduledBindingTheDrainHadResolved`), `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aTeardownBindingNoLongerBlocksScheduling`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
@@ -219,12 +219,12 @@ it) and excluding borrowed singletons, and SHALL return it on the entry struct. 
 teardown.
 
 #### Scenario: a scoped resource beside a borrowed singleton
-- **WHEN** the scope builds `RequestConn` with `@Teardown func close() async` and borrows `TodoRepository`
+- **WHEN** the `RequestSeed` scope builds `RequestConn`, which injects the seed as `seed` and has `@Teardown func close() async`, and borrows `TodoRepository`
 - **THEN** the thunk records an action calling `await requestConn.close()` in `_wireScopeTeardownActions` after `let requestConn = RequestConn(seed: requestSeed)`, folds that accumulator into `let _wireScopeTeardown: @Sendable () async -> [any Error] = { [_wireScopeTeardownActions] in`, and emits no `todoRepository.close()`
 
 #### Scenario: two entries
-- **WHEN** two entries are made and only the first's `_wireScopeTeardown()` is awaited
-- **THEN** the first entry's session is closed and the second's is not
+- **WHEN** two entries are made of a scope whose subject holds a scoped session with a `@Teardown`, and only the first's `_wireScopeTeardown()` is awaited
+- **THEN** each entry holds its own session, the first entry's session has been torn down and the second's has not
 
 Pinned by: `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`scopeEntryThunkTearsDownScopedBindings`), `GoldenHarness/Golden/_WireGraph.swift.golden`, `Tests/IntegrationTests/AsyncScopeEntryTests.swift` (`eachEntryGetsItsOwnScopeAndItsOwnTeardown`). `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`scopeEntryThunkPrunesUnreachableBindings`) pins only that an unreachable binding is not constructed; that an unreachable binding's teardown is not run is pinned by nothing yet.
 
@@ -235,12 +235,12 @@ construction can throw, unwind it in reverse and rethrow on a throw, in both the
 form, the latter recovering resolved cells as the bootstrap does.
 
 #### Scenario: the chain form
-- **WHEN** `ChainScopeResource` is built and the controller's initialiser throws `ScopeEntryFailure`
-- **THEN** `_wireEnterScope(ChainScopeSeed(id: "chain"))` throws `ScopeEntryFailure` and the events are `["chain.built", "chain.closed"]`
+- **WHEN** entering a `ChainScopeSeed` scope builds `ChainScopeResource` and the controller's initialiser then throws `ScopeEntryFailure`
+- **THEN** the `_wireEnterScope` call throws `ScopeEntryFailure`, and `ChainScopeResource`, built once, has been torn down once
 
 #### Scenario: the scheduled form
-- **WHEN** `GroupScopeResource` resolves in the thunk's group and a sibling task throws
-- **THEN** `_wireEnterScope(GroupScopeSeed(id: "group"))` throws `ScopeEntryFailure` and the events are `["group.built", "group.closed"]`
+- **WHEN** entering a `GroupScopeSeed` scope resolves `GroupScopeResource` in the thunk's group and a sibling task throws `ScopeEntryFailure`
+- **THEN** the `_wireEnterScope` call throws `ScopeEntryFailure`, and `GroupScopeResource`, built once, has been torn down once
 
 Pinned by: `Tests/IntegrationTests/ScopePartialTeardownTests.swift` (`aThrowingScopeEntryTearsDownWhatTheChainAlreadyBuilt`, `aThrowingScopeEntryTearsDownAScheduledBindingTheDrainHadResolved`, `eachFailedEntryUnwindsOnlyItsOwn`).
 
