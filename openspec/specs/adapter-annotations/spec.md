@@ -46,7 +46,7 @@ declaration missing either argument SHALL be ignored. The declaration SHALL neve
 
 #### Scenario: a nested static definition
 - **WHEN** a source file declares `enum HummingbirdAdapter { static let route = WireAdapterAnnotationV1(annotation: "HummingbirdRoute", capability: .contributes(to: HummingbirdKeys.routes)) }`
-- **THEN** discovery yields an annotation named `HummingbirdRoute` with capability `.contributes(key: "HummingbirdKeys.routes")`
+- **THEN** discovery yields an annotation named `HummingbirdRoute` whose capability is `.contributes(to:)` with its key captured as the source text `HummingbirdKeys.routes`
 
 #### Scenario: a bare capability
 - **WHEN** a definition is written with `capability: .injectsFromGraph`
@@ -83,8 +83,8 @@ modules are aggregated, and a candidate matching no declared annotation SHALL ha
 - **THEN** a use-site named `HummingbirdRoute` with target identity `makeController` is captured
 
 #### Scenario: an attribute on a route method
-- **WHEN** `@Middleware(MyMiddleware.session)` sits on a method of a `@Singleton` controller rather than on the type
-- **THEN** the factory demand lands on the controller's binding
+- **WHEN** `@Middleware` is declared `.injectsFromGraph`, a `@Factory(MyMiddleware.session)` template exists, and `@Middleware(MyMiddleware.session)` sits on a method of a `@Singleton` controller rather than on the type
+- **THEN** the synthesised factory's dependency lands on the controller's binding
 
 Pinned by: `Tests/WireGenCoreTests/ContributionAliasTests.swift` (`capturesAliasUseSitesNameAgnostically`, `capturesAliasUseSitesOnProviderFunctions`, `nonAliasAttributesAreNotInjected`), `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`routeScopeMiddlewareAttributesToEnclosingController`).
 
@@ -162,7 +162,7 @@ target is a proxied subject at that subject's proxy, so the adapter-dependency a
 factory-synthesis passes append their edges to the proxy and the subject stays a plain binding.
 
 #### Scenario: a middleware factory on a proxied controller
-- **WHEN** `@Middleware(Keys.session)` sits on a controller that has a contributor proxy
+- **WHEN** `@Middleware` is declared `.injectsFromGraph`, a `@Factory(Keys.session)` template exists, and `@Middleware(Keys.session)` sits on a controller that has a contributor proxy
 - **THEN** the `_wireFactory_Keys_session` dependency is appended to the proxy and not to the controller
 
 Pinned by: `Tests/WireGenCoreTests/ContributorProxySynthesisTests.swift` (`reattributesFactoryUseSitesToProxy`, `factorySynthesisLandsFactoryEdgeOnProxyNotController`).
@@ -179,11 +179,11 @@ dependency SHALL be positional (held) or labelled `_wireEnterScope` (bridged), e
 a numeric suffix on collision.
 
 #### Scenario: three subjects in one group
-- **WHEN** two `@Singleton` controllers and one `@Scoped(seed:)` controller are annotated `@Aggregate(spec: "alpha")`
-- **THEN** one binding `_WireAggregateContributor_alpha` is synthesised with fields `_wireSubject_AggregateReportController`, `_wireSubject_AggregateSearchController` and `_wireEnterScope_AggregateTaskController`, and the multibinding receives one element for the three subjects
+- **WHEN** `@Aggregate` is declared `.contributesAggregateProxy(to: key, proxyTypeName: "_WireAggregateContributor", proxyScope: .singleton, groupedByAttribute: "spec")`, and the `@Singleton` controllers `AggregateReportController` and `AggregateSearchController` and the `@Scoped(seed:)` controller `AggregateTaskController` are annotated `@Aggregate(spec: "alpha")`
+- **THEN** one binding `_WireAggregateContributor_alpha` is synthesised with fields `_wireSubject_AggregateReportController`, `_wireSubject_AggregateSearchController` and `_wireEnterScope_AggregateTaskController`, and `key`'s multibinding receives one element for the three subjects
 
 #### Scenario: a second group value
-- **WHEN** another controller is annotated `@Aggregate(spec: "beta")`
+- **WHEN** another controller is annotated with the same `@Aggregate` as `@Aggregate(spec: "beta")`
 - **THEN** a separate `_WireAggregateContributor_beta` binding is synthesised
 
 #### Scenario: a one-subject group
@@ -199,7 +199,7 @@ contribution list, and SHALL mark the subject `allowUnused` so the graph stores 
 adapter's generated code to read.
 
 #### Scenario: a composition root with global middleware
-- **WHEN** `@Singleton @WireMVCBootstrap struct AppBootstrap` bears a `.liftsPeersToProxy(proxyTypePrefix: "_WireGlobalMiddleware_", proxyScope: .singleton)` annotation and a `@Middleware(Keys.factory)` peer
+- **WHEN** `@Singleton @WireMVCBootstrap struct AppBootstrap` bears a `.liftsPeersToProxy(proxyTypePrefix: "_WireGlobalMiddleware_", proxyScope: .singleton)` annotation and a `@Middleware(Keys.factory)` peer, where `@Middleware` is declared `.injectsFromGraph` and a `@Factory(Keys.factory)` template exists
 - **THEN** `_WireGlobalMiddleware_AppBootstrap` is synthesised holding `AppBootstrap` positionally, contributing to no key, with the `_wireFactory_Keys_factory` edge on the proxy and nothing injected onto `AppBootstrap`
 
 Pinned by: `Tests/WireGenCoreTests/LiftsPeersToProxyTests.swift` (`synthesisesAddressableProxyContributingToNothing`, `liftsGlobalMiddlewareFactoryOntoTheProxyNotTheRoot`), `Tests/WireGenCoreTests/ContributorProxySynthesisTests.swift` (`aLiftsPeersToProxySubjectIsRootedSoTheGraphStoresIt`).
@@ -214,15 +214,15 @@ synthesis. Providers and aggregates SHALL receive no dependency. An annotation o
 capability SHALL inject nothing.
 
 #### Scenario: a by-type argument
-- **WHEN** a controller is annotated `@Middleware(SessionMiddlewareFactory.self)`
+- **WHEN** `@Middleware` is declared `.injectsFromGraph` and a scope-bound controller is annotated `@Middleware(SessionMiddlewareFactory.self)`
 - **THEN** the controller's binding gains a dependency on `SessionMiddlewareFactory` named `_wireSessionMiddlewareFactory`
 
 #### Scenario: a binding-key argument
-- **WHEN** a controller is annotated `@Middleware(Gates.primary)` and `Gates.primary` is a `BindingKey<AuthGate>`
+- **WHEN** `@Middleware` is declared `.injectsFromGraph`, a scope-bound controller is annotated `@Middleware(Gates.primary)`, and `Gates.primary` is a `BindingKey<AuthGate>`
 - **THEN** the binding gains a dependency on `AuthGate` keyed `Gates.primary` and named `_wireGates_primary`
 
 #### Scenario: a factory-key argument
-- **WHEN** the argument is `Keys.session` and no `BindingKey` of that name exists
+- **WHEN** `@Middleware` is declared `.injectsFromGraph`, a scope-bound controller is annotated `@Middleware(Keys.session)`, and no `BindingKey` of that name exists
 - **THEN** the adapter-dependency pass appends nothing
 
 Pinned by: `Tests/WireGenCoreTests/AdapterDependencyTests.swift` (`injectsSynthesizedDependency`, `injectsKeyedDependencyForBindingKeyArgument`, `leavesFactoryKeyArgumentToFactorySynthesis`, `contributesCapabilityInjectsNoDependency`, `capturesUseSiteArgument`).
@@ -235,11 +235,11 @@ binding once in every partition that consumes it, and append a dependency named
 key per consumer. A key with no matching template SHALL synthesise nothing.
 
 #### Scenario: two consumers of one key
-- **WHEN** two controllers each carry `@Middleware(MyMiddleware.session)` and a `@Factory(MyMiddleware.session)` template exists
+- **WHEN** `@Middleware` is declared `.injectsFromGraph`, two controllers in one partition each carry `@Middleware(MyMiddleware.session)`, and a `@Factory(MyMiddleware.session)` template exists
 - **THEN** exactly one `_WireFactory_MyMiddleware_session` binding is registered in the partition and both controllers gain a `_wireFactory_MyMiddleware_session` dependency
 
 #### Scenario: a key without a template
-- **WHEN** `@Middleware(Keys.unknown)` names a key no `@Factory` declares
+- **WHEN** `@Middleware` is declared `.injectsFromGraph` and a controller's `@Middleware(Keys.unknown)` names a key no `@Factory` declares
 - **THEN** no factory is synthesised and no edge is appended
 
 Pinned by: `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`synthesizesOneFactoryPerConsumedKeyDeduped`, `concreteSelfArgumentSynthesizesNoFactory`, `keyWithoutMatchingTemplateSynthesizesNoFactory`, `appendsFactoryEdgeAndRegistersBinding`, `registersFactoryBindingOncePerPartitionDespiteMultipleConsumers`, `nonFactoryCapabilityIsIgnored`, `synthesisFromDiscoveredSource`).
@@ -256,7 +256,7 @@ module with an assisted parameter left unmapped, WireGen SHALL report an error
 A template with no visible mapping SHALL keep a positional `create` and SHALL NOT be validated.
 
 #### Scenario: a reordered custom mapping
-- **WHEN** a template `Reordered<S, R, C>` is annotated `@MiddlewareFactory(.responseSender, .reader, .requestContext)` against roles `["RequestContext", "Reader", "ResponseSender"]`
+- **WHEN** a `@Factory` template `Reordered<S, R, C>`, all three of whose parameters are assisted, is annotated `@MiddlewareFactory(.responseSender, .reader, .requestContext)`, and `@MiddlewareFactory` is declared `.mapsFactoryRoles(roles: ["RequestContext", "Reader", "ResponseSender"])`
 - **THEN** `create<RequestContext, Reader, ResponseSender>(_: RequestContext.Type, _: Reader.Type, _: ResponseSender.Type) -> Reordered<ResponseSender, Reader, RequestContext>` is emitted
 
 #### Scenario: an unrecognised role reference
@@ -294,7 +294,7 @@ match a plain binding of `T`.
 
 #### Scenario: the site's dependency
 - **WHEN** the same site is inspected after the pass
-- **THEN** its dependency keeps type `String` and carries the producer's `keyIdentifier`
+- **THEN** its dependency keeps type `String` and is keyed by the producer's `_wireRewriteKey_<suffix>`
 
 Pinned by: `Tests/WireGenCoreTests/InjectionRewriteTests.swift` (`synthesisesAProducerCallingTheWrappersOwnValue`, `theProducerCarriesATryThatIsCorrectEitherWay`, `theHelperIsPrivateAndAlwaysThrowing`, `theAnnotatedSiteResolvesToTheSynthesisedProducer`), `InjectionRewriteHarness/run-injection-rewrite-harness.sh` (`InjectionRewriteHarness/Consumer/Sources/InjectionRewriteHarnessConsumer/main.swift`).
 
