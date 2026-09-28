@@ -399,14 +399,14 @@ struct GraphTests {
     @Test func cycleEntirelyThroughWeakEdgesIsLegal() throws {
         // Both directions weak: no strong edges between A and B.
         // Both are leaves from the strong-edge perspective; the
-        // mutual weak refs wire up post-init. Topo order is just
-        // a permutation of the two singletons.
+        // mutual weak refs wire up post-init. With no strong edge
+        // to order them, the sort falls back to identity order.
         let result = buildDependencyGraph(from: [
             singletonWithWeakDep("A", depName: "b", depType: "B"),
             singletonWithWeakDep("B", depName: "a", depType: "A"),
         ])
         let order = try #require(result.outcome.topologicalOrder)
-        #expect(Set(order.map { $0.boundType }) == ["A", "B"])
+        #expect(order.map { $0.boundType } == ["A", "B"])
     }
 
     @Test func missingBindingDetectionFiresForWeakDeps() throws {

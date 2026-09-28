@@ -134,7 +134,7 @@ ordered before its target when the target depends on it at init.
 
 #### Scenario: both edges weak
 - **WHEN** `A` and `B` each hold a weak member injection of the other
-- **THEN** the graph validates with both in the order
+- **THEN** the graph validates with order `A`, `B`
 
 #### Scenario: end to end
 - **WHEN** `Coordinator` takes `View` in its `@Inject init` and stores it as `view`, and `View` declares `@Inject package weak var coordinator: Coordinator?`
