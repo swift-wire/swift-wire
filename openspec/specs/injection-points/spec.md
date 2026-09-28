@@ -188,16 +188,16 @@ construction sequence as `[try] [await] <consumer>.<method>(<args>)`, with `try`
 throws and `await` when the method is `async` or the host is an `actor`.
 
 #### Scenario: a class host
-- **WHEN** `NoteBoard` declares `@Inject package func receive(message: NoteMessage)` and a `NoteMessage` is provided
-- **THEN** after bootstrap `graph.noteBoard.current() == "wire said: hello from @Inject func"`
+- **WHEN** class `NoteBoard` declares `@Inject package func receive(message: NoteMessage)`, whose body records `message.payload` on the instance, and `@Provides` binds a `NoteMessage` with payload `p`
+- **THEN** after bootstrap `graph.noteBoard` has recorded `p`
 
 #### Scenario: an async throwing method
 - **WHEN** `View` declares an `@Inject func setup(db: Database) async throws`
 - **THEN** the generated bootstrap contains `try await view.setup(db: database)`
 
 #### Scenario: a synchronous method on an actor
-- **WHEN** actor `TickCounter` declares a synchronous `@Inject package func bump(by amount: TickIncrement)`
-- **THEN** the call is emitted with `await`, and after bootstrap `await graph.tickCounter.ticks == 7`
+- **WHEN** actor `TickCounter`, whose `ticks` starts at `0`, declares a synchronous `@Inject package func bump(by amount: TickIncrement)` that adds `amount.value` to `ticks`, and `@Provides` binds a `TickIncrement` with value `n`
+- **THEN** the call is emitted with `await`, and after bootstrap `await graph.tickCounter.ticks == n`
 
 Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`injectFuncBecomesMethodCallMemberInjection`, `injectFuncCapturesEffectSpecifiers`), `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`methodCallMemberInjectionEmitsAsMethodCallAfterConstruction`, `asyncThrowingMethodCallInjectionGetsTryAwaitPrefix`, `methodCallOnActorConsumerForcesAwaitEvenForSyncMethod`, `throwingMethodCallOnActorConsumerGetsTryAwaitPrefix`), `Tests/IntegrationTests/BootstrapTests.swift` (`injectFuncRunsAfterConstructionAndWiresState`, `injectFuncOnActorConsumerRunsThroughActorIsolation`) over `Tests/IntegrationTests/MethodInjectionExample.swift` and `Tests/IntegrationTests/ActorMethodInjectionExample.swift`.
 
@@ -209,7 +209,7 @@ post-construct asymmetry note.
 
 #### Scenario: a private method
 - **WHEN** a `@Singleton` class declares `@Inject private func receive(data: Data) {}`
-- **THEN** the rendered output contains `View.swift:3:26: error:` and `@Inject func 'receive' is 'private'` followed by a `note:`
+- **THEN** the rendered output contains an `error:` located at the name `receive`, reading `@Inject func 'receive' is 'private'`, followed by a `note:`
 
 Pinned by: `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`privateInjectFuncRendersWithAsymmetryNote`), `Tests/WireGenCoreTests/DiscoveryTests.swift` (`privateInjectFuncEmitsErrorWithAsymmetryNote`).
 
@@ -222,7 +222,7 @@ struct, or any `@Inject func` on a class, SHALL NOT be diagnosed.
 
 #### Scenario: a mutating method on a struct
 - **WHEN** `@Singleton struct Config` declares `@Inject mutating func receive(data: SomeData)`
-- **THEN** the rendered output contains `Config.swift:4:19: error:` and the fixes "convert to a class", "drop 'mutating'" and "@Inject init"
+- **THEN** the rendered output contains an `error:` located at the name `receive`, and the fixes "convert to a class", "drop 'mutating'" and "@Inject init"
 
 Pinned by: `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`mutatingInjectFuncOnStructRendersAsErrorWithFixIts`), `Tests/WireGenCoreTests/DiscoveryTests.swift` (`mutatingInjectFuncOnStructEmitsErrorDiagnostic`, `mutatingInjectFuncOnClassDoesNotEmitDiagnostic`, `nonMutatingInjectFuncOnStructIsAllowed`).
 
@@ -246,8 +246,8 @@ dependency's key, and the generated bootstrap SHALL pass the keyed binding's val
 parameter's label, as for an unkeyed parameter.
 
 #### Scenario: a keyed single binding
-- **WHEN** `KeyedInitConsumer` declares `@Inject init(@Bind(AppName.boundViaInit) name: AppName)` and `@Provides(AppName.boundViaInit)` binds `AppName(value: "bound-via-init")`
-- **THEN** `graph.keyedInitConsumer.describe() == "init consumer with bound-via-init"` while the unkeyed `graph.appName.value == "IntegrationTests"`
+- **WHEN** `KeyedInitConsumer` declares `@Inject init(@Bind(AppName.boundViaInit) name: AppName)`, `@Provides(AppName.boundViaInit)` binds an `AppName` `k`, and an unkeyed `@Provides` binds a different `AppName` `u`
+- **THEN** `graph.keyedInitConsumer` is constructed with `k` as `name`, while the unkeyed `graph.appName` is `u`
 
 #### Scenario: discovery reads the key
 - **WHEN** a `@Singleton` declares `@Inject init(@Bind(Database.primary) db: Database, logger: Logger)`
@@ -255,7 +255,7 @@ parameter's label, as for an unkeyed parameter.
 
 #### Scenario: aggregates through parameters
 - **WHEN** a `@Provides func formatterChain(@Bind(FormatterKeys.all) formatters: [any Formatter])` and an `@Inject init(@Bind(FormatterKeys.byName) byName: [String: any Formatter], chain: FormatterChain)` are declared
-- **THEN** the IntegrationTests target's generated graph compiles with both aggregates passed to those parameters
+- **THEN** the generated graph compiles, passing the `FormatterKeys.all` aggregate as `formatters` and the `FormatterKeys.byName` aggregate as `byName`
 
 Pinned by: `Tests/IntegrationTests/BootstrapTests.swift` (`keyedInitParameterInjectsTheMatchingKeyedProvider`) over `Tests/IntegrationTests/KeyedInitParameterExample.swift`, `Tests/WireGenCoreTests/DiscoveryTests.swift` (`injectInitParameterWithBindKeyExtractsCanonicalText`), `Tests/IntegrationTests/BindAggregateParameterExample.swift` (compiled with the IntegrationTests target). The `BuilderKey` overload is pinned by nothing yet.
 
@@ -268,7 +268,7 @@ reads it. …" with the same remedy.
 
 #### Scenario: a plain struct
 - **WHEN** `struct Plain { @Inject var logger: Logger }` is discovered
-- **THEN** the rendered output contains `Plain.swift:2:5: warning:` and `@Inject on 'logger' has no effect`
+- **THEN** the rendered output contains a `warning:` located at the start of `logger`'s declaration (its `@Inject` attribute), reading `@Inject on 'logger' has no effect`
 
 #### Scenario: a factory template
 - **WHEN** `@Factory(CORSKeys.factory) struct CORSMiddleware<Ctx, Reader, Sender> { @Inject var configuration: CORSConfiguration }` is discovered
@@ -282,7 +282,7 @@ module-scope bindings." at a module-scope variable marked `@Inject`.
 
 #### Scenario: a module-scope let
 - **WHEN** `@Inject let logger: Logger = Logger()` is declared at file scope
-- **THEN** the rendered output contains `Logger.swift:1:1: warning:` and `@Inject on 'logger' at module scope has no effect`
+- **THEN** the rendered output contains a `warning:` located at the start of that declaration, reading `@Inject on 'logger' at module scope has no effect`
 
 Pinned by: `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`strayInjectAtModuleScopeRendersAsDiagnostic`).
 
