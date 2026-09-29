@@ -110,8 +110,8 @@ suggests `BindingKey<anyLogger>()`, which is not valid Swift; this is tracked as
 https://github.com/swift-wire/swift-wire/issues/423.
 
 #### Scenario: two unkeyed databases
-- **WHEN** two unkeyed providers bind `Database`
-- **THEN** the report contains `BindingKey<Database>()`, `@Provides(Database.primary)` and `@Inject(Database.primary)`
+- **WHEN** `@Provides let dbA: Database = Database()` and `@Provides let dbB: Database = Database()` are both declared without a key
+- **THEN** besides the duplicate error, WireGen notes at `dbA` that the bindings can be told apart by declaring `static let primary = BindingKey<Database>()`, tagging each binding `@Provides(Database.primary)` and each consumer `@Inject(Database.primary)`
 
 Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`renderUnkeyedDuplicateAppendsFixItNote`, `renderDuplicateKeyedBindingsNamesTheKey`, `someAndAnyProducersForOneProtocolAreDuplicates`), `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`unkeyedDuplicateBindingShowsFixItNote`, `keyedDuplicateBindingNamesTheKeyAndOmitsFixItNote`).
 
