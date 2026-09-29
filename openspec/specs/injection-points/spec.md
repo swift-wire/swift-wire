@@ -106,11 +106,11 @@ Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`privateInjectInitEmit
 On a `@Singleton` or `@Scoped` class host, an `@Inject weak var` property, declared `T?` or `T!`,
 SHALL be excluded from the synthesised initialiser's parameters and recorded as a post-construction
 property-assignment member injection, and the generated bootstrap SHALL assign it with
-`<consumer>.<property> = <producer>` after the construction sequence. An actor host goes through the
-generated setter in the next requirement. On a `@Factory` template the property is never assigned,
-tracked as a possible defect in https://github.com/swift-wire/swift-wire/issues/409; on a struct host
-the emitted assignment targets a `let` local, tracked in
-https://github.com/swift-wire/swift-wire/issues/410.
+`<consumer>.<property> = <producer>` after the construction sequence. An actor host is instead
+assigned through a generated setter; see "An actor's `@Inject weak var` is assigned through a
+generated setter". On a `@Factory` template the property is never assigned, tracked as a possible
+defect in https://github.com/swift-wire/swift-wire/issues/409; on a struct host the emitted
+assignment targets a `let` local, tracked in https://github.com/swift-wire/swift-wire/issues/410.
 
 #### Scenario: the synthesised init omits the weak property
 - **WHEN** `@Singleton final class View { @Inject weak var coordinator: Coordinator? }` is expanded
