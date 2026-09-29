@@ -91,9 +91,9 @@ honoured `@Replaces` binding (which supersedes the others, see
 When the bindings come from different modules, the error line and each "also bound here" note
 SHALL end with ` (module '<Module>')`.
 
-#### Scenario: two singletons
-- **WHEN** `Logger.swift` declares `@Singleton` over `struct Logger {` written from column 1 of line 2, and the same again with `struct Logger {` on line 6
-- **THEN** the output contains "Logger.swift:2:8: error: type 'Logger' has multiple bindings; the dependency graph is ambiguous" and "Logger.swift:6:8: note: also bound here"
+#### Scenario: a singleton and a provider
+- **WHEN** `Loggers.swift` declares `@Singleton` over `struct Logger {` written from column 1 of line 2, and `@Provides` over `let alternateLogger: Logger = Logger()` written from column 1 of line 6
+- **THEN** the output contains "Loggers.swift:2:8: error: type 'Logger' has multiple bindings; the dependency graph is ambiguous" and "Loggers.swift:6:5: note: also bound here"
 
 #### Scenario: two libraries
 - **WHEN** module `LibA` and module `LibB` each declare `@Provides let …: Cache = Cache()`
@@ -231,15 +231,14 @@ duplicate binding for that identity. A template with a different key SHALL NOT b
 Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`concreteAndGenericForSameInstantiationIsAmbiguous`, `concreteAndGenericWithDifferentKeysCoexist`, `multipleGenericCandidatesProduceAmbiguityError`), `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`multipleGenericCandidatesEmitDuplicateBindingError`).
 
 ### Requirement: A dependency matching no template is missing
-A dependency naming a generic instantiation that no concrete binding produces and for which no
-template of matching base name, argument count and key exists, or naming the template's base type
-without arguments, SHALL be a missing binding.
+A dependency naming a generic instantiation that no concrete binding produces, and for which no
+template of matching base name, argument count and key exists, SHALL be a missing binding.
 
-#### Scenario: the bare base name
-- **WHEN** `makeRepository<Model>() -> Repository<Model>` is declared and `App` injects `Repository`
-- **THEN** the dependency is a missing binding
+#### Scenario: no producer for an instantiation
+- **WHEN** `App` injects `Repository<Model>` and no binding or generic provider produces a `Repository`
+- **THEN** the dependency is a missing binding for `Repository<Model>`
 
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`dependencyOnGenericNameIsMissingNotResolvedToGeneric`, `noMatchingGenericProducesMissingBindingForInstantiation`).
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`noMatchingGenericProducesMissingBindingForInstantiation`). A template whose argument count or key differs from the dependency's is pinned by nothing yet.
 
 ### Requirement: Two bindings with one accessor name are an error
 When two bindings of distinct identities derive the same generated accessor name, WireGen SHALL
