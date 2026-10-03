@@ -49,7 +49,7 @@ dependency against the `some C` binding under the dependency's own key. A bindin
 node SHALL NOT be bridged.
 
 #### Scenario: an opaque chain
-- **WHEN** `@Provides` binds `some DBTable & Sendable`, `Repo<Table: DBTable & Sendable>` is `@Singleton(as: TaskRepo.self)` injecting `table: Table`, and `Controller<Repository: TaskRepo>` is `@Singleton(as: API.self)` injecting `repository: Repository`
+- **WHEN** `@Provides func dbTable() -> some DBTable & Sendable`, `@Singleton(as: TaskRepo.self) Repo<Table: DBTable & Sendable> { let table: Table }`, and `@Singleton(as: API.self) Controller<Repository: TaskRepo> { let repository: Repository }` are declared
 - **THEN** the order is `some DBTable & Sendable`, `some TaskRepo`, `some API` and no generic template is recorded
 
 Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`constrainedParameterBridgeResolvesOpaqueChain`), `Tests/WireGenCoreTests/TransitiveLiftTests.swift` (`bridgesBareParameterToSomeConstraint`, `leavesNonParameterDependencyUnchanged`), `Tests/WireGenCoreTests/BindingIdentityTests.swift` (`bridgesAReorderedConstraintToTheSameIdentity`). That a binding which is not a lift node is not bridged is pinned by nothing yet.
