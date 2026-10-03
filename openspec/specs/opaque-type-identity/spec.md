@@ -42,39 +42,6 @@ plain `@Singleton`. The discovery report SHALL list the binding as `some P (from
 
 Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`singletonAsDeclaresOpaqueGraphIdentity`, `singletonWithoutAsHasNoExplicitIdentity`, `singletonAsCoexistsWithAllowUnused`), `Tests/WireMacrosImplTests/SingletonMacroTests.swift` (`test_singletonWithAs_generatesSameMembers`), `Tests/WireGenCoreTests/GraphTests.swift` (`renderTopologicalOrderNamesOpaqueIdentityAndConcreteProducer`).
 
-### Requirement: A lift node's bare constrained parameter bridges to `some P`
-When a lift node (a `@Singleton(as:)` type or a determined generic `@Singleton`) has a dependency
-whose type is exactly one of its generic parameters, constrained to `C`, WireGen SHALL resolve that
-dependency against the `some C` binding under the dependency's own key. A binding that is not a lift
-node SHALL NOT be bridged.
-
-#### Scenario: an opaque chain
-- **WHEN** `@Provides func dbTable() -> some DBTable & Sendable`, `@Singleton(as: TaskRepo.self) Repo<Table: DBTable & Sendable> { let table: Table }`, and `@Singleton(as: API.self) Controller<Repository: TaskRepo> { let repository: Repository }` are declared
-- **THEN** the order is `some DBTable & Sendable`, `some TaskRepo`, `some API` and no generic template is recorded
-
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`constrainedParameterBridgeResolvesOpaqueChain`), `Tests/WireGenCoreTests/TransitiveLiftTests.swift` (`bridgesBareParameterToSomeConstraint`, `leavesNonParameterDependencyUnchanged`), `Tests/WireGenCoreTests/BindingIdentityTests.swift` (`bridgesAReorderedConstraintToTheSameIdentity`). That a binding which is not a lift node is not bridged is pinned by nothing yet.
-
-### Requirement: A parameter inside a dependency's generic arguments bridges transitively
-A generic parameter that a dependency's type names only as a generic argument, at any depth
-(`Box<Element>`, `Wrapper<Box<Element>>`), SHALL count toward the parameter being determined (see
-the next requirement). When resolving such a dependency of a lift node, WireGen SHALL substitute
-each of its generic parameters with `some <constraint>` and resolve the dependency against the
-resulting structural identity. A parameter SHALL match only as a whole identifier token.
-
-#### Scenario: a proxy over a lift node
-- **WHEN** `@Singleton TodosController<Repository: TodoRepository>` injects `repository: Repository`, `some TodoRepository` is bound, and `@Singleton Proxy<Repository: TodoRepository>` injects only `controller: TodosController<Repository>`
-- **THEN** `Proxy` is a lift node and its `controller` dependency resolves against `TodosController<some TodoRepository>`
-
-#### Scenario: a nested generic argument
-- **WHEN** `@Singleton Proxy<Repository: TodoRepository>` injects only `controller: Wrapper<Box<Repository>>`
-- **THEN** `Proxy` is a lift node
-
-#### Scenario: a longer identifier
-- **WHEN** `@Singleton Proxy<Repository: TodoRepository>` injects only `holder: Holder<RepositoryStore>`
-- **THEN** `Proxy` is not a lift node and the graph fails with one invalid generic singleton whose undetermined parameters are `["Repository"]`
-
-Pinned by: `Tests/WireGenCoreTests/TransitiveLiftTests.swift` (`parameterAsGenericArgumentDetermines`, `nestedParameterAsGenericArgumentDetermines`, `substringOccurrenceDoesNotDetermine`, `bridgesParameterisedDependencyToWrappedLiftNodeIdentity`), `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`transitiveLiftNodeThreadsParameterThroughParameterisedDependency`). That the graph fails for the longer identifier is pinned by nothing yet.
-
 ### Requirement: A determined generic `@Singleton` has a structural identity
 A generic parameter of a generic `@Singleton` is *determined* when it is constrained inline in the
 generic parameter clause (`<R: TaskRepo>`) to at least one protocol other than `Sendable`,
@@ -107,6 +74,40 @@ it resolves to one binding), or use '@Provides func' for a parameterised factory
 - **THEN** the graph fails with one invalid generic singleton whose undetermined parameters are `["Model"]`
 
 Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`genericSingletonWithUndeterminedParameterIsError`). The rendered message is pinned by nothing yet.
+
+### Requirement: A lift node's bare constrained parameter bridges to `some P`
+When a lift node (a `@Singleton(as:)` type or a determined generic `@Singleton`) has a dependency
+whose type is exactly one of its generic parameters, constrained to `C`, WireGen SHALL resolve that
+dependency against the `some C` binding under the dependency's own key. A binding that is not a lift
+node SHALL NOT be bridged.
+
+#### Scenario: an opaque chain
+- **WHEN** `@Provides func dbTable() -> some DBTable & Sendable`, `@Singleton(as: TaskRepo.self) Repo<Table: DBTable & Sendable> { let table: Table }`, and `@Singleton(as: API.self) Controller<Repository: TaskRepo> { let repository: Repository }` are declared
+- **THEN** the order is `some DBTable & Sendable`, `some TaskRepo`, `some API` and no generic template is recorded
+
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`constrainedParameterBridgeResolvesOpaqueChain`), `Tests/WireGenCoreTests/TransitiveLiftTests.swift` (`bridgesBareParameterToSomeConstraint`, `leavesNonParameterDependencyUnchanged`), `Tests/WireGenCoreTests/BindingIdentityTests.swift` (`bridgesAReorderedConstraintToTheSameIdentity`). That a binding which is not a lift node is not bridged is pinned by nothing yet.
+
+### Requirement: A parameter inside a dependency's generic arguments bridges transitively
+A generic parameter that a dependency's type names only as a generic argument, at any depth
+(`Box<Element>`, `Wrapper<Box<Element>>`), SHALL count toward the parameter being determined (see
+the determined `@Singleton` requirement above). When resolving such a dependency of a lift node,
+WireGen SHALL substitute each of its generic parameters with `some <constraint>` and resolve the
+dependency against the resulting structural identity. A parameter SHALL match only as a whole
+identifier token.
+
+#### Scenario: a proxy over a lift node
+- **WHEN** `@Singleton TodosController<Repository: TodoRepository>` injects `repository: Repository`, `some TodoRepository` is bound, and `@Singleton Proxy<Repository: TodoRepository>` injects only `controller: TodosController<Repository>`
+- **THEN** `Proxy` is a lift node and its `controller` dependency resolves against `TodosController<some TodoRepository>`
+
+#### Scenario: a nested generic argument
+- **WHEN** `@Singleton Proxy<Repository: TodoRepository>` injects only `controller: Wrapper<Box<Repository>>`
+- **THEN** `Proxy` is a lift node
+
+#### Scenario: a longer identifier
+- **WHEN** `@Singleton Proxy<Repository: TodoRepository>` injects only `holder: Holder<RepositoryStore>`
+- **THEN** `Proxy` is not a lift node and the graph fails with one invalid generic singleton whose undetermined parameters are `["Repository"]`
+
+Pinned by: `Tests/WireGenCoreTests/TransitiveLiftTests.swift` (`parameterAsGenericArgumentDetermines`, `nestedParameterAsGenericArgumentDetermines`, `substringOccurrenceDoesNotDetermine`, `bridgesParameterisedDependencyToWrappedLiftNodeIdentity`), `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`transitiveLiftNodeThreadsParameterThroughParameterisedDependency`). That the graph fails for the longer identifier is pinned by nothing yet.
 
 ### Requirement: `some P` satisfies `any P`, never the reverse
 WireGen SHALL resolve an `any P` dependency whose slot is bound as `some P` to that `some P`
