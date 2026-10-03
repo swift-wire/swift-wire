@@ -55,28 +55,35 @@ node SHALL NOT be bridged.
 Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`constrainedParameterBridgeResolvesOpaqueChain`), `Tests/WireGenCoreTests/TransitiveLiftTests.swift` (`bridgesBareParameterToSomeConstraint`, `leavesNonParameterDependencyUnchanged`), `Tests/WireGenCoreTests/BindingIdentityTests.swift` (`bridgesAReorderedConstraintToTheSameIdentity`). That a binding which is not a lift node is not bridged is pinned by nothing yet.
 
 ### Requirement: A parameter inside a dependency's generic arguments bridges transitively
-When a lift node's dependency mentions one of its determined generic parameters as a generic argument
-(`Box<Element>`), WireGen SHALL substitute each such parameter with `some <constraint>` and resolve
-the dependency against that structural identity. A parameter SHALL match only as a whole identifier
-token.
+A generic parameter that a dependency's type names only as a generic argument, at any depth
+(`Box<Element>`, `Wrapper<Box<Element>>`), SHALL count toward the parameter being determined (see
+the next requirement). When resolving such a dependency of a lift node, WireGen SHALL substitute
+each of its generic parameters with `some <constraint>` and resolve the dependency against the
+resulting structural identity. A parameter SHALL match only as a whole identifier token.
 
 #### Scenario: a proxy over a lift node
-- **WHEN** `Proxy<Repository: TodoRepository>` depends on `TodosController<Repository>`
-- **THEN** the dependency resolves against `TodosController<some TodoRepository>`
+- **WHEN** `@Singleton TodosController<Repository: TodoRepository>` injects `repository: Repository`, `some TodoRepository` is bound, and `@Singleton Proxy<Repository: TodoRepository>` injects only `controller: TodosController<Repository>`
+- **THEN** `Proxy` is a lift node and its `controller` dependency resolves against `TodosController<some TodoRepository>`
+
+#### Scenario: a nested generic argument
+- **WHEN** `@Singleton Proxy<Repository: TodoRepository>` injects only `controller: Wrapper<Box<Repository>>`
+- **THEN** `Proxy` is a lift node
 
 #### Scenario: a longer identifier
-- **WHEN** `Proxy<Repository: TodoRepository>` depends only on `Holder<RepositoryStore>`
-- **THEN** `Repository` is undetermined and `Proxy` is not a lift node
+- **WHEN** `@Singleton Proxy<Repository: TodoRepository>` injects only `holder: Holder<RepositoryStore>`
+- **THEN** `Proxy` is not a lift node and the graph fails with one invalid generic singleton whose undetermined parameters are `["Repository"]`
 
-Pinned by: `Tests/WireGenCoreTests/TransitiveLiftTests.swift` (`parameterAsGenericArgumentDetermines`, `nestedParameterAsGenericArgumentDetermines`, `substringOccurrenceDoesNotDetermine`, `bridgesParameterisedDependencyToWrappedLiftNodeIdentity`), `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`transitiveLiftNodeThreadsParameterThroughParameterisedDependency`).
+Pinned by: `Tests/WireGenCoreTests/TransitiveLiftTests.swift` (`parameterAsGenericArgumentDetermines`, `nestedParameterAsGenericArgumentDetermines`, `substringOccurrenceDoesNotDetermine`, `bridgesParameterisedDependencyToWrappedLiftNodeIdentity`), `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`transitiveLiftNodeThreadsParameterThroughParameterisedDependency`). That the graph fails for the longer identifier is pinned by nothing yet.
 
 ### Requirement: A determined generic `@Singleton` has a structural identity
-A generic `@Singleton` without `as:` whose every generic parameter is constrained to at least one
-protocol other than `Sendable`, `AnyObject` or `Any`, and appears in its dependencies bare or as a
-generic argument, SHALL be a lift node with the identity `<Type><some C1, …>`. WireGen SHALL resolve
-it as a single graph node and SHALL NOT specialise it. Only a constraint written inline in the
-generic parameter clause (`<R: TaskRepo>`) counts; a parameter constrained only in a `where` clause
-is undetermined.
+A generic parameter of a generic `@Singleton` is *determined* when it is constrained inline in the
+generic parameter clause (`<R: TaskRepo>`) to at least one protocol other than `Sendable`,
+`AnyObject` or `Any`, and the type's dependencies name it, bare or as a whole-token generic argument
+at any depth. Determination reads only the type's own declaration; whether a matching binding
+exists is decided at resolution. A parameter constrained only in a `where` clause is undetermined.
+A generic `@Singleton` without `as:` whose every generic parameter is determined SHALL be a lift
+node with the identity `<Type><some C1, …>`. WireGen SHALL resolve it as a single graph node and
+SHALL NOT specialise it.
 
 #### Scenario: a controller over an opaque repository
 - **WHEN** plain `@Singleton Controller<Repository: TaskRepo>` injects `repository: Repository` and `some TaskRepo` is bound
