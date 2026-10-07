@@ -47,7 +47,8 @@ A generic parameter of a generic `@Singleton` is *determined* when it is constra
 generic parameter clause (`<R: TaskRepo>`) to at least one protocol other than `Sendable`,
 `AnyObject` or `Any`, and the type's dependencies name it, bare or as a whole-token generic argument
 at any depth. Determination reads only the type's own declaration; whether a matching binding
-exists is decided at resolution. A parameter constrained only in a `where` clause is undetermined.
+exists is decided at resolution. A parameter constrained only in a `where` clause is undetermined,
+which is tracked as a defect in https://github.com/swift-wire/swift-wire/issues/444.
 A generic `@Singleton` without `as:` whose every generic parameter is determined SHALL be a lift
 node with the identity `<Type><some C1, …>`. WireGen SHALL resolve it as a single graph node and
 SHALL NOT specialise it.
@@ -208,9 +209,13 @@ Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`structuralLiftNode
 
 ### Requirement: A constructed bare `some P` binding is always stored
 A binding whose type is written with a leading `some ` that the graph constructs SHALL be a stored
-property of the generated graph struct whether or not it is a declared root. Its `some P` type does
-not make it a reachability root, so an opaque binding that no root reaches is pruned before emission
-like any other binding.
+property of the generated graph struct whether or not it is a declared root, because the binding
+lifts a generic parameter onto the struct (see the lifting requirement above) and the struct's
+initialiser can infer that parameter only from a stored argument. Narrowing the lift to the axes a
+stored property needs, so such a binding need not be stored, is tracked in
+https://github.com/swift-wire/swift-wire/issues/445. Its `some P` type does not make it a
+reachability root, so an opaque binding that no root reaches is pruned before emission like any
+other binding.
 
 #### Scenario: an opaque provider that is not a root
 - **WHEN** the emitted order holds only `@Provides` of `some Greeting`, which is not a declared root
