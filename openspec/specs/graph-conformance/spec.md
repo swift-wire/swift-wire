@@ -66,7 +66,7 @@ for each member whose key has an aggregate binding in the graph, one
 - **THEN** the generated file contains `extension _WireGraph: HummingbirdComposable {` and a line beginning `var routes: [any RouteContributor] { self.`
 
 #### Scenario: consumed generically through the protocol
-- **WHEN** a module declares a protocol `GraphComposable` requiring `things`, a conformance to it mapping `things` to `ThingKeys.things`, two `@Singleton` contributors to `ThingKeys.things`, and `func labels<Graph: GraphComposable>(of graph: Graph)`, and passes `try await Wire.bootstrap()` to `labels`
+- **WHEN** a module declares a protocol `GraphComposable` requiring `things`, a conformance to it mapping `things` to CollectedKey `ThingKeys.things`, two `@Singleton` contributors to the `ThingKeys.things` collection, and `func labels<Graph: GraphComposable>(of graph: Graph)`, and passes `try await Wire.bootstrap()` to `labels`
 - **THEN** the call compiles and, inside it, `graph.things` holds both contributors
 
 Pinned by: `Tests/WireGenCoreTests/GraphConformanceEmissionTests.swift` (`emitsExtensionMappingMemberToAggregateProperty`), `Tests/IntegrationTests/GraphConformanceTests.swift` (`generatedGraphConformsAndIsConsumedGenerically`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
