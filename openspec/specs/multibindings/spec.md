@@ -217,7 +217,7 @@ and a `MappedKey<Key, Value>` aggregate as `[<atKey>: <contributor>, …] as [<K
 
 Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`collectedAggregateEmitsConstructionAndIntrospection`), `Tests/IntegrationTests/BootstrapTests.swift` (`mappedMultibindingKeysContributorsByAtKey`, `collectedMultibindingAggregatesContributorsInRankOrder`). The empty `[:]` literal is pinned by nothing yet.
 
-### Requirement: A consumed collected key with no contributors is an empty aggregate
+### Requirement: A consumed collected or mapped key with no contributors is an empty aggregate
 When a `CollectedKey` or `MappedKey` is consumed in a partition with no contributors there, WireGen
 SHALL still synthesise its aggregate, so the consumer resolves to an empty collection.
 
