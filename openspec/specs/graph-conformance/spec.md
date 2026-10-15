@@ -86,7 +86,8 @@ When a member's key has no aggregate in the graph, WireGen SHALL emit
 `var <member>: [<Element>] { [] }` for a `CollectedKey<Element>` and
 `var <member>: [<Key>: <Value>] { [:] }` for a `MappedKey<Key, Value>`, and SHALL omit the member
 for a `BuilderKey` or a key it cannot find, without a diagnostic, so the incomplete conformance
-fails at compile time unless the protocol supplies a default implementation for that member.
+fails at compile time unless the protocol supplies a default implementation for that member. Both
+omissions are tracked as a defect in https://github.com/swift-wire/swift-wire/issues/446.
 
 #### Scenario: two collected keys with no contributors
 - **WHEN** a conformance maps `routes` to `App.routes`, a `CollectedKey<any RouteContributor>`, and `services` to `App.services`, a `CollectedKey<any Service>`, neither with contributors
@@ -100,7 +101,9 @@ Pinned by: `Tests/WireGenCoreTests/GraphConformanceEmissionTests.swift` (`member
 
 ### Requirement: Conformances are emitted on the default graph and its testing variants only
 WireGen SHALL emit every conformance on `_WireGraph` and again on each testing-variant app graph
-`_<Variant>WireGraph`, and SHALL NOT emit one on a `@Container` graph.
+`_<Variant>WireGraph`, and SHALL NOT emit one on a `@Container` graph. Whether a `@Container`
+graph should carry the conformances is an open question tracked in
+https://github.com/swift-wire/swift-wire/issues/447.
 
 #### Scenario: a variant app graph
 - **WHEN** a `TestingKey` `AppScopedFixture.bindMock` emits a variant app graph and the module declares a conformance to `GraphComposable`
@@ -115,7 +118,8 @@ Pinned by: `GoldenHarness/Golden/_WireGraph.swift.golden`.
 ### Requirement: An aggregate a conformance names is a reachability root
 On the default graph, WireGen SHALL treat every aggregate whose key a conformance member names as a
 declared root, so the aggregate and its contributors are retained whether or not anything injects
-them. The conformances SHALL NOT be passed as roots when pruning a `@Container` graph.
+them. The conformances SHALL NOT be passed as roots when pruning a `@Container` graph. That
+exclusion is part of the open question tracked in https://github.com/swift-wire/swift-wire/issues/447.
 
 #### Scenario: a library contributor with no injector
 - **WHEN** a library binding `LibraryRoute` contributes to `App.routes`, nothing injects the aggregate, and a conformance maps `routes` to `App.routes`
