@@ -7,9 +7,9 @@ on:
     branches: [ main ]
 
 # The version literals below are **deliberate**, not a duplicated pin. `.swift-version` names the toolchain
-# swift-wire is developed against (6.4.0 today); these jobs are a *regression check* that the package still
+# swift-wire is developed against (6.4.1 today); these jobs are a *regression check* that the package still
 # builds on every released Swift it supports. The package is tools-version 6.3 and its swift-syntax floor
-# is the 603 line, so 6.3.3 stays in the matrix as the floor with 6.4.0 beside it. Bumping `.swift-version`
+# is the 603 line, so 6.3.3 stays in the matrix as the floor with 6.4.1 beside it. Bumping `.swift-version`
 # must not touch them — the floor moves only when support for a Swift is dropped, and a new release is
 # added when it ships. (Downstream packages such as wire-mvc are genuinely 6.4-only; this one is not.)
 #
@@ -29,7 +29,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04]
-        swift-version: ["6.3.3", "6.4.0"]
+        swift-version: ["6.3.3", "6.4.1"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -55,14 +55,21 @@ jobs:
           chmod +x /usr/local/bin/swiftlint
       - name: SwiftLint unused imports
         if: matrix.os == 'ubuntu-24.04'
-        run: swiftlint analyze --strict --quiet --compiler-log-path build.log
+        # 6.4's build system writes each macro plugin as `-load-plugin-executable .../WireMacrosImpl\#WireMacrosImpl`,
+        # and SwiftLint keeps the backslash, so the compiler it replays cannot find the plugin: every analysed
+        # file that uses a Wire macro (`WireTestLibrary`'s `@Singleton`s) is then analysed with its macros
+        # unexpanded. Unescaping the `#` restores the path. The sed is a no-op on a log with nothing escaped,
+        # so it runs on every row of the matrix.
+        run: |
+          sed -i 's/\\#/#/g' build.log
+          swiftlint analyze --strict --quiet --compiler-log-path build.log
 
   BuildAndTestMacOS:
     name: macOS 26 / Swift ${{ matrix.swift-version }}
     strategy:
       fail-fast: false
       matrix:
-        swift-version: ["6.3.3", "6.4.0"]
+        swift-version: ["6.3.3", "6.4.1"]
     # macos-26 rather than macos-15: the 6.4 toolchain pairs with the Xcode 27 SDK, and the older image's
     # SDK is the mismatch wire-configuration already hit (apple/swift-configuration#178).
     runs-on: macos-26
@@ -81,7 +88,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        swift-version: ["6.3.3", "6.4.0"]
+        swift-version: ["6.3.3", "6.4.1"]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -99,7 +106,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        swift-version: ["6.3.3", "6.4.0"]
+        swift-version: ["6.3.3", "6.4.1"]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -117,7 +124,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        swift-version: ["6.3.3", "6.4.0"]
+        swift-version: ["6.3.3", "6.4.1"]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -134,7 +141,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        swift-version: ["6.3.3", "6.4.0"]
+        swift-version: ["6.3.3", "6.4.1"]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -154,7 +161,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        swift-version: ["6.3.3", "6.4.0"]
+        swift-version: ["6.3.3", "6.4.1"]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -179,7 +186,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: swift-wire/setup-swift@v1
         with:
-          swift-version: "6.4.0"
+          swift-version: "6.4.1"
       - name: Build documentation, failing on any warning
         # The catalog's articles reference symbols by name, so a renamed or removed macro breaks a
         # link rather than a build — silently, and only for a reader. `--warnings-as-errors` is what
@@ -191,7 +198,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        swift-version: ["6.3.3", "6.4.0"]
+        swift-version: ["6.3.3", "6.4.1"]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -211,7 +218,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        swift-version: ["6.3.3", "6.4.0"]
+        swift-version: ["6.3.3", "6.4.1"]
         # Every major the declared range admits (floor + ceiling = 603..<605), on every supported
         # compiler. SPM resolves to the newest major on its own, so without this the floor major is never
         # actually built; the aligned pairs (603 on 6.3, 604 on 6.4) are what a real adopter gets, and the
@@ -254,9 +261,9 @@ jobs:
           - swift-version: "6.3.3"
             sdk-url: https://download.swift.org/swift-6.3.3-release/static-sdk/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz
             sdk-checksum: 87c3eaf908e67c0e13a84367119e12273cec1d2cd3d81f7d74bb36722d6b607b
-          - swift-version: "6.4.0"
-            sdk-url: https://download.swift.org/swift-6.4.0-release/static-sdk/swift-6.4.0-RELEASE/swift-6.4.0-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz
-            sdk-checksum: 47d2fd89eebfdf9eb4d536b6710414297f755c17926cdebc4742c08982b40a9e
+          - swift-version: "6.4.1"
+            sdk-url: https://download.swift.org/swift-6.4.1-release/static-sdk/swift-6.4.1-RELEASE/swift-6.4.1-RELEASE_static-linux-0.1.0.artifactbundle.tar.gz
+            sdk-checksum: cef5592d7430ed3c5ae1ddda479849c6f5252bd94a5723db1559f984caf38a7c
     runs-on: ubuntu-24.04
     container:
       image: swift:${{ matrix.swift-version }}-noble
@@ -289,7 +296,7 @@ jobs:
     # two formatters that disagree would leave no formatting that passes.
     strategy:
       matrix:
-        swift-version: ["6.4.0"]
+        swift-version: ["6.4.1"]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -308,7 +315,7 @@ jobs:
     # One toolchain: coverage is a measurement of the suite, not a compatibility check.
     strategy:
       matrix:
-        swift-version: ["6.4.0"]
+        swift-version: ["6.4.1"]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
