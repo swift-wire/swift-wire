@@ -20,6 +20,12 @@ WireGen SHALL build the default graph and every `@Container` app graph with reac
 SHALL build seed-scope graphs without it. A graph built without pruning SHALL compute no reachable set
 and emit every resolved binding.
 
+A seed-scope graph is not pruned because its construction set is decided where the scope is entered. A
+bridging proxy's scope-entry thunk constructs only what its routed subject and yields reach, as specified
+under "A bridge's subject and yields are not reached through the app graph". For a scope that no
+bridging proxy enters, the whole-scope façade is the only way in, and it constructs every binding in the
+scope.
+
 #### Scenario: a graph with no pruning policy
 - **WHEN** a graph is built from a rooted `Root` and an unreached library binding with no reachability policy
 - **THEN** its reachable set is `nil` and both bindings are in the topological order
