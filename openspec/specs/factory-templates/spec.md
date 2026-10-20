@@ -103,6 +103,35 @@ parameter SHALL produce a non-generic factory binding.
 
 Pinned by: `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`factoryBindingIsAGenericLiftNodeOverTheInjectedAxis`, `nonInjectedFactoryStaysNonGeneric`, `rendersFactoryGenericOverInjectedAxisCreateOverAssisted`). The undetermined case is pinned by nothing yet.
 
+### Requirement: `create` takes one metatype argument per assisted parameter
+Without a role mapping, the synthesised factory's `create` SHALL be generic over exactly the
+template's assisted parameters, in declaration order, and SHALL take one unlabelled argument of type
+`<Parameter>.Type` for each, in the same order. It SHALL return the template's type specialised over
+all of its generic parameters in declaration order, each spelled as itself. Its `where` clause SHALL
+state each assisted parameter's inheritance constraint, in declaration order, followed by the
+template's `where`-clause requirements verbatim; an injected parameter's inheritance constraint stays
+on the factory type and SHALL NOT be restated. A template with no assisted parameter SHALL produce a
+`create()` with no generic parameters and no arguments. With a role mapping, `create` is generic over
+the adapter's roles instead, as specified in [adapter-annotations](../adapter-annotations/spec.md).
+
+#### Scenario: every parameter assisted
+- **WHEN** `SessionMiddleware<Ctx: RequestContext, Reader, Sender>` injects only `SessionStore`
+- **THEN** its factory declares `func create<Ctx, Reader, Sender>(_: Ctx.Type, _: Reader.Type, _: Sender.Type) -> SessionMiddleware<Ctx, Reader, Sender> where Ctx: RequestContext`
+
+#### Scenario: an injected parameter beside an assisted one
+- **WHEN** `AuditGate<Ctx, Repository: TodoRepository>` injects `repository: Repository`
+- **THEN** its factory declares `func create<Ctx>(_: Ctx.Type) -> AuditGate<Ctx, Repository>`
+
+#### Scenario: the template's `where` clause follows the parameter constraints
+- **WHEN** `Mw<Ctx: RequestContext & ~Copyable, Reader> where Reader.ReadElement == UInt8, Reader: ~Copyable` injects only `Store`
+- **THEN** its `create` ends `where Ctx: RequestContext & ~Copyable, Reader.ReadElement == UInt8, Reader: ~Copyable`
+
+#### Scenario: no assisted parameter
+- **WHEN** `Gate<Repository: TodoRepository>` injects `repository: Repository`
+- **THEN** its factory declares `func create() -> Gate<Repository>`
+
+Pinned by: `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`rendersFactoryDeclarationWithAssistedCreateAndConstraint`, `rendersFactoryGenericOverInjectedAxisCreateOverAssisted`, `rendersTemplateWhereClauseAfterParameterConstraints`). The no-assisted-parameter case is pinned by nothing yet.
+
 ### Requirement: A template contributes nothing to the graph until a consumer demands its key
 WireGen SHALL synthesise a factory for a template only when an `.injectsFromGraph` use-site names
 the template's key, and SHALL leave the bindings unchanged when none does. A use-site whose argument
@@ -126,7 +155,7 @@ template from the factory's held values on every call.
 
 #### Scenario: `create` constructs the template from the held values
 - **WHEN** the factory for `SessionMiddleware<Ctx, Reader, Sender>` holding `store: SessionStore` is rendered
-- **THEN** its `create<Ctx, Reader, Sender>(_: Ctx.Type, _: Reader.Type, _: Sender.Type)` body is `SessionMiddleware(store: store)`
+- **THEN** its `create` body is `SessionMiddleware(store: store)`
 
 Pinned by: `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`appendsFactoryEdgeAndRegistersBinding`, `synthesisFromDiscoveredSource`, `rendersFactoryDeclarationWithAssistedCreateAndConstraint`). That a keyed dependency keeps its key on the factory binding is pinned by nothing yet.
 
