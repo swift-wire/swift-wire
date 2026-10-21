@@ -349,29 +349,36 @@ package func reachableBindings(from roots: [String], in scope: SeedScopeEmission
 /// `@Sendable` thunk (`let userStore = _wireGraph.userStore`), so the thunk captures the borrowed value, not
 /// the non-Sendable graph. Pruned to the reachable set so an unreferenced borrow produces no dead local. The
 /// bootstrap body needs none of this — its borrows are already singleton locals. Empty when `binding` isn't
-/// a bridge proxy, its scope is absent, or the reachable set borrows nothing.
+/// a bridge proxy, its scopes are absent, or the reachable sets borrow nothing.
+///
+/// Taken over **every** scope-entry thunk the proxy carries, not just the first: an aggregate bridges into
+/// one scope per seeded subject, and the emitted body references the borrows of all of them. The union is
+/// deduplicated by property name and kept in each scope's own order, because two subjects borrowing the same
+/// singleton must bind one local, not two — a repeated `let` would not compile.
 func reachableBorrows(
     forBridgeProxy binding: DiscoveredBinding,
     scopes: [String: SeedScopeEmission]
 ) -> [(property: String, accessPath: String)] {
-    guard case .scopeBound(let proxy) = binding,
-        let descriptor = proxy.scopeEntryDependencies.first?.scopeEntry,
-        let scope = scopes[descriptor.seed]
-    else { return [] }
-    // The same root set the thunk itself prunes with — a borrow reached only through a yielded binding is
-    // still referenced by the emitted body, so the facade must bind a local for it.
-    let roots = ([descriptor.subject] + descriptor.yields).map {
-        identifierName(forType: liftSpecialised($0, in: binding), key: nil)
-    }
-    let reachable = reachableBindings(from: roots, in: scope)
+    guard case .scopeBound(let proxy) = binding else { return [] }
     var borrows: [(property: String, accessPath: String)] = []
-    for scopeBinding in scope.topologicalOrder {
-        let property = propertyName(for: scopeBinding)
-        guard scope.borrowedBindingPropertyNames.contains(property),
-            reachable?.contains(scopeBinding.identity) ?? true,
-            case .provider(let provider) = scopeBinding
-        else { continue }
-        borrows.append((property: property, accessPath: provider.accessPath))
+    var seen: Set<String> = []
+    for dependency in proxy.scopeEntryDependencies {
+        guard let descriptor = dependency.scopeEntry, let scope = scopes[descriptor.seed] else { continue }
+        // The same root set the thunk itself prunes with — a borrow reached only through a yielded binding
+        // is still referenced by the emitted body, so the facade must bind a local for it.
+        let roots = ([descriptor.subject] + descriptor.yields).map {
+            identifierName(forType: liftSpecialised($0, in: binding), key: nil)
+        }
+        let reachable = reachableBindings(from: roots, in: scope)
+        for scopeBinding in scope.topologicalOrder {
+            let property = propertyName(for: scopeBinding)
+            guard scope.borrowedBindingPropertyNames.contains(property),
+                reachable?.contains(scopeBinding.identity) ?? true,
+                case .provider(let provider) = scopeBinding,
+                seen.insert(property).inserted
+            else { continue }
+            borrows.append((property: property, accessPath: provider.accessPath))
+        }
     }
     return borrows
 }

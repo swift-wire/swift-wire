@@ -222,6 +222,14 @@ extension WireGen {
                 appEdges: inputs.partitionInputs.appEdges,
                 scopableTypeNames: inputs.aggregate.testScopableTypes
             )
+            + aggregateVariantUnsupportedDiagnostics(
+                key: key,
+                holdProxies: inputs.holdProxies,
+                bridgeProxies: inputs.productionProxies,
+                appSingletons: inputs.appSingletons,
+                appEdges: inputs.partitionInputs.appEdges,
+                coveredSeeds: Set(accumulation.seedScopes.map(\.seedTypeExpression))
+            )
     }
 
     /// The variant's generated-type prefix, derived from its key reference (`MyTests.setup` → `MyTests_setup`).

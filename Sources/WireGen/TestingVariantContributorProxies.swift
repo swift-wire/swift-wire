@@ -45,8 +45,12 @@ extension WireGen {
         let coveredSeeds = Set(seedScopes.map(\.seedTypeExpression))
         var transformsByProxy: [String: [VariantFactoryTransform]] = [:]
         for proxy in productionProxies {
-            guard
-                let scopeEntry = proxy.dependencies.first(where: { $0.name == contributorProxyScopeEntryFieldName }),
+            // One subject per proxy — see `buildVariantContributorFacades`, which this must agree with:
+            // a transform is keyed by production-proxy type name and consumed there, so computing one for a
+            // group the facade pass refuses would leave a factory dropped from the variant graph with
+            // nothing built in its place.
+            guard proxy.subjectCount == 1,
+                let scopeEntry = proxy.scopeEntryDependencies.first,
                 let parsed = scopeEntry.scopeEntry,
                 coveredSeeds.contains(parsed.seed)
             else { continue }
@@ -92,8 +96,11 @@ extension WireGen {
 
         var declarations: [String] = []
         for proxy in productionProxies.sorted(by: { $0.typeName < $1.typeName }) {
-            guard
-                let scopeEntry = proxy.dependencies.first(where: { $0.name == contributorProxyScopeEntryFieldName }),
+            // One subject per proxy: the variant proxy is emitted per *proxy* and named from it, so a group
+            // of several would need one proxy carrying N re-typed thunks and a facade naming rule that does
+            // not exist yet. Refused by `aggregateVariantUnsupportedDiagnostics` rather than half-emitted.
+            guard proxy.subjectCount == 1,
+                let scopeEntry = proxy.scopeEntryDependencies.first,
                 let parsed = scopeEntry.scopeEntry,
                 let scope = scopeBySeed[parsed.seed]
             else { continue }
