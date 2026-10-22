@@ -171,22 +171,19 @@ binding; any other graph satisfies the protocol through the default.
 
 Pinned by: `Tests/WireGenCoreTests/TeardownDiscoveryTests.swift` (`teardownActionsEmitReverseOrderCalls`), `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`propertyAssignmentMemberInjectionEmitsAsDirectAssignmentAfterConstruction`), `Tests/IntegrationTests/TeardownTests.swift` (`teardownRunsActionsInReverseDependencyOrder`).
 
-### Requirement: Each built binding records its action where it is constructed
-The bootstrap SHALL, immediately after constructing each `@Teardown` binding on the linear chain, append
-to `_wireTeardownActions` a closure that runs that binding's action against the construction local. A member action SHALL be called as
-`<prefix><local>.<method>()` with the prefix from the method's effects; a producer action SHALL be
-bound as `let action: @Sendable (<T>) async throws -> Void = <expression>` and called as
-`try await action(<local>)`.
+### Requirement: Each built binding's teardown acts on the instance the graph built
+The graph's `teardown()` SHALL run the teardown of every `@Teardown` binding the bootstrap constructed,
+once, against the instance the bootstrap constructed. A member teardown SHALL be called on that
+instance, awaited when the method is `async` and tried when it `throws`. A producer action SHALL be
+applied to the produced value and treated as `async throws`. A binding bound opaquely with
+`@Singleton(as:)` SHALL be torn down through its concrete type, so its teardown method need not be
+part of the type it is bound as.
 
-#### Scenario: both forms in one graph
-- **WHEN** `Pool` has `@Teardown func teardown() async throws` and `makeClient()` has a producer action for `HTTPClient`
-- **THEN** the bootstrap contains `try await pool.teardown()` and `try await action(hTTPClient)`, the pool's action is appended before the client's, and the struct stores `_wireTeardown` passed as `_wireTeardown: _wireTeardown)`
+#### Scenario: both forms and an opaque binding in one graph
+- **WHEN** the default graph holds `TeardownDatabasePool` with `@Teardown func teardown() async throws`, `TeardownHTTPClient` produced by `makeTeardownClient()` with `@Teardown({ (client: TeardownHTTPClient) in try await client.shutdown() })`, and `TeardownOpaqueResource`, bound `@Singleton(as: TeardownResource.self)` with `@Teardown func close() async throws` that `TeardownResource` does not declare, and `graph.teardown()` runs
+- **THEN** the pool's `teardown()`, the client's `shutdown()` and the resource's `close()` each run once, and the returned errors are empty
 
-#### Scenario: an opaquely bound resource
-- **WHEN** `@Singleton(as: TodoRepository.self) class PostgresTodoRepository` has `@Teardown func close() async throws`
-- **THEN** the action calls `try await someTodoRepository.close()` on the concrete local and never `self.someTodoRepository`
-
-Pinned by: `Tests/WireGenCoreTests/TeardownDiscoveryTests.swift` (`teardownActionsEmitReverseOrderCalls`, `opaqueLiftTeardownCallsConcreteLocalNotLiftedProperty`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
+Pinned by: `Tests/IntegrationTests/TeardownTests.swift` (`teardownRunsActionsInReverseDependencyOrder`).
 
 ### Requirement: A graph with a `@Teardown` binding compiles only when its construction can throw
 WireGen SHALL generate a graph that compiles and bootstraps when the graph has a `@Teardown` binding
@@ -222,9 +219,9 @@ a non-throwing member call SHALL be a bare call with `let errors`.
 Pinned by: `Tests/IntegrationTests/TeardownTests.swift` (`teardownRunsActionsInReverseDependencyOrder`), `Tests/WireGenCoreTests/TeardownDiscoveryTests.swift` (`teardownActionsEmitReverseOrderCalls`, `nonThrowingMemberTeardownBindsErrorsWithLet`).
 
 ### Requirement: A bootstrap that throws unwinds what it built and rethrows
-When a graph has a `@Teardown` binding and its construction can throw, the bootstrap SHALL wrap
-construction in `do { … } catch { for action in _wireTeardownActions.reversed() { _ = await action() }; throw error }`,
-discarding teardown errors and rethrowing the construction's original error.
+When a graph has a `@Teardown` binding and its construction throws, the bootstrap SHALL tear down, in
+reverse construction order, every `@Teardown` binding it had already constructed, SHALL discard any
+errors those teardowns produce, and SHALL then rethrow the construction's original error.
 
 #### Scenario: a throwing initialiser after a built resource
 - **WHEN** in `@Container PartialTeardownContainer`, `ChainResource` is built and `ChainFailingConsumer`'s initialiser then throws `PartialTeardownFailure`
