@@ -30,6 +30,39 @@ implemented by `TeardownMacro`, which SHALL expand to no declarations.
 
 Pinned by: `Tests/WireMacrosImplTests/TeardownMacroTests.swift` (`test_bareTeardownOnMethod_producesNoPeers`, `test_teardownClosureOnFunction_producesNoPeers`, `test_teardownFunctionReferenceOnFunction_producesNoPeers`).
 
+### Requirement: Each form of `@Teardown` has one place it takes effect
+WireGen SHALL record a teardown from exactly two placements: the bare form on an instance method
+declared in the body of a `@Singleton` or `@Scoped` type, and the action form on a `@Provides` function
+or property. It SHALL report an error for the action form on such a method, the bare form on a
+`@Provides`, and either form on the `@Singleton` or `@Scoped` type declaration, as the requirements
+below state. Every other placement is ignored without a diagnostic, because the macro expands to
+nothing and WireGen does not look there:
+
+| Placement | Form | Result |
+|---|---|---|
+| Instance method in the body of a `@Singleton`/`@Scoped` type | bare | recorded |
+| `@Provides` function or property | `@Teardown(<action>)` | recorded |
+| Method of a `@Singleton`/`@Scoped` type | `@Teardown(<action>)` | error |
+| `@Provides` | bare | error |
+| `@Singleton`/`@Scoped` type declaration | either | error |
+| Method in an extension of a `@Singleton`/`@Scoped` type | either | ignored (https://github.com/swift-wire/swift-wire/issues/429) |
+| Method of a `@Factory` template | bare | malformed shapes are errors; a well-formed one is ignored (https://github.com/swift-wire/swift-wire/issues/449) |
+| Any other type, function or property | either | ignored |
+
+#### Scenario: a `@Factory` template
+- **WHEN** `@Factory(Keys.access) struct Access` declares `@Inject var x: Int` and `@Teardown func close() async {}`
+- **THEN** one factory template is discovered, no teardown is recorded for it, and no diagnostic is reported
+
+#### Scenario: a malformed method on a `@Factory` template
+- **WHEN** the same template declares `@Teardown static func close() {}` instead
+- **THEN** the error is `@Teardown method 'close' is 'static' — teardown runs on the constructed instance, so the method must be an instance method.`
+
+#### Scenario: a type and functions Wire does not bind
+- **WHEN** a plain `struct Plain` declares `@Teardown func close() {}`, and the free functions `@Teardown func make() -> Int` and `@Teardown({ (i: Int) in }) func make2() -> Int` are declared without `@Provides`
+- **THEN** no binding is discovered and no diagnostic is reported
+
+Pinned by: the recorded and error placements by the requirements below. The `@Factory` and unbound placements are pinned by nothing yet.
+
 ### Requirement: The member form records the method name and its effects
 WireGen SHALL record a bare `@Teardown` on an instance method declared in the body of a `@Singleton` or
 `@Scoped` type as that binding's teardown, keeping the method's name, which may be any name, and whether
