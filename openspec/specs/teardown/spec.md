@@ -203,20 +203,20 @@ https://github.com/swift-wire/swift-wire/issues/366.
 Pinned by: `Tests/IntegrationTests/TeardownTests.swift` (`teardownRunsActionsInReverseDependencyOrder`). The case that does not compile is pinned by nothing yet.
 
 ### Requirement: `teardown()` runs actions in reverse construction order and collects errors
-The captured `_wireTeardown` SHALL run the accumulated actions `.reversed()`, appending each action's
-returned errors to the result. Within an action, a throwing member call or a producer action SHALL be
-wrapped in `do { … } catch { errors.append(error) }`, so a failing action does not stop later ones;
-a non-throwing member call SHALL be a bare call with `let errors`.
+The graph's `teardown()` SHALL run the teardown of each constructed `@Teardown` binding in reverse
+construction order, so a binding is torn down before the bindings it holds. It SHALL NOT throw: an
+error thrown by a teardown SHALL be added to the returned errors, and the teardowns after it SHALL
+still run.
 
 #### Scenario: dependents before dependencies
 - **WHEN** `TeardownConsumer` holds `TeardownDatabasePool` and `TeardownHTTPClient`, all three with teardown actions, an opaquely bound resource in the same graph has one too, and `graph.teardown()` runs
 - **THEN** all four actions run, `TeardownConsumer`'s before both `TeardownDatabasePool`'s and `TeardownHTTPClient`'s, and the returned errors are empty
 
-#### Scenario: a non-throwing member teardown
-- **WHEN** the only teardown is `@Teardown func close() async` on `Cache`
-- **THEN** the action declares `let errors: [any Error] = []`, calls `await cache.close()`, and contains no `errors.append(error)`, although the generated file does not compile (https://github.com/swift-wire/swift-wire/issues/366)
+#### Scenario: a failing teardown
+- **WHEN** a graph holds two `@Teardown` bindings, the one constructed second has a teardown that throws `E`, and `graph.teardown()` runs
+- **THEN** both teardowns run, the failing one first, and the returned errors are `[E]`
 
-Pinned by: `Tests/IntegrationTests/TeardownTests.swift` (`teardownRunsActionsInReverseDependencyOrder`), `Tests/WireGenCoreTests/TeardownDiscoveryTests.swift` (`teardownActionsEmitReverseOrderCalls`, `nonThrowingMemberTeardownBindsErrorsWithLet`).
+Pinned by: `Tests/IntegrationTests/TeardownTests.swift` (`teardownRunsActionsInReverseDependencyOrder`). A failing teardown is pinned by nothing yet.
 
 ### Requirement: A bootstrap that throws unwinds what it built and rethrows
 When a graph has a `@Teardown` binding and its construction throws, the bootstrap SHALL tear down, in
