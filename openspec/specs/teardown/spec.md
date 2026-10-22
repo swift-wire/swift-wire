@@ -188,22 +188,22 @@ bound as `let action: @Sendable (<T>) async throws -> Void = <expression>` and c
 
 Pinned by: `Tests/WireGenCoreTests/TeardownDiscoveryTests.swift` (`teardownActionsEmitReverseOrderCalls`, `opaqueLiftTeardownCallsConcreteLocalNotLiftedProperty`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
-### Requirement: The bootstrap declares its accumulator only when it unwinds
-The bootstrap SHALL declare `var _wireTeardownActions: [@Sendable () async -> [any Error]] = []` only
-when it also wraps construction in `do`/`catch` (see the unwind requirement below). A graph with a
-`@Teardown` binding whose bootstrap is not wrapped still appends to and captures `_wireTeardownActions`
-without declaring it, so the generated file does not compile, which is tracked as a defect in
+### Requirement: A graph with a `@Teardown` binding compiles only when its construction can throw
+WireGen SHALL generate a graph that compiles and bootstraps when the graph has a `@Teardown` binding
+and its construction can throw. When its construction cannot throw, the generated file does not
+compile, because the bootstrap records teardown actions into a list it declares only when it unwinds
+a throw (see the unwind requirement below). This is tracked as a defect in
 https://github.com/swift-wire/swift-wire/issues/366.
 
-#### Scenario: a bootstrap that unwinds
+#### Scenario: construction that can throw
 - **WHEN** the default graph holds `@Teardown` bindings and its construction can throw
-- **THEN** `private func _wireBootstrap()` opens with `var _wireTeardownActions: [@Sendable () async -> [any Error]] = []` followed by `do {`
+- **THEN** the generated file compiles and `Wire.bootstrap()` returns a graph whose `teardown()` runs those bindings' actions
 
-#### Scenario: a bootstrap that cannot throw
-- **WHEN** `@Singleton(allowUnused: true) final class Cache` declares `@Inject init() {}` and `@Teardown func close() async {}`
-- **THEN** the bootstrap contains `_wireTeardownActions.append({` and `{ [_wireTeardownActions] in` but no `var _wireTeardownActions` line
+#### Scenario: construction that cannot throw
+- **WHEN** `@Singleton(allowUnused: true) final class Cache` declares `@Inject init() {}` and `@Teardown func close() async {}`, and nothing else in the graph can throw
+- **THEN** the generated file does not compile
 
-Pinned by: `GoldenHarness/Golden/_WireGraph.swift.golden`. The missing declaration is pinned by nothing yet.
+Pinned by: `Tests/IntegrationTests/TeardownTests.swift` (`teardownRunsActionsInReverseDependencyOrder`). The case that does not compile is pinned by nothing yet.
 
 ### Requirement: `teardown()` runs actions in reverse construction order and collects errors
 The captured `_wireTeardown` SHALL run the accumulated actions `.reversed()`, appending each action's
@@ -217,7 +217,7 @@ a non-throwing member call SHALL be a bare call with `let errors`.
 
 #### Scenario: a non-throwing member teardown
 - **WHEN** the only teardown is `@Teardown func close() async` on `Cache`
-- **THEN** the action declares `let errors: [any Error] = []`, calls `await cache.close()`, and contains no `errors.append(error)`, although the surrounding bootstrap does not compile because it never declares `_wireTeardownActions` (https://github.com/swift-wire/swift-wire/issues/366)
+- **THEN** the action declares `let errors: [any Error] = []`, calls `await cache.close()`, and contains no `errors.append(error)`, although the generated file does not compile (https://github.com/swift-wire/swift-wire/issues/366)
 
 Pinned by: `Tests/IntegrationTests/TeardownTests.swift` (`teardownRunsActionsInReverseDependencyOrder`), `Tests/WireGenCoreTests/TeardownDiscoveryTests.swift` (`teardownActionsEmitReverseOrderCalls`, `nonThrowingMemberTeardownBindsErrorsWithLet`).
 
