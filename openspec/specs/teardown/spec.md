@@ -159,7 +159,7 @@ Pinned by: `Tests/WireGenCoreTests/TeardownDiscoveryTests.swift` (`bareTeardownO
 The `Wire` module SHALL declare `public protocol Teardownable { func teardown() async -> [any Error] }`
 with a default implementation returning `[]`. WireGen SHALL conform every graph struct to
 `Teardownable`, and SHALL emit a `teardown()` member only when the graph has at least one `@Teardown`
-binding.
+binding; any other graph satisfies the protocol through the default.
 
 #### Scenario: a graph with teardown bindings, driven generically
 - **WHEN** the default graph holds `@Teardown` bindings and is passed to a function taking `some Teardownable`
@@ -167,7 +167,7 @@ binding.
 
 #### Scenario: a graph with none
 - **WHEN** a graph has no `@Teardown` binding
-- **THEN** it is declared `: Introspectable, Teardownable` with no `teardown()` member and no `_wireTeardown` property
+- **THEN** it is declared `: Introspectable, Teardownable` and its `teardown()` is the protocol's default, which returns `[]`, so the graph declares neither its own `teardown()` nor a `_wireTeardown` property
 
 Pinned by: `Tests/WireGenCoreTests/TeardownDiscoveryTests.swift` (`teardownActionsEmitReverseOrderCalls`), `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`propertyAssignmentMemberInjectionEmitsAsDirectAssignmentAfterConstruction`), `Tests/IntegrationTests/TeardownTests.swift` (`teardownRunsActionsInReverseDependencyOrder`).
 
