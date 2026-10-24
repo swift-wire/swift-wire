@@ -146,8 +146,8 @@ a producer with the same key text. Two producers of one type with different keys
 one unkeyed, SHALL coexist.
 
 #### Scenario: a keyed consumer beside an unkeyed binding
-- **WHEN** `appName: AppName` is bound unkeyed, `@Provides(AppName.alternate)` binds another `AppName`, and a consumer declares `@Inject(AppName.alternate) var alternate: AppName`
-- **THEN** the consumer receives the `AppName.alternate` value and the graph exposes both `appName` and `appNameKeyedAppNameAlternate`
+- **WHEN** `appName: AppName` is bound unkeyed, `@Provides(AppName.alternate)` binds a second `AppName`, `alternateAppName`, and the `@Singleton` `KeyedConsumer` declares `@Inject(AppName.alternate) var alternate: AppName`
+- **THEN** `KeyedConsumer` receives `alternateAppName` and the graph exposes both `appName` and `appNameKeyedAppNameAlternate`
 
 #### Scenario: a keyed dependency with only an unkeyed producer
 - **WHEN** a consumer asks for `Database` keyed `Database.primary` and only an unkeyed `Database` is bound

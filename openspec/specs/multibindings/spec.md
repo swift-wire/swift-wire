@@ -62,8 +62,8 @@ WireGen SHALL pool the key declarations discovered in every module of its parse 
 contribution or a consumer in one module can target a key declared in another activated module.
 
 #### Scenario: a library declares the key and contributes to it
-- **WHEN** a library declares `public static let contributors = CollectedKey<any HarnessRouteContributor>()` and a `@Singleton @Contributes(to: HarnessRouteKeys.contributors)` contributor `ExternalRouteContributor`, and the consuming application maps a graph conformance member to that key
-- **THEN** the consumer's graph aggregates the library's contributor, and the conformance member yields exactly one element, the `ExternalRouteContributor`
+- **WHEN** `WireHarnessLibrary` declares `public static let contributors = CollectedKey<any HarnessRouteContributor>()` and a `@Singleton @Contributes(to: HarnessRouteKeys.contributors)` contributor `ExternalRouteContributor`, and the consuming application's `HarnessComposableConformance` maps the `contributors` member of its `HarnessComposable` protocol to that key
+- **THEN** the consumer's graph aggregates the library's contributor, and `contributors`, read through `any HarnessComposable`, yields exactly one element, the `ExternalRouteContributor`
 
 Pinned by: `CompositionHarness/Library/Sources/WireHarnessLibrary/ExternalService.swift` and `CompositionHarness/Consumer/Sources/WireHarnessConsumer/main.swift`, run by the `CompositionHarness` job in `.github/workflows/swift.yml`.
 
@@ -274,8 +274,8 @@ https://github.com/swift-wire/swift-wire/issues/422.
 - **THEN** the graph contains `func _wireFoldKeysRoutes() -> [any Route] {`
 
 #### Scenario: a ranked middleware pipeline
-- **WHEN** `AuthMiddleware` (`withOrder: 1`) and `LoggingMiddleware` (`withOrder: 2`) contribute to `BuilderKey<PipelineBuilder>`, `BuilderKey<MiddlewareListBuilder>` and `BuilderKey<ComposedMiddlewareBuilder>`, whose `buildBlock`s return a concrete `Pipeline`, an `[any Middleware]` and an `any Middleware` respectively
-- **THEN** each builder folds `AuthMiddleware` then `LoggingMiddleware`, and the consumer injecting each key receives that builder's `Pipeline`, `[any Middleware]` or `any Middleware` result
+- **WHEN** `AuthMiddleware` (`withOrder: 1`) and `LoggingMiddleware` (`withOrder: 2`) contribute to `MiddlewareRegistry.pipeline`, `MiddlewareRegistry.list` and `MiddlewareRegistry.composed`, a `BuilderKey<PipelineBuilder>`, a `BuilderKey<MiddlewareListBuilder>` and a `BuilderKey<ComposedMiddlewareBuilder>`, whose `buildBlock`s return a concrete `Pipeline`, an `[any Middleware]` and an `any Middleware` respectively, and `MiddlewareHost` injects all three keys
+- **THEN** each builder folds `AuthMiddleware` then `LoggingMiddleware`, and `MiddlewareHost` receives each builder's `Pipeline`, `[any Middleware]` or `any Middleware` result
 
 Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aBuilderFoldInThePrefixDoesNotBlockScheduling`), `Tests/IntegrationTests/BootstrapTests.swift` (`builderMultibindingFoldsToConcreteResultInRankOrder`, `builderMultibindingFoldsToCollectionResult`, `builderMultibindingFoldsToExistentialResult`). The handling of a `some P` builder return is pinned by nothing yet.
 

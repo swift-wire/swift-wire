@@ -149,7 +149,7 @@ keys SHALL coexist.
 
 #### Scenario: both spellings bound
 - **WHEN** `opaqueLogger: some Logger` and `boxedLogger: any Logger` are both bound unkeyed
-- **THEN** one duplicate binding with bound type `anyLogger` and two bindings is reported
+- **THEN** the graph fails with a single duplicate binding for the slot, displayed as `anyLogger`, that lists both `opaqueLogger` and `boxedLogger`
 
 #### Scenario: keyed apart
 - **WHEN** they are keyed `Log.opaque` and `Log.boxed`
@@ -244,7 +244,7 @@ one of the function's own generic parameters `T<n>` and every other axis stays `
 - **THEN** the bootstrap function takes `wireGraph _wireGraph: _WireGraph<some TodoRepository>`
 
 #### Scenario: a stored binding over one axis
-- **WHEN** the app graph `_WireGraph` lifts seven axes, the third of them `some GenBackend`, and the seed scope `GenSeedRequestSeed` stores a binding over that axis and over no other
+- **WHEN** the app graph `_WireGraph` lifts seven axes, the third of them `some GenBackend`, and the seed scope `GenSeedRequestSeed` stores `GenSeedConsumer<B: GenBackend>`, a binding over that axis and over no other
 - **THEN** the bootstrap function is `_wireBootstrapGenSeedRequestSeedScope<T0: GenBackend>` and takes `wireGraph _wireGraph: _WireGraph<…>` with `T0` as the third argument and the `some P` of its axis as each of the other six
 
 Pinned by: `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`seedScopeNamesOpaqueParentGraphWithItsLiftedParameters`), `GoldenHarness/Golden/_WireGraph.swift.golden`.

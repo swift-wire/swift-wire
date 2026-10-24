@@ -175,8 +175,8 @@ reachable set, home-module bindings included. The reachable set SHALL be closed 
 - **THEN** the emitted set is `DeclaredRoot` and `Reached`
 
 #### Scenario: an unreached binding that traps on construction
-- **WHEN** the composition harness consumer declares `UnreachedHomeBinding`, whose `init` calls `fatalError`, and nothing reaches it
-- **THEN** the consumer's bootstrap completes, so `UnreachedHomeBinding` was never constructed
+- **WHEN** the composition harness consumer declares a home `@Singleton UnreachedHomeBinding` that nothing reaches
+- **THEN** the consumer's `Wire.bootstrap()` returns a graph without ever calling `UnreachedHomeBinding`'s `init`
 
 Pinned by: `Tests/WireGenCoreTests/ReachabilityTests.swift` (`unreachedLibraryBindingIsNotEmitted`, `unreachedHomeBindingIsPruned`, `retentionIsClosedUnderDependencies`), `.github/workflows/swift.yml` (`CompositionHarness`).
 
@@ -186,8 +186,8 @@ consumer is reachable. A cycle among pruned bindings is likewise not an error, a
 [dependency-cycles](../dependency-cycles/spec.md).
 
 #### Scenario: an unreached library binding with an unresolvable dependency
-- **WHEN** an unreached library binding depends on a type nothing in the build produces
-- **THEN** the graph builds with only the rooted `App`
+- **WHEN** a graph holds a rooted `App` and an unreached library binding `UnreachedLibraryBinding` that depends on `TypeFromAPackageTheConsumerNeverDependedOn`, which nothing in the build produces
+- **THEN** the graph builds, and its emitted set is only `App`
 
 #### Scenario: a reached binding with an unresolvable dependency
 - **WHEN** a rooted `App` depends on a library binding whose dependency nothing produces
@@ -230,8 +230,8 @@ WireGen SHALL NOT warn for a pruned binding whose origin module is an `--externa
 pruned synthesised aggregate. A home contributor pruned along with its aggregate SHALL be reported.
 
 #### Scenario: a package-local contributor to an unconsumed public key
-- **WHEN** a `package` contributor folds into a `public` key's aggregate that nothing consumes
-- **THEN** the contributor is reported and the aggregate is not
+- **WHEN** a `package` contributor `PackageLocalContributor` folds into the aggregate for the `public` key `Keys.widgets`, which nothing consumes
+- **THEN** `PackageLocalContributor` is reported and the `Keys.widgets` aggregate is not
 
 Pinned by: `Tests/WireGenCoreTests/PrunedBindingDiagnosticsTests.swift` (`libraryPrunedIsSilent`, `aggregateIsSilent`, `packageLocalContributorToUnconsumedPublicKeyIsReported`).
 
