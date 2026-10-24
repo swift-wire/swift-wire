@@ -175,8 +175,8 @@ reachable set, home-module bindings included. The reachable set SHALL be closed 
 - **THEN** the emitted set is `DeclaredRoot` and `Reached`
 
 #### Scenario: an unreached binding that traps on construction
-- **WHEN** the composition harness consumer declares `UnreachedHomeBinding`, whose `init` calls `fatalError`, and nothing reaches it
-- **THEN** the consumer's bootstrap completes, so `UnreachedHomeBinding` was never constructed
+- **WHEN** the composition harness consumer declares a home `@Singleton UnreachedHomeBinding` that nothing reaches
+- **THEN** the consumer's `Wire.bootstrap()` returns a graph without ever calling `UnreachedHomeBinding`'s `init`
 
 Pinned by: `Tests/WireGenCoreTests/ReachabilityTests.swift` (`unreachedLibraryBindingIsNotEmitted`, `unreachedHomeBindingIsPruned`, `retentionIsClosedUnderDependencies`), `.github/workflows/swift.yml` (`CompositionHarness`).
 
