@@ -123,7 +123,7 @@ the scope (see [testing-variants](../testing-variants/spec.md)).
 - **THEN** neither the scope struct nor the scope bootstrap mentions `HTTPClient`
 
 #### Scenario: a borrowed singleton promoted to an existential
-- **WHEN** `ScopedGreetingReporter`, scoped to `TestRequestSeed`, injects `TestRequestSeed` as `testRequestSeed` and `any Greeting` as `greeting`, and the default graph binds an opaque `Greeting` producer
+- **WHEN** `ScopedGreetingReporter`, scoped to `TestRequestSeed`, injects `TestRequestSeed` as `testRequestSeed` and `any Greeting` as `greeting`, and the default graph binds the opaque producer `@Provides var greeting: some Greeting`, which it stores as `someGreeting`
 - **THEN** the bootstrap contains `let anyGreeting: any Greeting = _wireGraph.someGreeting` and constructs `ScopedGreetingReporter(testRequestSeed: testRequestSeed, greeting: anyGreeting)`
 
 Pinned by: `Tests/WireGenCoreTests/SeedScopeOrchestrationTests.swift` (`scopeBindingBorrowingSingletonValidates`, `unreferencedSingletonsStillAppearInTopologicalOrderButAreBorrowed`), `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`seedScopeBorrowingSingletonsExcludesThemFromStoredProperties`, `seedScopeOmitsBorrowedSingletonNoScopeBindingInjects`), `Tests/IntegrationTests/RequestLogger.swift`, `Tests/IntegrationTests/BootstrapTests.swift` (`seedScopeBootstrapInjectsSeedAndBorrowsSingleton`, `seedScopeBootstrapResolvesInScopeDependencies`, `scopedExistentialConsumerBorrowsThePromotedSingleton`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
