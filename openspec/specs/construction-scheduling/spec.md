@@ -6,7 +6,8 @@ How the generated bootstrap builds a graph's bindings. Every construction line c
 `await` its binding's declared effects call for, and the bootstrap is always `async throws`. A graph
 with two async bindings that can overlap is split into a serial prefix, a scheduled group and a serial
 suffix; the group runs in a `ThrowingTaskGroup` driven by a `~Copyable` building struct of
-`_WireBindingState` cells. Seeded scope-entry thunks are scheduled on the same terms.
+`_WireBindingState` cells. Once the group drains, the *seam* turns each group binding's cell back into
+a local, and the suffix is built after it. Seeded scope-entry thunks are scheduled on the same terms.
 
 Rationale: [ConstructionScheduling](../../../Documentation/Notes/ConstructionScheduling.md), [EffectAwareResolution](../../../Documentation/Notes/EffectAwareResolution.md).
 Documentation: [LifecycleAndTeardown](../../../Sources/Wire/Wire.docc/LifecycleAndTeardown.md), [ConcurrencyAndIsolation](../../../Sources/Wire/Wire.docc/ConcurrencyAndIsolation.md).
@@ -164,7 +165,7 @@ until the group is empty.
 Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`onlyReadyBindingsAreDrivenFromTheBootstrap`, `theDrainRunsUntilTheGroupEmpties`), `Tests/IntegrationTests/ParallelSchedulerTests.swift` (`aDependentOfTheFastBindingRunsBeforeTheSlowOneFinishes`, `bothIndependentAsyncBindingsStillResolve`).
 
 ### Requirement: Prefix bindings a group binding reads cross as stored properties
-Each prefix binding a group binding reads SHALL be a stored `let` on the building struct, passed to its
+Each prefix binding a group binding reads, a *frontier* binding, SHALL be a stored `let` on the building struct, passed to its
 initialiser by label, copied to a local inside the `add` that reads it, and not read through a cell.
 
 #### Scenario: a frontier value
