@@ -26,8 +26,8 @@ carry no function-typed requirement; the teardown is read off the concrete entry
 protocol.
 
 #### Scenario: recovering a subject's type from a thunk
-- **WHEN** an adapter declares `func noSubject<Seed, Doubles, Entry: WireScopeEntry>(_ thunk: @Sendable (Seed, Doubles) async throws -> Entry) -> Entry.Subject? { nil }` and passes a testing-variant proxy's `_wireEnterScope`
-- **THEN** `Entry.Subject` resolves to the concrete subject type without the adapter spelling it, including for a subject over an opaque backend
+- **WHEN** an adapter declares `func noSubject<Seed, Doubles, Entry: WireScopeEntry>(_ thunk: @Sendable (Seed, Doubles) async throws -> Entry) -> Entry.Subject? { nil }` and passes `_wireEnterScope` from the proxy that `Wire.bootstrapGenProxyFixture_bindMock_GenProxyRouteControllerContributor(wireGraph:)` returns, whose subject is `GenProxyRouteController<R: GenProxyRepository>` with `R` bound as `some GenProxyRepository`
+- **THEN** `Entry.Subject` resolves to `GenProxyRouteController` over that opaque `R` without the adapter spelling it
 
 #### Scenario: a consumer that enables the feature conforms a generated entry
 - **WHEN** a consumer module with `NonisolatedNonsendingByDefault` enabled compiles a `_WireScopeEntry_<Subject>` struct whose `_wireScopeTeardown` is `@Sendable () async -> [any Error]`
@@ -94,8 +94,12 @@ rather than throwing.
 - **THEN** the proxy declares `let _wireEnterScope: @Sendable (RequestSeed) async throws -> _WireScopeEntry_SessionController<Repository>` and `init(_wireEnterScope: @escaping @Sendable (RequestSeed) async throws -> _WireScopeEntry_SessionController<Repository>)`
 
 #### Scenario: entering with doubles under a variant
-- **WHEN** a variant proxy's `_wireEnterScope` is called with a seed and the key's doubles, and no `@Teardown` the entry constructs throws
-- **THEN** the returned entry's `_wireSubject` is the subject built against the doubles, and awaiting its `_wireScopeTeardown()` returns `[]`
+- **WHEN** the proxy that `Wire.bootstrapWireProxyFixture_bindMock_ProxyRouteControllerContributor(wireGraph:)` returns has its `_wireEnterScope` called with a seed and the subject's doubles, `_WireProxyFixture_bindMock_ProxyRouteControllerDoubles` holding a `MockProxyRepository`, and `ProxySession`, the only `@Teardown` binding the entry constructs, does not throw
+- **THEN** the returned entry's `_wireSubject` is a `ProxyRouteController` built over the supplied mock, and awaiting its `_wireScopeTeardown()` returns `[]`
+
+#### Scenario: entering a factory-carrying proxy with doubles
+- **WHEN** the proxy that `Wire.bootstrapFactoryProxyFixture_bindMock_FactoryProxyRouteControllerContributor(wireGraph:)` returns has its `_wireEnterScope` called with a seed and `_FactoryProxyFixture_bindMock_FactoryProxyRouteControllerDoubles` holding a `MockFactoryProxyRepository`, and the entry constructs no `@Teardown` binding
+- **THEN** the returned entry's `_wireSubject` is a `FactoryProxyRouteController` built over the supplied mock, and awaiting its `_wireScopeTeardown()` returns `[]`
 
 #### Scenario: a seedless reconstruction root under a variant
 - **WHEN** the `AppScopedFixture.bindMock` key touches the held app-`@Singleton` `AppScopedController`, whose production proxy stores `_wireSubject: AppScopedController`
@@ -195,7 +199,7 @@ variant proxy's `_wireFactory_<key>` field SHALL have that type.
 - **THEN** the proxy's field is `let _wireFactory_GenAppKeys_audit: _WireFactory_GenAppKeys_audit<Backend>`
 
 #### Scenario: a mock-consuming factory under a testing key
-- **WHEN** the `AppScopedFixture.bindMock` key touches `AppScopedController`, whose lifted `AppScopedKeys.audit` factory, with no assisted parameters, produces `AppScopedAudit` and injects the repository the key mocks
+- **WHEN** the `AppScopedFixture.bindMock` key touches `AppScopedController`, whose lifted `AppScopedKeys.audit` factory, with no assisted parameters, produces `AppScopedAudit` and injects `any AppScopedRepository`, which the key binds to `MockAppScopedRepository`
 - **THEN** the variant proxy's field is `let _wireFactory_AppScopedKeys_audit: _AppScopedFixture_bindMock_WireFactory_AppScopedKeys_audit`, whose `create` is `func create(doubles: _AppScopedFixture_bindMock_AppScopedControllerDoubles) -> AppScopedAudit`
 
 Pinned by: `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`rendersFactoryDeclarationWithAssistedCreateAndConstraint`, `rendersTemplateWhereClauseAfterParameterConstraints`, `rendersEveryConsumedFactoryInternalRegardlessOfOriginModule`, `rendersFactoryGenericOverInjectedAxisCreateOverAssisted`, `nonInjectedFactoryStaysNonGeneric`, `proxyFactoryFieldIsParameterisedByTheSharedBackend`), `Tests/IntegrationTests/ScopableRouteContributorTests.swift` (`appScopedRouteContributorRebuildsSeedlesslyWithTheMock`, `genericAppScopedRouteContributorConcretizesToTheMock`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
@@ -294,7 +298,7 @@ per-subject doubles struct SHALL be `_<Variant>_<Subject>Doubles` and the key-wi
 - **THEN** `Wire.bootstrapGenProxyFixture_bindMock_GenProxyRouteControllerContributor(wireGraph:)` returns a proxy whose `_wireEnterScope` takes `_GenProxyFixture_bindMock_GenProxyRouteControllerDoubles`
 
 #### Scenario: a seedless root with a mock-consuming factory
-- **WHEN** the `AppScopedFixture.bindMock` key touches the held `AppScopedController`, which, like its lifted `AppScopedKeys.audit` factory, injects the mocked repository and the non-mocked singleton `AppScopedLog` as `log`
+- **WHEN** the `AppScopedFixture.bindMock` key touches the held `AppScopedController`, which, like its lifted `AppScopedKeys.audit` factory, injects the mocked `any AppScopedRepository` and the non-mocked singleton `AppScopedLog` as `log`
 - **THEN** `Wire.bootstrapAppScopedFixture_bindMock_AppScopedControllerContributor(wireGraph:)` binds `appScopedLog` off `_wireGraph` and binds the factory as `_AppScopedFixture_bindMock_WireFactory_AppScopedKeys_audit(log: _wireGraph.appScopedLog)`
 
 Pinned by: `Tests/WireGenCoreTests/ContributorProxyFacadeEmissionTests.swift` (`facadeThreadsDoublesPrunesAndTearsDown`, `facadeBindsBorrowedSingletonsAsLocalsOutsideTheThunk`, `facadeBindsLiftedFactoryInstanceFromTheGraph`), `Tests/WireGenCoreTests/TestingGraphTests.swift` (`doublesStructTypeNameJoinsReferenceComponents`), `Tests/IntegrationTests/ScopeEntryProjectionTests.swift` (`aSubjectsTypeIsRecoverableFromItsThunk`), `Tests/IntegrationTests/SubjectDoublesTests.swift` (`subjectDoublesCarryOnlyTheSlotsTheSubjectReaches`), `Tests/IntegrationTests/ScopableRouteContributorTests.swift` (`appScopedRouteContributorRebuildsSeedlesslyWithTheMock`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
