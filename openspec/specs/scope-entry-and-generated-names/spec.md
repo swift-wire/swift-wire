@@ -9,7 +9,10 @@ protocol and the synthesised `_WireScopeEntry_<Subject>` struct, the fields of a
 the scope-entry thunk's signature, synthesised factory types, the `Wire` facade's entry points,
 graph and scope struct names, stored-property naming, the identifier sanitiser, and
 `_WireBindingState`. The capabilities that cause these to be emitted are specified in
-[adapter-annotations](../adapter-annotations/spec.md).
+[adapter-annotations](../adapter-annotations/spec.md). Several names change under a testing key
+that *touches* a subject, meaning the key's variant rebuilds it: a bridged subject whose seed scope
+the key's substitutions or cascade lifts reach, or an app-`@Singleton` subject the key reconstructs
+seedlessly, both as specified in [testing-variants](../testing-variants/spec.md).
 
 Rationale: [AdapterModel](../../../Documentation/Notes/AdapterModel.md), [TestingModel](../../../Documentation/Notes/TestingModel.md), [ConstructionScheduling](../../../Documentation/Notes/ConstructionScheduling.md).
 Documentation: [WritingAnAdapter](../../../Sources/Wire/Wire.docc/WritingAnAdapter.md).
@@ -201,8 +204,11 @@ Pinned by: `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`rendersFactory
 WireGen SHALL emit the default graph as `internal struct _WireGraph<lift clause>: Introspectable, Teardownable`,
 each `@Container` graph as `_<Container>WireGraph`, and each testing-variant app graph as
 `_<Variant>WireGraph`, with `<Variant>` being the testing key's reference components joined by
-`_`. A graph that lifts opaque axes SHALL declare `<T0: P0, T1: P1, …>` in binding order and be
-referenced from outside as `_WireGraph<some P0, some P1, …>`.
+`_`. A graph lifts an opaque axis for each bare `some P` binding it stores, turning it into a
+generic parameter of the struct, as specified in
+[opaque-type-identity](../opaque-type-identity/spec.md); this is unrelated to the testing cascade's
+lift into a seed scope. A graph that lifts opaque axes SHALL declare `<T0: P0, T1: P1, …>` in
+binding order as its `<lift clause>` and be referenced from outside as `_WireGraph<some P0, some P1, …>`.
 
 #### Scenario: a container beside the default graph
 - **WHEN** a module declares `@Container enum TestContainer`
