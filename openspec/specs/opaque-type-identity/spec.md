@@ -149,7 +149,7 @@ keys SHALL coexist.
 
 #### Scenario: both spellings bound
 - **WHEN** `opaqueLogger: some Logger` and `boxedLogger: any Logger` are both bound unkeyed
-- **THEN** one duplicate binding with bound type `anyLogger` and two bindings is reported
+- **THEN** the graph fails with a single duplicate binding for the slot, displayed as `anyLogger`, that lists both `opaqueLogger` and `boxedLogger`
 
 #### Scenario: keyed apart
 - **WHEN** they are keyed `Log.opaque` and `Log.boxed`
