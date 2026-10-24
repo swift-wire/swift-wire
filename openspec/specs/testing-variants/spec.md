@@ -121,7 +121,7 @@ https://github.com/swift-wire/swift-wire/issues/437.
 Pinned by: `Tests/IntegrationTests/EagerSingletonBindTypeTests.swift` (`eagerBindTypedBindingIsDroppedFromTheVariantAppGraph`), `Tests/IntegrationTests/BindTypeProxyContributorTests.swift` (`eagerSingletonInitDoesNotRunUnderTheVariantGraph`), `Tests/WireGenCoreTests/TestingGraphTests.swift` (`variantAggregateShedsDroppedContributorsAndKeepsSurvivors`, `variantAggregateRewriteIsANoOpWhenNothingDropped`). The key that reaches no scope, the unreached mocked app singleton and the empty order are pinned by nothing yet.
 
 ### Requirement: A variant seed scope is entered through a doubles-taking facade
-For each seed scope a key's substitutions or lifts touch and that no production bridging
+For each seed scope a key's substitutions reach, directly or through a lift, and that no production bridging
 contributor proxy enters, WireGen SHALL emit `_Enum_key_<Seed>WireScope` and
 `Wire.bootstrapEnum_key_<Seed>Scope(seed:wireGraph:doubles:)`, where `wireGraph:` is typed to the
 variant app graph and `doubles:` to `_Enum_keyDoubles`; the scope's bootstrap SHALL bind each
@@ -145,7 +145,7 @@ Pinned by: `Tests/IntegrationTests/BindTypeDoublesTests.swift` (`suppliedMockIns
 
 ### Requirement: A routed subject is entered through a per-subject contributor facade
 For each production bridging contributor proxy with an unlabelled `_wireEnterScope` thunk whose
-seed scope the variant touches, WireGen SHALL emit a variant proxy and
+seed scope the key's substitutions reach, directly or through a lift, WireGen SHALL emit a variant proxy and
 `Wire.bootstrapEnum_key_<Subject>Contributor(wireGraph:)` returning it; the proxy's
 `_wireEnterScope(seed, doubles)` SHALL take the per-subject doubles and return a variant entry
 struct `_WireScopeEntry_Enum_key_<Subject>` with the same fields as production's
