@@ -183,7 +183,7 @@ cross-scope advice.
 
 #### Scenario: a template injecting a request-scoped caller
 - **WHEN** `@Factory(ControllerMiddleware.screenAccess) struct ScreenAccess<Ctx>` injects `@Scoped(seed: HTTPRequest.self)` `Caller` and `@Singleton` `DocumentsController` carries `@Middleware(ControllerMiddleware.screenAccess)`
-- **THEN** the build reports `error: no binding produces 'Caller'` with a hint containing `'ScreenAccess' is a @Factory template`, `A @Scoped(seed: HTTPRequest.self) binding can't be one of them` and `Produce 'Caller' at @Singleton`, and not containing `scope '_WireFactory_ControllerMiddleware_screenAccess'`
+- **THEN** the build reports `error: no binding produces 'Caller'` with a hint that names the template rather than the factory WireGen synthesises for it: it says `'ScreenAccess' is a @Factory template`, that `A @Scoped(seed: HTTPRequest.self) binding can't be one of them`, and to `Produce 'Caller' at @Singleton`, and never offers to change the scope of `_WireFactory_ControllerMiddleware_screenAccess`
 
 Pinned by: `Tests/WireGenCoreTests/FactoryLifetimeDiagnosticsTests.swift` (`aTemplateInjectingAScopedBindingIsNamedByTheTemplate`, `theNoteStatesTheConstraintThatActuallyBites`, `theNoteOffersOnlyMovesThatCanBeWritten`, `aDeclaredConsumerStillGetsTheOrdinaryAdvice`). The several-partitions wording and the other-container case are pinned by nothing yet.
 
