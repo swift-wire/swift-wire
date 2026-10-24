@@ -58,7 +58,7 @@ or of a scope-entry thunk, not a binding such an async binding reads, not stored
 
 #### Scenario: a non-`Sendable` class beside scheduled bindings
 - **WHEN** `SchedulerContainer` holds the non-`Sendable` class `SchedulerCounter`, read as `counter` by the group binding `SchedulerService` alongside two async bindings
-- **THEN** `Wire.bootstrapSchedulerContainer()` succeeds and `graph.schedulerService.counter === graph.schedulerCounter`
+- **THEN** `Wire.bootstrapSchedulerContainer()` succeeds, and the graph's `SchedulerService` holds as `counter` the same `SchedulerCounter` instance the graph stores, not a second construction
 
 #### Scenario: a non-`Sendable` struct in a linear graph
 - **WHEN** `PluginContainer`, which has no async bindings, holds `PluginConsumer`, a struct storing as `plugins` the `[any ContainerPlugin]` collected over the non-`Sendable` protocol `ContainerPlugin`, to which `AlphaPlugin` contributes at order 1 and `BetaPlugin` at order 2
