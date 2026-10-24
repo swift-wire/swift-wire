@@ -170,8 +170,8 @@ key the consumer declares, at the key's location, with the message
 `'<key>' declares a test-graph variant, but this WireGen run did not opt into them (--testing-variants was not passed). Variants substitute @BindType doubles into the graph, so they are emitted only for a test target — otherwise the variant graph and the mock types it names compile into the shipping binary. If '<module>' is a production target, move the TestingKey into a test target; if it is already a test target, its build plugin is not passing --testing-variants.`
 
 #### Scenario: a key without the flag
-- **WHEN** `ProdFixture.bindMock` is declared in the consumer and the flag is absent
-- **THEN** the error names `'ProdFixture.bindMock'`, `--testing-variants`, `If '<module>' is a production target` and `its build plugin is not passing`
+- **WHEN** `ProdFixture.bindMock` is declared in the consumer module `TestModule` and the run did not receive `--testing-variants`
+- **THEN** WireGen reports an error that names `'ProdFixture.bindMock'` and the missing `--testing-variants` flag, and gives both causes: `If 'TestModule' is a production target`, and, if it is a test target, that `its build plugin is not passing` the flag
 
 Pinned by: `Tests/WireGenCoreTests/BindTypeDiscoveryTests.swift` (`keyWithoutOptInNamesTheFlagAndBothExplanations`).
 
@@ -228,8 +228,8 @@ A lifted singleton SHALL be absent from the variant app graph and reconstructed 
 seed scope on each entry, so a read of the mocked slot in its `init` sees the double.
 
 #### Scenario: an init-time read
-- **WHEN** `WireScopableFixture.bindMockRepo` mocks `any AccountRepository` and `AccountController` reads `repository.tag("init")` in `init`
-- **THEN** `Wire.bootstrapWireScopableFixture_bindMockRepo().introspect()` lists neither `AccountController` nor `any AccountRepository`, `Wire.bootstrap().introspect()` lists both, and the variant scope's `accountController` made that `init`-time call on the supplied mock rather than the production repository
+- **WHEN** `WireScopableFixture.bindMockRepo` mocks `any AccountRepository`, which the `@TestScopable @Singleton` `AccountController` reads in its `init` and the `@Scoped(seed: AccountRequestSeed.self)` `AccountRequestController` reaches through `AccountController`
+- **THEN** `Wire.bootstrapWireScopableFixture_bindMockRepo().introspect()` lists neither `AccountController` nor `any AccountRepository`, `Wire.bootstrap().introspect()` lists both, and entering `Wire.bootstrapWireScopableFixture_bindMockRepo_AccountRequestSeedScope(seed:wireGraph:doubles:)` with a supplied `MockAccountRepository` constructs the scope's `accountController`, whose `init` reads that mock rather than the production repository
 
 Pinned by: `Tests/IntegrationTests/ScopableCascadeTests.swift` (`liftedSingletonReadsDoubleAtInit`).
 
