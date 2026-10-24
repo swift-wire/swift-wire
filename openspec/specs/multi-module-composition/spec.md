@@ -5,7 +5,9 @@
 A target that applies the build plugin composes its own bindings with those of every Wire-aware
 module it directly depends on into one generated graph. WireGen re-parses each activated module's
 sources, stamps every binding with the module it came from, validates the union as one graph, and
-emits the imports the generated file needs to reach the composed types. `@Replaces` lets the
+emits the imports the generated file needs to reach the composed types. The consumer's sources and
+those of its activated modules, all parsed in one WireGen run, are its *parse set*: the declarations
+WireGen can see when it resolves bindings, keys and contributions. `@Replaces` lets the
 consuming module supersede one binding composed from a dependency.
 
 Rationale: [MultiModuleComposition](../../../Documentation/Notes/MultiModuleComposition.md).
