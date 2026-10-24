@@ -6,7 +6,12 @@ What the generated code demands of a binding's concurrency story, and what it le
 checker. Wire places no blanket `Sendable` requirement on bindings: the generated graph and scope
 structs derive their conformance from their stored bindings. A binding is required to be `Sendable`
 where it crosses a task boundary in a scheduled construction, where a generated `Sendable` struct
-stores it, or where a generated `@Sendable` closure captures it. Actor consumers are reached through an
+stores it, or where a generated `@Sendable` closure captures it. The generated types those
+requirements name are specified elsewhere: contributor proxies, bridging proxies and lifted factories
+in [adapter-annotations](../adapter-annotations/spec.md), scope-entry structs and thunks in
+[scope-entry-and-generated-names](../scope-entry-and-generated-names/spec.md), the singletons a scope
+borrows in [seeded-scopes](../seeded-scopes/spec.md), and test doubles structs in
+[testing-variants](../testing-variants/spec.md). Actor consumers are reached through an
 `await` the generated code emits, specified with the member-injection forms in
 [injection-points](../injection-points/spec.md). `Lazy` requires a `Sendable` value. The package-wide
 `NonisolatedNonsendingByDefault` setting is specified in
@@ -29,7 +34,9 @@ Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`propertyAssignment
 
 ### Requirement: The seed scope struct declares no `Sendable` conformance
 WireGen SHALL declare each seed scope struct it emits as `internal struct _<suffix>WireScope`, followed
-only by any generic clause an opaque lift adds, with no conformance clause. The suffix is the seed's
+only by the generic clause, if any, that lifts each opaque `some P` axis its stored bindings use to a
+generic parameter, as specified in [opaque-type-identity](../opaque-type-identity/spec.md), with no
+conformance clause. The suffix is the seed's
 type name, prefixed by the container or test variant name when the scope belongs to one.
 
 #### Scenario: a request-seeded scope
