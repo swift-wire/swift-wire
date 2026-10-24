@@ -188,16 +188,16 @@ construction sequence as `[try] [await] <consumer>.<method>(<args>)`, with `try`
 throws and `await` when the method is `async` or the host is an `actor`.
 
 #### Scenario: a class host
-- **WHEN** class `NoteBoard` declares `@Inject package func receive(message: NoteMessage)`, whose body records `message.payload` on the instance, and `@Provides` binds a `NoteMessage` with payload `p`
-- **THEN** after bootstrap `graph.noteBoard` has recorded `p`
+- **WHEN** class `NoteBoard` declares `@Inject package func receive(message: NoteMessage)` and `@Provides` binds the graph's `NoteMessage`
+- **THEN** `Wire.bootstrap()` calls `receive(message:)` on the graph's `NoteBoard` with that `NoteMessage` before it returns the graph
 
 #### Scenario: an async throwing method
 - **WHEN** `View` declares an `@Inject func setup(db: Database) async throws`
 - **THEN** the generated bootstrap contains `try await view.setup(db: database)`
 
 #### Scenario: a synchronous method on an actor
-- **WHEN** actor `TickCounter`, whose `ticks` starts at `0`, declares a synchronous `@Inject package func bump(by amount: TickIncrement)` that adds `amount.value` to `ticks`, and `@Provides` binds a `TickIncrement` with value `n`
-- **THEN** the call is emitted with `await`, and after bootstrap `await graph.tickCounter.ticks == n`
+- **WHEN** actor `TickCounter` declares a synchronous `@Inject package func bump(by amount: TickIncrement)` and `@Provides` binds the graph's `TickIncrement`
+- **THEN** the call is emitted with `await`, and `Wire.bootstrap()` calls `bump(by:)` once on the graph's `TickCounter`, across its isolation, with that `TickIncrement` before it returns the graph
 
 Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`injectFuncBecomesMethodCallMemberInjection`, `injectFuncCapturesEffectSpecifiers`), `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`methodCallMemberInjectionEmitsAsMethodCallAfterConstruction`, `asyncThrowingMethodCallInjectionGetsTryAwaitPrefix`, `methodCallOnActorConsumerForcesAwaitEvenForSyncMethod`, `throwingMethodCallOnActorConsumerGetsTryAwaitPrefix`), `Tests/IntegrationTests/BootstrapTests.swift` (`injectFuncRunsAfterConstructionAndWiresState`, `injectFuncOnActorConsumerRunsThroughActorIsolation`) over `Tests/IntegrationTests/MethodInjectionExample.swift` and `Tests/IntegrationTests/ActorMethodInjectionExample.swift`.
 
