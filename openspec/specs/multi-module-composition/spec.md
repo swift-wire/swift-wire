@@ -32,8 +32,8 @@ SHALL be emitted into the generated graph and constructed by its bootstrap.
 - **THEN** the consumer's generated graph compiles against the `package` type, and the bootstrapped graph's `packageVisibleService` is the `PackageVisibleService` built by its `@Inject init`
 
 #### Scenario: an external-package library
-- **WHEN** a consumer depends on another package's `WireHarnessLibrary` product, which declares `public` `@Singleton ExternalService` and `@Provides(ExternalService.primary)` producing an `ExternalService`, and injects both the unkeyed and the keyed `ExternalService`
-- **THEN** the consumer bootstraps and both injections receive an `ExternalService` built by the library's `@Inject init`
+- **WHEN** the consumer `WireHarnessConsumer` depends on another package's `WireHarnessLibrary` product, which declares `public` `@Singleton ExternalService` and `@Provides(ExternalService.primary) makePrimaryExternalService()` producing an `ExternalService`, and `WireHarnessConsumer`'s `@Singleton(allowUnused: true) App` declares `@Inject var service: ExternalService` and `@Inject(ExternalService.primary) var primary: ExternalService`
+- **THEN** `WireHarnessConsumer` bootstraps, and `App`'s `service` and `primary` are each an `ExternalService` built by the library's `@Inject init`
 
 #### Scenario: an unreached library singleton
 - **WHEN** `WireHarnessLibrary` declares `public` `@Singleton UnreachedExternalService` and nothing in the consumer reaches it
@@ -226,12 +226,12 @@ for one in an external-package module it SHALL say nothing. Either way the bindi
 ordinary binding.
 
 #### Scenario: a sibling module's replacement
-- **WHEN** module `HelperLib` of the consumer's package carries `@Replaces` over a binding also produced elsewhere, and the consumer is `App`
-- **THEN** one warning containing `has no effect`, `HelperLib` and `App` is reported, and the duplicate is an error
+- **WHEN** module `HelperLib` of the consumer's package binds `FakeRepo` with `@Replaces` and module `AppServer` binds `RealRepo`, both as `Repo`, and the consumer is `App`
+- **THEN** one warning containing `has no effect`, `HelperLib` and `App` is reported, and `FakeRepo` and `RealRepo` are reported as one duplicate binding
 
 #### Scenario: an external module's replacement
-- **WHEN** the `@Replaces` binding originates in an external-package module
-- **THEN** no warning is reported and the duplicate is an error
+- **WHEN** `ExternalPkg`, an external-package module, binds `FakeRepo` with `@Replaces`, and the consumer `App` binds `RealRepo`, both as `Repo`
+- **THEN** no warning is reported, and `FakeRepo` and `RealRepo` are reported as one duplicate binding
 
 Pinned by: `Tests/WireGenCoreTests/ReplacesTests.swift` (`homePackageReplacesIgnoredWithWarning`, `externalModuleReplacesIgnoredSilently`, `plainDuplicateStillErrorsWithoutReplaces`).
 
