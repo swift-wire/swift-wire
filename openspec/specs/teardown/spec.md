@@ -209,7 +209,7 @@ error thrown by a teardown SHALL be added to the returned errors, and the teardo
 still run.
 
 #### Scenario: dependents before dependencies
-- **WHEN** `TeardownConsumer` holds `TeardownDatabasePool` and `TeardownHTTPClient`, all three with teardown actions, an opaquely bound resource in the same graph has one too, and `graph.teardown()` runs
+- **WHEN** `TeardownConsumer` holds `TeardownDatabasePool` and `TeardownHTTPClient`, all three with teardown actions, `TeardownOpaqueResource`, bound `@Singleton(as: TeardownResource.self)` in the same graph, has one too, and `graph.teardown()` runs
 - **THEN** all four actions run, `TeardownConsumer`'s before both `TeardownDatabasePool`'s and `TeardownHTTPClient`'s, and the returned errors are empty
 
 #### Scenario: a failing teardown
@@ -237,7 +237,7 @@ outer unwind runs it. The scheduled group, its drive and drain, and the seam are
 [construction-scheduling](../construction-scheduling/spec.md).
 
 #### Scenario: a sibling child task throws
-- **WHEN** in `@Container ScheduledPartialTeardownContainer`, `ScheduledResource` resolves in the group and an independent async sibling throws `PartialTeardownFailure`
+- **WHEN** in `@Container ScheduledPartialTeardownContainer`, `ScheduledResource` resolves in the group and the container's independent async `@Provides makeScheduledFailure()`, which produces `ScheduledFailureMarker`, throws `PartialTeardownFailure`
 - **THEN** `Wire.bootstrapScheduledPartialTeardownContainer()` throws `PartialTeardownFailure`, and `ScheduledResource`, built once, has been torn down once
 
 Pinned by: `Tests/IntegrationTests/PartialTeardownTests.swift` (`aThrowingInitTearsDownAScheduledBindingTheDrainHadResolved`), `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aTeardownBindingNoLongerBlocksScheduling`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
@@ -254,8 +254,8 @@ teardown.
 - **THEN** the thunk records an action calling `await requestConn.close()` in `_wireScopeTeardownActions` after `let requestConn = RequestConn(seed: requestSeed)`, folds that accumulator into `let _wireScopeTeardown: @Sendable () async -> [any Error] = { [_wireScopeTeardownActions] in`, and emits no `todoRepository.close()`
 
 #### Scenario: two entries
-- **WHEN** two entries are made of a scope whose subject holds a scoped session with a `@Teardown`, and only the first's `_wireScopeTeardown()` is awaited
-- **THEN** each entry holds its own session, the first entry's session has been torn down and the second's has not
+- **WHEN** two entries are made of the `AsyncScopeSeed` scope, whose subject `AsyncScopeController` holds `AsyncScopeSession`, a binding scoped to the same seed with a `@Teardown`, and only the first entry's `_wireScopeTeardown()` is awaited
+- **THEN** each entry's `AsyncScopeController` holds its own `AsyncScopeSession`; the first entry's `AsyncScopeSession` has been torn down and the second's has not
 
 Pinned by: `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`scopeEntryThunkTearsDownScopedBindings`), `GoldenHarness/Golden/_WireGraph.swift.golden`, `Tests/IntegrationTests/AsyncScopeEntryTests.swift` (`eachEntryGetsItsOwnScopeAndItsOwnTeardown`). `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`scopeEntryThunkPrunesUnreachableBindings`) pins only that an unreachable binding is not constructed; that an unreachable binding's teardown is not run is pinned by nothing yet.
 
@@ -266,11 +266,11 @@ construction can throw, unwind it in reverse and rethrow on a throw, in both the
 form, the latter recovering resolved cells as the bootstrap does.
 
 #### Scenario: the chain form
-- **WHEN** entering a `ChainScopeSeed` scope builds `ChainScopeResource` and the controller's initialiser then throws `ScopeEntryFailure`
+- **WHEN** entering a `ChainScopeSeed` scope builds `ChainScopeResource` and the initialiser of the scope's subject `ChainScopeController`, `init(resource: ChainScopeResource)`, then throws `ScopeEntryFailure`
 - **THEN** the `_wireEnterScope` call throws `ScopeEntryFailure`, and `ChainScopeResource`, built once, has been torn down once
 
 #### Scenario: the scheduled form
-- **WHEN** entering a `GroupScopeSeed` scope resolves `GroupScopeResource` in the thunk's group and a sibling task throws `ScopeEntryFailure`
+- **WHEN** entering a `GroupScopeSeed` scope resolves `GroupScopeResource` in the thunk's group and the async initialiser of `GroupScopeFailure`, which the subject `GroupScopeController` injects alongside `GroupScopeResource`, throws `ScopeEntryFailure`
 - **THEN** the `_wireEnterScope` call throws `ScopeEntryFailure`, and `GroupScopeResource`, built once, has been torn down once
 
 Pinned by: `Tests/IntegrationTests/ScopePartialTeardownTests.swift` (`aThrowingScopeEntryTearsDownWhatTheChainAlreadyBuilt`, `aThrowingScopeEntryTearsDownAScheduledBindingTheDrainHadResolved`, `eachFailedEntryUnwindsOnlyItsOwn`).

@@ -116,8 +116,8 @@ its declaration's path and line as passed to WireGen. A synthesised aggregate's 
 multibinding key's declaration.
 
 #### Scenario: the fixture's root
-- **WHEN** `IntrospectionRoot` is declared in `IntrospectionExample.swift` and the graph is introspected
-- **THEN** `IntrospectionRoot`'s `location.module` is non-empty, `location.file` ends with `IntrospectionExample.swift` and `location.line` is positive
+- **WHEN** `IntrospectionRoot` is declared in `IntrospectionExample.swift` and the graph `Wire.bootstrap()` returns is introspected
+- **THEN** `IntrospectionRoot`'s `location` names its origin module and the path WireGen was given for `IntrospectionExample.swift`, with a positive declaration line
 
 #### Scenario: an aggregate from a library key
 - **WHEN** `WireTestAggregateKeys.controllers` is declared in module `WireTestLibrary` on line 84 of the file WireGen is passed as `Sources/WireTestLibrary/RouteControllerAdapter.swift`, and its aggregate is introspected

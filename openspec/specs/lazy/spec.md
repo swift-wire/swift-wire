@@ -27,8 +27,8 @@ Pinned by: `Tests/WireTests/LazyTests.swift` (`syncFactoryWorksUnderAsyncContrac
 Constructing a `Lazy` SHALL NOT invoke its factory; the first `get()` SHALL invoke it.
 
 #### Scenario: construction then first use
-- **WHEN** a `Lazy<Int>` whose factory increments a counter and returns `42` is constructed
-- **THEN** the counter is `0` until `get()` is called, `get()` returns `42`, and the counter is then `1`
+- **WHEN** a `Lazy<Int>` whose factory returns `42` is constructed and `get()` is later called on it
+- **THEN** the factory does not run until that `get()`, which runs it once and returns `42`
 
 Pinned by: `Tests/WireTests/LazyTests.swift` (`factoryNotCalledUntilGet`).
 
@@ -86,12 +86,12 @@ Bootstrap SHALL construct the `Lazy<T>` binding without calling `get()`; the fac
 consumer's first `get()` and its value SHALL be shared by later calls.
 
 #### Scenario: after bootstrap
-- **WHEN** the provider `makeLazyResource(callCount:)` returns a `Lazy<LazyResource>` whose factory increments the `LazyResourceCallCount` binding's `value`, which starts at `0`, and `Wire.bootstrap()` returns
-- **THEN** `await graph.lazyResourceCallCount.value == 0`
+- **WHEN** `Wire.bootstrap()` returns a graph whose `LazyResourceConsumer` injects the `Lazy<LazyResource>` that `makeLazyResource(callCount:)` provides
+- **THEN** the graph holds that `Lazy<LazyResource>`, and its factory has not run
 
 #### Scenario: first and later use
 - **WHEN** that factory returns a new `LazyResource` instance, `LazyResourceConsumer.materialise()` returns `try await resource.get()` on its injected `Lazy<LazyResource>`, and `graph.lazyResourceConsumer.materialise()` is called three times after bootstrap
-- **THEN** the three results are the same instance and `graph.lazyResourceCallCount.value` is `1`
+- **THEN** the factory runs once, on the first call, and all three calls return that same `LazyResource` instance
 
 Pinned by: `Tests/IntegrationTests/BootstrapTests.swift` (`userWrittenLazyProviderDoesNotInvokeFactoryAtBootstrap`, `userWrittenLazyProviderInvokesFactoryOnFirstGet`, `userWrittenLazyProviderCachesAcrossMultipleGets`).
 

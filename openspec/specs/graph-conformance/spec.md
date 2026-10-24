@@ -66,8 +66,8 @@ for each member whose key has an aggregate binding in the graph, one
 - **THEN** the generated file contains `extension _WireGraph: HummingbirdComposable {` and a line beginning `var routes: [any RouteContributor] { self.`
 
 #### Scenario: consumed generically through the protocol
-- **WHEN** a module declares a protocol `GraphComposable` requiring `things`, a conformance to it mapping `things` to CollectedKey `ThingKeys.things`, two `@Singleton` contributors to the `ThingKeys.things` collection, and `func labels<Graph: GraphComposable>(of graph: Graph)`, and passes `try await Wire.bootstrap()` to `labels`
-- **THEN** the call compiles and, inside it, `graph.things` holds both contributors
+- **WHEN** a module declares a protocol `GraphComposable` requiring `things`, a conformance to it mapping `things` to CollectedKey `ThingKeys.things`, two `@Singleton` contributors to the `ThingKeys.things` collection, `AlphaThing` and `BetaThing`, and `func labels<Graph: GraphComposable>(of graph: Graph)`, and passes `try await Wire.bootstrap()` to `labels`
+- **THEN** the call compiles and, inside it, `graph.things` holds the `AlphaThing` and `BetaThing` contributions
 
 Pinned by: `Tests/WireGenCoreTests/GraphConformanceEmissionTests.swift` (`emitsExtensionMappingMemberToAggregateProperty`), `Tests/IntegrationTests/GraphConformanceTests.swift` (`generatedGraphConformsAndIsConsumedGenerically`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
@@ -128,8 +128,8 @@ Declared roots and pruning are as specified in
 - **THEN** `LibraryRoute` is reachable and an unrelated library binding is pruned
 
 #### Scenario: an external contributor across a package boundary
-- **WHEN** a consumer package declares a protocol `HarnessComposable` and a conformance to it mapping `contributors` to a dependency package's `HarnessRouteKeys.contributors`, whose only contributor is a `@Singleton` declared in that dependency package, and nothing injects the aggregate
-- **THEN** the bootstrapped graph's `contributors`, read through `any HarnessComposable`, holds exactly that one contributor
+- **WHEN** a consumer package declares a protocol `HarnessComposable` and a conformance to it mapping `contributors` to a dependency package's `HarnessRouteKeys.contributors`, whose only contributor is `ExternalRouteContributor`, a `@Singleton` declared in that dependency package, and nothing injects the aggregate
+- **THEN** the bootstrapped graph's `contributors`, read through `any HarnessComposable`, holds exactly one contributor, the `ExternalRouteContributor`
 
 Pinned by: `Tests/WireGenCoreTests/ReachabilityTests.swift` (`conformanceNamedAggregateIsARoot`), `CompositionHarness/Consumer/Sources/WireHarnessConsumer/main.swift` via the `CompositionHarness` job in `.github/workflows/swift.yml`. The `@Container` exclusion is pinned by nothing yet.
 
