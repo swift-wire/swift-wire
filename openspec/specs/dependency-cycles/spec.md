@@ -154,7 +154,9 @@ Pinned by: nothing yet.
 
 ### Requirement: A cycle outside the retained graph is not an error
 When a reachability policy restricts the graph, the topological sort SHALL run over the retained
-bindings only, so a cycle among bindings no root reaches SHALL NOT be reported.
+bindings only, so a cycle among bindings no root reaches SHALL NOT be reported. Reachability
+policies, roots and the retained set are as specified in
+[reachability-and-retention](../reachability-and-retention/spec.md).
 
 #### Scenario: an unreached library cycle
 - **WHEN** a root `App` is declared with `allowUnused: true` and dependency-module bindings `A` and `B` depend on each other but nothing reaches them

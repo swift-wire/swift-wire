@@ -120,6 +120,8 @@ On the default graph, WireGen SHALL treat every aggregate whose key a conformanc
 declared root, so the aggregate and its contributors are retained whether or not anything injects
 them. The conformances SHALL NOT be passed as roots when pruning a `@Container` graph. That
 exclusion is part of the open question tracked in https://github.com/swift-wire/swift-wire/issues/447.
+Declared roots and pruning are as specified in
+[reachability-and-retention](../reachability-and-retention/spec.md).
 
 #### Scenario: a library contributor with no injector
 - **WHEN** a library binding `LibraryRoute` contributes to `App.routes`, nothing injects the aggregate, and a conformance maps `routes` to `App.routes`
@@ -143,7 +145,8 @@ Pinned by: `Tests/WireGenCoreTests/RetentionTests.swift` (`anAggregateAGraphConf
 
 ### Requirement: A key consumed only by a conformance is live
 The multibinding liveness diagnostics SHALL treat a key a conformance member names as consumed, so
-an `internal` key with contributors and no `@Inject` consumer raises no dead-key warning.
+an `internal` key with contributors and no `@Inject` consumer raises no dead-key warning (the unconsumed-key warning of
+[multibindings](../multibindings/spec.md)).
 
 #### Scenario: an internal key read only through the protocol
 - **WHEN** `App.services` is an internal `CollectedKey<any Service>` with a `@Contributes(to: App.services)` singleton and a conformance maps `services` to it

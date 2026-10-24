@@ -92,7 +92,9 @@ Pinned by: `Tests/WireGenCoreTests/GraphInputsDiscoveryTests.swift` (`providesKe
 WireGen SHALL add, before every other binding pass, one property-form provider per input to the
 default graph's singleton partition, with the property's type as its bound type, the input's key,
 access path `_wireInputs.<name>`, no dependencies and `allowUnused: true`, so every input is a
-reachability root.
+reachability root as specified in [reachability-and-retention](../reachability-and-retention/spec.md).
+The singleton partition is the default graph's bindings outside any seed scope (see
+[seeded-scopes](../seeded-scopes/spec.md)).
 
 #### Scenario: two inputs
 - **WHEN** `AppInputs` declares `let configuration: RuntimeConfiguration` and `@Provides(InputKeys.region) let region: String`

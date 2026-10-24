@@ -6,7 +6,8 @@ A multibinding is a binding whose value is assembled from many contributors. The
 declares three aggregating key flavours, `CollectedKey<Element>`, `MappedKey<Key, Value>` and
 `BuilderKey<Builder>`, and the `@Contributes(to:)` marker a producer carries to join one. WireGen
 discovers the key declarations and the contributions, synthesises one aggregate binding per key per
-partition, and validates the rules no single declaration can see. `FactoryKey`, the fourth member of
+partition (the container-and-seed grouping of bindings specified in
+[seeded-scopes](../seeded-scopes/spec.md)), and validates the rules no single declaration can see. `FactoryKey`, the fourth member of
 the key family, aggregates nothing and is specified in [factory-templates](../factory-templates/spec.md).
 
 Rationale: [BuilderKeyDesign](../../../Documentation/Notes/BuilderKeyDesign.md), [MultiModuleComposition](../../../Documentation/Notes/MultiModuleComposition.md).

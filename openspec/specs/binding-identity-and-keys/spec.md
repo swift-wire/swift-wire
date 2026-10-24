@@ -83,7 +83,7 @@ https://github.com/swift-wire/swift-wire/issues/424.
 Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`missingBindingForTypealiasAttachesHintWhenUnderlyingIsBound`, `missingBindingWithTypealiasButUnboundUnderlyingHasNoHint`), `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`missingBindingForTypealiasRendersNoteAtUnderlyingType`), `Tests/WireGenCoreTests/DiscoveryTests.swift` (`moduleScopeTypealiasIsCaptured`, `nestedTypealiasIsNotCaptured`, `genericTypealiasIsNotCaptured`). The optional-alias case is pinned by nothing yet.
 
 ### Requirement: Two producers of one identity are a duplicate-binding error
-When two or more bindings in one partition have the same identity, and none of them is an
+When two or more bindings in one partition (see [seeded-scopes](../seeded-scopes/spec.md)) have the same identity, and none of them is an
 honoured `@Replaces` binding (which supersedes the others, see
 [multi-module-composition](../multi-module-composition/spec.md)), WireGen SHALL report
 "type '<T>' has multiple bindings; the dependency graph is ambiguous" at the first and
@@ -222,7 +222,8 @@ Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`anyProtocolBinding
 ### Requirement: An instantiation with two candidate producers is a duplicate
 When a dependency's instantiation is bound both by a concrete binding the user declared and by a
 matching generic template, or by two or more matching generic templates, WireGen SHALL report a
-duplicate binding for that identity. A template with a different key SHALL NOT be a candidate.
+duplicate binding for that identity. A generic template here is a generic `@Provides func`, as
+specified in [providers](../providers/spec.md), not a `@Factory` template. A template with a different key SHALL NOT be a candidate.
 
 #### Scenario: concrete and generic
 - **WHEN** `@Provides let repo: Repository<DynamoDBTable> = Repository()` and `@Provides func makeRepository<T>() -> Repository<T>` are both declared and `App` injects `Repository<DynamoDBTable>`

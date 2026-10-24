@@ -7,7 +7,7 @@ request, one job, one tenant. It is identified by its seed type, whose runtime v
 it sits beside the app-scoped singletons of the default graph or of a `@Container`, never inside
 another scope. This spec states how WireGen partitions bindings by container and seed, builds one
 graph per seed scope that binds the seed and borrows the parent's singletons, routes a scope block's
-`@Provides` into the scope, and diagnoses an injection that crosses a scope boundary. The generated
+`@Provides` (a scope block is a `@Scoped(seed:)` enum that groups providers for one seed) into the scope, and diagnoses an injection that crosses a scope boundary. The generated
 struct and facade names are specified in
 [scope-entry-and-generated-names](../scope-entry-and-generated-names/spec.md). Separating a scope's
 identity from its seed type is tracked in

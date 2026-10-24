@@ -91,7 +91,9 @@ clause, and SHALL be a lift node when each of them has a determining protocol co
 injected parameter left unconstrained, or constrained only in the template's `where` clause (tracked
 as a defect in https://github.com/swift-wire/swift-wire/issues/416), leaves the binding an
 undetermined generic binding, which the graph reports as an error. A template with no injected
-parameter SHALL produce a non-generic factory binding.
+parameter SHALL produce a non-generic factory binding. Lift nodes, determining constraints and the
+undetermined-generic error are as specified for a generic `@Singleton` in
+[opaque-type-identity](../opaque-type-identity/spec.md).
 
 #### Scenario: a generic dependency
 - **WHEN** `@Factory(Keys.audit) struct AuditGate<Ctx, Repository: TodoRepository>` injects `repository: Repository`
@@ -146,7 +148,8 @@ Pinned by: `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`noConsumersLea
 ### Requirement: The factory binding carries the template's dependencies
 The synthesised `_WireFactory_<sanitised key>` binding SHALL carry the template's `@Inject`
 dependencies unchanged, keys included, so they resolve and are constructed as a `@Singleton`'s would
-be, once, when the factory is constructed in the consuming partition. `create` SHALL construct the
+be, once, when the factory is constructed in the consuming partition (the container-and-seed
+grouping of bindings specified in [seeded-scopes](../seeded-scopes/spec.md)). `create` SHALL construct the
 template from the factory's held values on every call.
 
 #### Scenario: the template's store resolves on the factory

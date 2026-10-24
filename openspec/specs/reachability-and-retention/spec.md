@@ -2,8 +2,12 @@
 
 ## Purpose
 
-WireGen builds only the bindings reachable from a graph's declared roots, and stores on the generated
-graph only a narrower subset of those. Reachability decides what the bootstrap constructs: the default
+WireGen builds only the bindings reachable from a graph's roots, and stores on the generated
+graph only a narrower subset of those. A *home* binding or key is one whose origin module is not an
+`--external-module`, so it belongs to the package being built. A graph's roots are its home
+`allowUnused` bindings and key aggregates, on the default graph the aggregates a graph conformance
+names, and the singletons its seed scopes borrow; every root but a borrowed singleton is a *declared
+root*. Reachability decides what the bootstrap constructs: the default
 graph and every `@Container` graph are pruned to what their roots reach, and the unreached home-package
 bindings are reported with the annotation that keeps them. Retention decides which constructed bindings
 become stored properties; the rest are bootstrap locals, and the graph carries an unavailable stub in
@@ -24,7 +28,8 @@ A seed-scope graph is not pruned because its construction set is decided where t
 bridging proxy's scope-entry thunk constructs only what its routed subject and yields reach, as specified
 under "A bridge's subject and yields are not reached through the app graph". For a scope that no
 bridging proxy enters, the whole-scope façade is the only way in, and it constructs every binding in the
-scope.
+scope. Bridging proxies, the subjects they route and the yields they infer are specified in
+[adapter-annotations](../adapter-annotations/spec.md).
 
 #### Scenario: a graph with no pruning policy
 - **WHEN** a graph is built from a rooted `Root` and an unreached library binding with no reachability policy
