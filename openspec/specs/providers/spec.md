@@ -100,11 +100,11 @@ Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesWithoutKeyArg
 A `@Singleton` or `@Scoped` binding SHALL have no key in the graph; the `static key` its macro
 synthesises SHALL NOT key it.
 
-#### Scenario: a singleton's synthesised key
-- **WHEN** `@Singleton struct Repo` is bound and a consumer declares `@Inject(Repo.key) var repo: Repo`
-- **THEN** the consumer's keyed dependency does not resolve to `Repo`
+#### Scenario: a keyed dependency on a singleton
+- **WHEN** `@Singleton struct Database` is bound and the singleton `UserRepo` depends on `Database` keyed `Database.primary`
+- **THEN** `UserRepo`'s keyed dependency does not resolve to `Database`, and is reported as a missing binding keyed `Database.primary`
 
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`keyedDependencyDoesNotMatchUnkeyedBinding`).
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`keyedDependencyDoesNotMatchUnkeyedBinding`). That the singleton's own synthesised `static key` does not key it is not yet pinned: https://github.com/swift-wire/swift-wire/issues/456.
 
 ### Requirement: `@Provides` in an unannotated extension falls through to the default graph
 A `@Provides` inside an `extension` that does not carry `@Container` SHALL be recorded in the
