@@ -127,12 +127,13 @@ visibility.
 
 Pinned by: `Tests/WireGenCoreTests/ReachabilityTests.swift` (`teardownDoesNotRoot`, `keyVisibilityDoesNotRoot`).
 
-### Requirement: The walk follows sort edges, member injections and scope-entry thunks
-WireGen SHALL walk from the roots over the graph's dependency edges, plus each member-injection
-parameter (`@Inject weak var`, `@Inject func`) and each identity a bridging proxy's scope-entry thunk
-constructs (its subject and its yields) that has a producer in the same graph, all resolved through the
-same producer matching as ordinary dependencies. These extra edges SHALL NOT be added to the topological
-sort.
+### Requirement: A binding consumed after construction is reachable but does not order construction
+WireGen SHALL treat a binding as reachable when a reachable binding consumes it through a member
+injection (`@Inject weak var`, `@Inject func`), or when it has a producer in the same graph and is the
+subject or a yield of a reachable bridging proxy's scope-entry thunk. Such a binding SHALL be matched to
+its producer as an ordinary dependency is, optional promotion included. These consumptions SHALL NOT
+constrain construction order, so a cycle that passes through a member injection SHALL build in a pruned
+graph as it does in an unpruned one.
 
 #### Scenario: a binding consumed only by member injection
 - **WHEN** a rooted `Root` receives `Late` only through a member injection
@@ -142,7 +143,11 @@ sort.
 - **WHEN** a graph holds a bridging proxy whose thunk constructs `MeController` and yields `Session`, and producers for `MeController` and `Session` in that same graph
 - **THEN** the proxy, `MeController` and `Session` are reachable
 
-Pinned by: `Tests/WireGenCoreTests/ReachabilityTests.swift` (`memberInjectionOnly`, `scopeEntryThunkConstructed`, `reachedAfterSpecialisation`, `diamond`, `reachableCycle`, `unreachableCycle`). The exclusion of these edges from the topological sort is pinned by nothing yet.
+#### Scenario: a member-injection cycle in a pruned graph
+- **WHEN** a rooted `A` takes `B` in its initialiser and `B` receives `A` through `@Inject weak var`
+- **THEN** `A` and `B` are reachable and the graph builds without a cycle diagnostic
+
+Pinned by: `Tests/WireGenCoreTests/ReachabilityTests.swift` (`memberInjectionOnly`, `memberInjectionCycleBuilds`, `scopeEntryThunkConstructed`, `reachedAfterSpecialisation`, `diamond`, `reachableCycle`, `unreachableCycle`).
 
 ### Requirement: A bridge's subject and yields are not reached through the app graph
 WireGen SHALL place a bridging contributor proxy in its container's app graph and leave its `@Scoped`

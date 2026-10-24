@@ -289,6 +289,21 @@ struct ReachabilityTests {
         #expect(names == ["Root", "Late"])
     }
 
+    @Test("A cycle through a member injection still builds once the walk follows member injections")
+    func memberInjectionCycleBuilds() {
+        // The walk's member-injection edges must stay out of the sort: widening the sort with them would
+        // turn this legal cycle — `B` gets `A` post-init — into a build failure.
+        let result = graph([
+            singleton("A", deps: ["B"], allowUnused: true),
+            singleton("B", memberDeps: ["A"], module: libraryModule),
+        ])
+        #expect(Set((result.reachable ?? []).map(\.base)) == ["A", "B"])
+        #expect(
+            result.outcome.topologicalOrder?.map(\.boundType) == ["B", "A"],
+            "a member-injection cycle failed the build"
+        )
+    }
+
     @Test("A bridging proxy's subject and yields are reachable through its scope-entry thunk")
     func scopeEntryThunkConstructed() {
         // The thunk's own identity is a function type that matches no producer, so `resolveDependencies`
