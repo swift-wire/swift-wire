@@ -201,7 +201,9 @@ Pinned by: `Tests/WireGenCoreTests/DeadBindingDiagnosticsTests.swift` (`singleto
 ### Requirement: Contributors, generic bindings and scope-entry subjects are not reported dead
 WireGen SHALL NOT raise the dead-binding warning for a binding that contributes to a multibinding, a
 binding with generic parameters, or a binding a bridging proxy's scope-entry thunk constructs as its
-subject or yields.
+subject or yields. A bridging proxy is a `.singleton` proxy an adapter annotation synthesises over a
+`@Scoped(seed:)` subject; it, its thunk and its yields are specified in
+[adapter-annotations](../adapter-annotations/spec.md).
 
 #### Scenario: a scoped subject behind a proxy
 - **WHEN** a `.singleton` proxy's scope-entry thunk constructs a `@Scoped(seed:)` subject nothing else injects
