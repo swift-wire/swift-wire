@@ -234,7 +234,7 @@ SHALL NOT raise it.
 
 #### Scenario: a singleton in a request block
 - **WHEN** `@Singleton struct Worker` is declared inside `@Scoped(seed: RequestSeed.self) enum RequestProviders`
-- **THEN** discovery reports exactly one error, containing `@Singleton 'Worker' can't live in` and `RequestSeed`
+- **THEN** discovery reports one error, and only one, that `@Singleton 'Worker' can't live in` the `RequestSeed` scope block
 
 #### Scenario: a scoped type in a block
 - **WHEN** `@Scoped(seed: InnerSeed.self) struct Worker` is declared inside `@Scoped(seed: OuterSeed.self) enum Block`
