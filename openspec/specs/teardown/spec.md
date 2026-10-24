@@ -233,7 +233,8 @@ Pinned by: `Tests/IntegrationTests/PartialTeardownTests.swift` (`aThrowingInitTe
 For each `@Teardown` binding in a scheduled group, the bootstrap SHALL append its action after the seam,
 and SHALL wrap the drive and drain in a `do` whose `catch` appends the action of each such binding
 whose cell `isResolved()`, taken with `building._wireState_<name>.take()`, and then rethrows so the
-outer unwind runs it.
+outer unwind runs it. The scheduled group, its drive and drain, and the seam are as specified in
+[construction-scheduling](../construction-scheduling/spec.md).
 
 #### Scenario: a sibling child task throws
 - **WHEN** in `@Container ScheduledPartialTeardownContainer`, `ScheduledResource` resolves in the group and an independent async sibling throws `PartialTeardownFailure`

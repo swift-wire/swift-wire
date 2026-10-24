@@ -130,7 +130,10 @@ Pinned by: `Tests/WireMacrosImplTests/SingletonMacroTests.swift` (`test_injectWe
 WireGen SHALL report an error "@Inject weak var '<name>' is '<keyword>' but must be at least
 'internal' — Wire's generated bootstrap assigns to this property post-construct and lives in a
 separate file. Change to 'internal', 'package', or 'public'." for a `private` or `fileprivate`
-`@Inject weak var`, with the post-construct asymmetry note. It SHALL report "@Inject weak var
+`@Inject weak var`, with the *post-construct asymmetry note* at the same location: "'@Inject var' /
+'@Inject let' (non-weak) can be 'private' because the macro generates the init within the host
+type's scope; only post-construct delivery patterns (weak, @Inject func, @Teardown) need broader
+visibility because the bootstrap references them from a separate file." It SHALL report "@Inject weak var
 '<name>' setter is '<keyword>(set)' but must be at least 'internal' — …" for a `private(set)` or
 `fileprivate(set)` setter, with the note "Drop the setter restriction to inherit the property's
 read access, or use 'internal(set)' / higher if a narrower setter is required."
@@ -205,7 +208,7 @@ Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`injectFuncBecomesMeth
 WireGen SHALL report an error "@Inject func '<name>' is '<keyword>' but must be at least 'internal' —
 Wire's generated bootstrap calls this method post-construct and lives in a separate file. Change to
 'internal', 'package', or 'public'." for a `private` or `fileprivate` `@Inject func`, with the
-post-construct asymmetry note.
+post-construct asymmetry note stated under the `@Inject weak var` requirement above.
 
 #### Scenario: a private method
 - **WHEN** a `@Singleton` class declares `@Inject private func receive(data: Data) {}`

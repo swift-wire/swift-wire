@@ -98,7 +98,8 @@ Pinned by: `Tests/IntegrationTests/BootstrapTests.swift` (`userWrittenLazyProvid
 ### Requirement: A `Lazy` dependency does not break a construction cycle
 A dependency on `Lazy<T>` SHALL be a construction edge like any other, included in topological
 ordering and cycle detection. The only dependencies left out of those edges are member-injection
-parameters (`@Inject weak var` and `@Inject func`) and scope-entry thunks, and a `Lazy<T>` dependency is
+parameters (`@Inject weak var` and `@Inject func`) and scope-entry thunks (see
+[adapter-annotations](../adapter-annotations/spec.md)), and a `Lazy<T>` dependency is
 neither.
 
 #### Scenario: a lazy provider that needs its own consumer
