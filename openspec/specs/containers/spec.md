@@ -35,7 +35,10 @@ Pinned by: `Tests/WireMacrosImplTests/ContainerMacroTests.swift` (`test_containe
 ### Requirement: Bindings declared inside a container belong to it
 WireGen SHALL record every `@Provides`, `@Singleton` and `@Scoped(seed:)` binding declared inside a
 `@Container` declaration, including inside a nested type that carries no `@Container` itself, in a
-partition whose `container` is the container's name. The binding's access path and qualified type
+partition whose `container` is the container's name. A *partition* is the set of bindings that
+share a container (none for the default graph) and a seed: the partition with no seed is the
+container's *singleton partition*, from which its app graph is built, and each seed's partition
+is one of its seed scopes. The binding's access path and qualified type
 name SHALL carry the enclosing type names.
 
 #### Scenario: a static provider
