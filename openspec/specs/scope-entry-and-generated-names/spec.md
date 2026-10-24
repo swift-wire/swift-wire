@@ -153,9 +153,9 @@ initialiser. It SHALL declare no adapter-protocol conformance and no witness met
 generator supplies both in an `extension` in the same module. `.scopeCapture` dependencies SHALL
 NOT appear as fields or initialiser parameters.
 
-#### Scenario: a public subject
-- **WHEN** the subject is `public`
-- **THEN** the proxy declaration begins `struct ` and contains neither `public ` nor `package `
+#### Scenario: a public or package subject
+- **WHEN** the subject is `public` or `package`
+- **THEN** its proxy is `internal`: WireGen writes no access keyword on the proxy's declaration
 
 #### Scenario: a non-generic subject
 - **WHEN** the subject is `HealthController`
