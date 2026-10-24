@@ -186,8 +186,8 @@ consumer is reachable. A cycle among pruned bindings is likewise not an error, a
 [dependency-cycles](../dependency-cycles/spec.md).
 
 #### Scenario: an unreached library binding with an unresolvable dependency
-- **WHEN** an unreached library binding depends on a type nothing in the build produces
-- **THEN** the graph builds with only the rooted `App`
+- **WHEN** a graph holds a rooted `App` and an unreached library binding `UnreachedLibraryBinding` that depends on `TypeFromAPackageTheConsumerNeverDependedOn`, which nothing in the build produces
+- **THEN** the graph builds, and its emitted set is only `App`
 
 #### Scenario: a reached binding with an unresolvable dependency
 - **WHEN** a rooted `App` depends on a library binding whose dependency nothing produces
@@ -230,8 +230,8 @@ WireGen SHALL NOT warn for a pruned binding whose origin module is an `--externa
 pruned synthesised aggregate. A home contributor pruned along with its aggregate SHALL be reported.
 
 #### Scenario: a package-local contributor to an unconsumed public key
-- **WHEN** a `package` contributor folds into a `public` key's aggregate that nothing consumes
-- **THEN** the contributor is reported and the aggregate is not
+- **WHEN** a `package` contributor `PackageLocalContributor` folds into the aggregate for the `public` key `Keys.widgets`, which nothing consumes
+- **THEN** `PackageLocalContributor` is reported and the `Keys.widgets` aggregate is not
 
 Pinned by: `Tests/WireGenCoreTests/PrunedBindingDiagnosticsTests.swift` (`libraryPrunedIsSilent`, `aggregateIsSilent`, `packageLocalContributorToUnconsumedPublicKeyIsReported`).
 
