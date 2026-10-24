@@ -180,11 +180,11 @@ dependency SHALL be positional (held) or labelled `_wireEnterScope` (bridged), e
 a numeric suffix on collision.
 
 #### Scenario: three subjects in one group
-- **WHEN** `@Aggregate` is declared `.contributesAggregateProxy(to: key, proxyTypeName: "_WireAggregateContributor", proxyScope: .singleton, groupedByAttribute: "spec")`, and the `@Singleton` controllers `AggregateReportController` and `AggregateSearchController` and the `@Scoped(seed:)` controller `AggregateTaskController` are annotated `@Aggregate(spec: "alpha")`
-- **THEN** one binding `_WireAggregateContributor_alpha` is synthesised with fields `_wireSubject_AggregateReportController`, `_wireSubject_AggregateSearchController` and `_wireEnterScope_AggregateTaskController`, and `key`'s multibinding receives one element for the three subjects
+- **WHEN** `@AggregateController` is declared `.contributesAggregateProxy(to: WireTestAggregateKeys.controllers, proxyTypeName: "_WireAggregateContributor", proxyScope: .singleton, groupedByAttribute: "spec")`, and the `@Singleton` controllers `AggregateReportController` and `AggregateSearchController` and the `@Scoped(seed:)` controller `AggregateTaskController` are annotated `@AggregateController(spec: "alpha")`
+- **THEN** one binding `_WireAggregateContributor_alpha` is synthesised with fields `_wireSubject_AggregateReportController`, `_wireSubject_AggregateSearchController` and `_wireEnterScope_AggregateTaskController`, and `WireTestAggregateKeys.controllers`'s multibinding receives one element for the three subjects
 
 #### Scenario: a second group value
-- **WHEN** the `@Singleton` controller `BetaOnlyController` is annotated with the same `@Aggregate` as `@Aggregate(spec: "beta")`
+- **WHEN** the `@Singleton` controller `BetaOnlyController` is annotated with the same `@AggregateController` as `@AggregateController(spec: "beta")`
 - **THEN** a separate `_WireAggregateContributor_beta` binding is synthesised, holding `BetaOnlyController` as its `_wireSubject`
 
 #### Scenario: a one-subject group
