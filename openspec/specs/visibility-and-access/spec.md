@@ -40,11 +40,11 @@ declarations. Change to 'internal', 'package', or 'public'." at the name of a `@
 
 #### Scenario: a private singleton
 - **WHEN** `Hidden.swift` holds `@Singleton` on line 1 and `private struct Hidden {` on line 2, followed by `}`
-- **THEN** the rendered output contains `Hidden.swift:2:16: error:` and `@Singleton type 'Hidden' is 'private'` and ends the message with `Change to 'internal', 'package', or 'public'`
+- **THEN** WireGen reports an error at `Hidden.swift:2:16`, the `Hidden` identifier, that `@Singleton type 'Hidden' is 'private'`, explaining that `Wire's generated bootstrap lives in a separate file` and telling the user to `Change to 'internal', 'package', or 'public'`
 
 #### Scenario: a private scoped type
 - **WHEN** a source declares `@Scoped(seed: SessionSeed.self) private struct Hidden {}`
-- **THEN** discovery reports one error containing `@Scoped type 'Hidden'`
+- **THEN** WireGen reports one error, that the `@Scoped type 'Hidden'` is too private for the generated bootstrap
 
 Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`privateSingletonEmitsDeclarationTooPrivateError`, `fileprivateSingletonEmitsDeclarationTooPrivateError`, `privateScopedEmitsDeclarationTooPrivateError`), `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`privateSingletonRendersAsErrorWithFixIts`).
 
@@ -55,11 +55,11 @@ function.
 
 #### Scenario: a private provided property
 - **WHEN** `Logger.swift` declares `@Provides private let logger: Logger = Logger()`
-- **THEN** the rendered output contains `Logger.swift:1:23: error:` and `@Provides declaration 'logger' is 'private'`
+- **THEN** WireGen reports an error at `Logger.swift:1:23`, the `logger` identifier, that `@Provides declaration 'logger' is 'private'`
 
 #### Scenario: a fileprivate provider function
 - **WHEN** a source declares `@Provides fileprivate func makeLogger() -> Logger { Logger() }`
-- **THEN** discovery reports one error containing `@Provides function 'makeLogger'` and `'fileprivate'`
+- **THEN** WireGen reports one error, that the `@Provides function 'makeLogger'` is `'fileprivate'`
 
 Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`privateProvidesLetEmitsDeclarationTooPrivateError`, `fileprivateProvidesFuncEmitsDeclarationTooPrivateError`), `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`privateProvidesLetRendersAsError`).
 
@@ -76,15 +76,15 @@ or 'public'.", naming the most restrictive enclosing scope.
 
 #### Scenario: a provider in a private namespace enum
 - **WHEN** `Config.swift` holds `private enum Config {` on line 1, `    @Provides static let baseURL: URL = URL(string: "...")!` (indented four spaces) on line 2, and `}`
-- **THEN** the rendered output contains `Config.swift:2:26: error:`, `@Provides declaration 'baseURL' is effectively 'private'`, `enclosing scope 'Config' is 'private'` and `Raise 'Config' to 'internal', 'package', or 'public'`
+- **THEN** WireGen reports an error at `Config.swift:2:26`, the `baseURL` identifier, that `@Provides declaration 'baseURL' is effectively 'private'` because its `enclosing scope 'Config' is 'private'`, telling the user to `Raise 'Config' to 'internal', 'package', or 'public'`
 
 #### Scenario: a singleton nested in a private type
 - **WHEN** a source declares `private struct Outer { @Singleton struct Inner {} }`
-- **THEN** discovery reports one error containing `@Singleton type 'Inner'` and `enclosing scope 'Outer' is 'private'`
+- **THEN** WireGen reports one error, that the `@Singleton type 'Inner'` is too private because its `enclosing scope 'Outer' is 'private'`
 
 #### Scenario: the outer scope is the limiter
 - **WHEN** a `@Provides static let` sits in `public enum Inner` nested in `private enum Outer`
-- **THEN** the one error names `enclosing scope 'Outer' is 'private'`
+- **THEN** WireGen reports one error, blaming the outer enum rather than the `public` inner one: `enclosing scope 'Outer' is 'private'`
 
 #### Scenario: an unmodified provider in a public enum
 - **WHEN** a source declares `public enum Config { @Provides static let baseURL: URL = URL(string: "...")! }`
@@ -116,7 +116,7 @@ SHALL be as specified in [injection-points](../injection-points/spec.md). The fl
 
 #### Scenario: a private weak var carries the asymmetry note
 - **WHEN** a `@Singleton` class declares `@Inject private weak var coordinator: Coordinator?`
-- **THEN** the rendered output contains `@Inject weak var 'coordinator' is 'private'` followed by a `note:` containing `can be 'private' because the macro generates the init` and `post-construct delivery patterns`
+- **THEN** WireGen reports an error at the `coordinator` identifier that `@Inject weak var 'coordinator' is 'private'`, with a note at the same location explaining that a constructor-injected property `can be 'private' because the macro generates the init` and pointing to `post-construct delivery patterns`
 
 Pinned by: `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`privateInjectWeakVarRendersWithAsymmetryNote`, `privateInjectFuncRendersWithAsymmetryNote`).
 
@@ -151,7 +151,7 @@ reachability instead and gets the pruned-binding warning.
 
 #### Scenario: an orphan internal scoped type
 - **WHEN** a seed scope holds an `internal` `@Scoped(seed: Req.self)` type `Orphan`, declared in `Orphan.swift`, that nothing injects and no proxy constructs
-- **THEN** one warning at `Orphan.swift` contains `'Orphan' is declared but nothing in the build consumes it` and `allowUnused: true`
+- **THEN** WireGen reports one warning at `Orphan.swift` that `'Orphan' is declared but nothing in the build consumes it`, suggesting `allowUnused: true` to silence it
 
 #### Scenario: an optional consumer keeps the producer live
 - **WHEN** a seed-scope consumer injects `Foo?` and a binding of the same seed scope produces `Foo`
@@ -224,7 +224,7 @@ defect in https://github.com/swift-wire/swift-wire/issues/438.
 
 #### Scenario: an internal binding from a sibling target
 - **WHEN** module `App` composes an `internal` singleton from sibling module `SiblingLib`
-- **THEN** the error contains `at least 'package'` and `sibling module 'SiblingLib'`
+- **THEN** WireGen reports an error that the singleton, composed from `sibling module 'SiblingLib'`, needs `at least 'package'`
 
 #### Scenario: a package binding from a sibling target
 - **WHEN** module `App` composes a `package` singleton from `SiblingLib`
@@ -241,11 +241,11 @@ access checked is the declaration's own modifier; enclosing scopes are not folde
 
 #### Scenario: a package binding from another package
 - **WHEN** module `App` composes a `package` singleton from external module `ExtLib`
-- **THEN** the error contains `across packages`
+- **THEN** WireGen reports an error that `package` access isn't visible `across packages`
 
 #### Scenario: an internal binding from another package
 - **WHEN** module `App` composes an `internal` singleton from external module `ExtLib`
-- **THEN** the error contains `external-package module 'ExtLib'` and `Make it 'public'`
+- **THEN** WireGen reports an error that the singleton comes from `external-package module 'ExtLib'`, telling the user to `Make it 'public'`
 
 Pinned by: `Tests/WireGenCoreTests/CrossModuleVisibilityTests.swift` (`externalForeignInternalNeedsPublic`, `externalForeignPackageNeedsPublic`, `externalForeignPublicIsFine`). The unfolded own-modifier reading is pinned by nothing yet.
 
