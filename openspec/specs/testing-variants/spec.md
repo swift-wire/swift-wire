@@ -155,8 +155,8 @@ variant app graph with no variant proxy and no facade, which is tracked as a def
 https://github.com/swift-wire/swift-wire/issues/362.
 
 #### Scenario: a `@Scoped(seed:)` route controller
-- **WHEN** `WireProxyFixture.bindMock` mocks `any ProxyRepository`, which the `@Scoped(seed: ProxyRequestSeed.self)` `ProxyRouteController` reaches through a `@TestScopable` app singleton that reads it in `init` and through a scoped session whose `@Teardown` calls it
-- **THEN** entering the proxy that `Wire.bootstrapWireProxyFixture_bindMock_ProxyRouteControllerContributor(wireGraph:)` returns with a seed and doubles holding a mock builds the subject over that mock instance, which the singleton's `init` calls, and the entry's teardown calls the same mock from the session's `@Teardown`
+- **WHEN** `WireProxyFixture.bindMock` mocks `any ProxyRepository`, which the `@Scoped(seed: ProxyRequestSeed.self)` `ProxyRouteController` reaches through two bindings: `ProxyAccountController`, a `@TestScopable @Singleton` whose `init` reads it, and `ProxySession`, a binding scoped to the same seed whose `@Teardown` calls it
+- **THEN** entering the proxy that `Wire.bootstrapWireProxyFixture_bindMock_ProxyRouteControllerContributor(wireGraph:)` returns, with a seed and doubles holding a mock, builds the subject over that mock instance: `ProxyAccountController`'s `init` reads it, and the entry's teardown calls it again from `ProxySession`'s `@Teardown`
 
 #### Scenario: the variant entry struct
 - **WHEN** WireGen emits the variant proxy for `WireProxyFixture.bindMock` over `ProxyRouteController`
@@ -242,8 +242,8 @@ subject SHALL fail the run with
 `<Subject> is an app-scoped route contributor that consumes '<Slot>', which is bound per-request under test — so it can't be constructed under the mock. Mark <Subject> with @TestScopable to rebuild it per request so it sees the double.`
 
 #### Scenario: a marked app-scoped controller with a lifted factory
-- **WHEN** `AppScopedFixture.bindMock` mocks `any AppScopedRepository` and `AppScopedController` is `@TestScopable @Singleton @RouteController` with a mock-consuming `@RouteMiddleware` factory
-- **THEN** `Wire.bootstrapAppScopedFixture_bindMock_AppScopedControllerContributor(wireGraph:)._wireEnterScope(doubles)` yields a subject and a factory product both reading the mock
+- **WHEN** `AppScopedFixture.bindMock` mocks `any AppScopedRepository`, and `AppScopedController`, a `@TestScopable @Singleton @RouteController` that injects it, carries `@RouteMiddleware(AppScopedKeys.audit)` for the `@Factory(AppScopedKeys.audit)` template `AppScopedAudit`, which injects it too
+- **THEN** `Wire.bootstrapAppScopedFixture_bindMock_AppScopedControllerContributor(wireGraph:)._wireEnterScope(doubles)` yields an `AppScopedController` that reads the supplied mock, and the proxy's `AppScopedAudit` factory creates, from the same doubles, an `AppScopedAudit` that reads it as well
 
 #### Scenario: a generic app-scoped controller
 - **WHEN** `GenAppController<Backend>` is bound over `some GenAppBackend` and the key mocks `GenAppBackend`
@@ -261,7 +261,7 @@ emitted exactly as they are without the key, and SHALL never read a doubles valu
 
 #### Scenario: the keyless graph beside a variant
 - **WHEN** `EagerFixture.bindMock` mocks `any EagerWidget`
-- **THEN** `Wire.bootstrapEagerRequestSeedScope(seed:wireGraph:)` still exists without a `doubles:` parameter and its consumer reads the real widget
+- **THEN** `Wire.bootstrapEagerRequestSeedScope(seed:wireGraph:)` still exists without a `doubles:` parameter, and over `Wire.bootstrap()` its `EagerConsumer` holds the production `RealEagerWidget`
 
 Pinned by: `Tests/IntegrationTests/EagerSingletonBindTypeTests.swift` (`eagerBindTypedBindingIsDroppedFromTheVariantAppGraph`), `Tests/IntegrationTests/ReplacesBindTypeComposeTests.swift` (`replacesAndBindTypeComposeWithCorrectPrecedence`). The byte-identical-output claim for a module with no key is pinned by nothing yet.
 
@@ -272,8 +272,8 @@ the precedence per slot is the real binding, then `@Replaces` in every graph, th
 its keyed variant only.
 
 #### Scenario: a replaced slot that is also mocked
-- **WHEN** a library's `ComposeWidget` is superseded by the target's `@Replaces` fake and `ComposeFixture.bindMock` mocks `ComposeWidget`
-- **THEN** the production scope's consumer holds the `@Replaces` fake, the variant scope's consumer holds the supplied mock, and the library's real widget is never constructed
+- **WHEN** `WireTestLibrary` provides `any ComposeWidget` as `RealComposeWidget`, the target's `@Replaces` provider supersedes it with `FakeComposeWidget`, `ComposeFixture.bindMock` mocks `ComposeWidget` with `MockComposeWidget`, and the `@Scoped(seed: ComposeRequestSeed.self)` `ComposeConsumer` injects it
+- **THEN** the production `ComposeRequestSeed` scope's `ComposeConsumer` holds `FakeComposeWidget`, the variant scope's holds the supplied `MockComposeWidget`, and `RealComposeWidget` is never constructed
 
 Pinned by: `Tests/IntegrationTests/ReplacesBindTypeComposeTests.swift` (`replacesAndBindTypeComposeWithCorrectPrecedence`).
 
@@ -294,8 +294,8 @@ Wire constructing the replacement; `@BindType` SHALL substitute a slot in one ke
 with the test supplying the instance.
 
 #### Scenario: a replacement in every graph
-- **WHEN** the target's `@Replaces` fake supersedes a library's `ComposeWidget`
-- **THEN** `Wire.bootstrapComposeRequestSeedScope(seed:wireGraph:)` over `Wire.bootstrap()` yields a consumer holding the `@Replaces` fake, and the library's real widget is never constructed
+- **WHEN** the target's `@Replaces` provider supersedes `WireTestLibrary`'s `RealComposeWidget` with `FakeComposeWidget`
+- **THEN** `Wire.bootstrapComposeRequestSeedScope(seed:wireGraph:)` over `Wire.bootstrap()` yields a `ComposeConsumer` holding `FakeComposeWidget`, and `RealComposeWidget` is never constructed
 
 Pinned by: `Tests/WireGenCoreTests/ReplacesTests.swift` (`providesReplacesSupersedesConcreteSingleton`, `homeModuleReplacesIsHonoured`), `Tests/IntegrationTests/ReplacesBindTypeComposeTests.swift` (`replacesAndBindTypeComposeWithCorrectPrecedence`). One `TestingKey` per target as served by an adapter is https://github.com/swift-wire/swift-wire/issues/336.
 
