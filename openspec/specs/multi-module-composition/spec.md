@@ -36,8 +36,8 @@ SHALL be emitted into the generated graph and constructed by its bootstrap.
 - **THEN** the consumer bootstraps and both injections receive an `ExternalService` built by the library's `@Inject init`
 
 #### Scenario: an unreached library singleton
-- **WHEN** `WireHarnessLibrary` declares `public` `@Singleton UnreachedExternalService`, whose `init` traps, and nothing in the consumer reaches it
-- **THEN** the consumer's generated graph does not construct it and the consumer bootstraps
+- **WHEN** `WireHarnessLibrary` declares `public` `@Singleton UnreachedExternalService` and nothing in the consumer reaches it
+- **THEN** the consumer's `Wire.bootstrap()` returns a graph without ever calling `UnreachedExternalService`'s `init`
 
 Pinned by: `Tests/IntegrationTests/CrossModuleCompositionTests.swift` (`samePackageLibraryBindingIsComposedAndConstructed`, `samePackagePackageVisibleBindingIsComposed`), `.github/workflows/swift.yml` (`CompositionHarness`).
 
