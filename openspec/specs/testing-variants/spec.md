@@ -9,6 +9,12 @@ the `@TestScopable` marker in `Wire`, the generated names a test calls, the `--t
 gate and its errors, the cascade and seedless reconstruction rules, and how a variant is derived
 from the production graph.
 
+Two of those rules move app-scoped bindings out of the variant app graph. The cascade *lifts* a
+mocked slot, and every app singleton on the path from a seed scope to it, into that scope, so each
+is rebuilt on scope entry and sees the double. *Seedless reconstruction* covers an app-scoped
+`@Singleton` route contributor that consumes a mocked slot: it has no seed scope to be lifted
+into, so WireGen rebuilds it on each entry from the doubles alone.
+
 Rationale: [TestingModel](../../../Documentation/Notes/TestingModel.md).
 Documentation: [TestingAGraph](../../../Sources/Wire/Wire.docc/TestingAGraph.md).
 
