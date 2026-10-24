@@ -156,11 +156,13 @@ canonicalised to one line per module and import-kind specifier, with access-leve
 `#if` import block is kept whole with its inner imports normalised), then any synthesised
 module-scope types, then
 `internal struct _WireGraph<T0: P0, …>: Introspectable, Teardownable` with one stored `let` per
-retained binding named from its bound type, then
+binding reachability retains, as specified in
+[reachability-and-retention](../reachability-and-retention/spec.md), named from its bound type, then
 `private func _wireBootstrap() async throws -> _WireGraph<some P0, …>` constructing every binding
 in dependency order, and finally one `internal enum Wire` whose
 `static func bootstrap() async throws -> …` calls `try await _wireBootstrap()`. The generic clause
-SHALL be present only when the graph lifts opaque (`some P`) bindings.
+SHALL be present only when the graph lifts opaque (`some P`) bindings, as specified in
+[opaque-type-identity](../opaque-type-identity/spec.md).
 
 #### Scenario: an empty graph
 - **WHEN** no bindings are discovered
@@ -189,7 +191,8 @@ Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`emptyGraphProduces
 when `schedulerPlan` qualifies the graph it SHALL build a prefix on the chain, construct a scheduled
 region concurrently inside `withThrowingTaskGroup`, and build the suffix on the chain after the
 seam, with the scheduler's support declarations (such as `_WireBuilding`) emitted between the graph
-struct and the bootstrap.
+struct and the bootstrap. The prefix, scheduled region, suffix and seam are as specified in
+[construction-scheduling](../construction-scheduling/spec.md).
 
 #### Scenario: a wholly synchronous graph
 - **WHEN** the only binding is a synchronous `@Singleton Leaf`
