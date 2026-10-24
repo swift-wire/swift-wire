@@ -244,7 +244,7 @@ one of the function's own generic parameters `T<n>` and every other axis stays `
 - **THEN** the bootstrap function takes `wireGraph _wireGraph: _WireGraph<some TodoRepository>`
 
 #### Scenario: a stored binding over one axis
-- **WHEN** the app graph `_WireGraph` lifts seven axes, the third of them `some GenBackend`, and the seed scope `GenSeedRequestSeed` stores a binding over that axis and over no other
+- **WHEN** the app graph `_WireGraph` lifts seven axes, the third of them `some GenBackend`, and the seed scope `GenSeedRequestSeed` stores `GenSeedConsumer<B: GenBackend>`, a binding over that axis and over no other
 - **THEN** the bootstrap function is `_wireBootstrapGenSeedRequestSeedScope<T0: GenBackend>` and takes `wireGraph _wireGraph: _WireGraph<…>` with `T0` as the third argument and the `some P` of its axis as each of the other six
 
 Pinned by: `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`seedScopeNamesOpaqueParentGraphWithItsLiftedParameters`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
