@@ -132,17 +132,18 @@ dependency is a labelled `_wireEnterScope` scope-entry thunk of type
 `@Sendable (Seed) async throws -> _WireScopeEntry_<Subject>`, and the subject stays in its seeded
 partition. The thunk SHALL be emitted inside the bootstrap body immediately before the proxy's
 construction line, constructing only the subject's reachable subgraph per call and returning its
-teardown alongside it.
+teardown alongside it, so two calls of one thunk with different seeds SHALL each construct their own
+subject and return their own `_wireScopeTeardown`.
 
 #### Scenario: a request-scoped controller under an app-scoped proxy
 - **WHEN** `@Scoped(seed: RequestSeed.self) struct SessionController` bears a `.contributesProxy(…, proxyScope: .singleton)` annotation
 - **THEN** the proxy binding's first dependency is named `_wireEnterScope` with type `@Sendable (RequestSeed) async throws -> _WireScopeEntry_SessionController` and the proxy joins the app partition
 
-#### Scenario: two entries through one thunk
-- **WHEN** a bridged proxy's `_wireEnterScope` is called twice with different seeds
-- **THEN** each call constructs its own subject and returns its own `_wireScopeTeardown`
+#### Scenario: two entries, each from its own graph
+- **WHEN** `@Scoped(seed: AsyncScopeSeed.self) struct AsyncScopeController`, which injects the `@Teardown`-bearing `AsyncScopeSession` from its own seed, is bridged by the proxy `_WireAggregateContributor_async`, and two entries are made, each by bootstrapping a graph and calling that graph's `_WireAggregateContributor_async._wireEnterScope`
+- **THEN** each entry's `AsyncScopeController` holds its own `AsyncScopeSession`, and calling the first entry's `_wireScopeTeardown` closes its session and leaves the second entry's open
 
-Pinned by: `Tests/WireGenCoreTests/ContributorProxySynthesisTests.swift` (`bridgesSeededControllerViaScopeEntryThunk`), `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`bridgingProxyEmitsScopeEntryThunkCapturingSingletons`, `scopeEntryThunkPrunesUnreachableBindings`, `scopeEntryThunkTearsDownScopedBindings`), `Tests/IntegrationTests/AsyncScopeEntryTests.swift` (`eachEntryGetsItsOwnScopeAndItsOwnTeardown`).
+Pinned by: `Tests/WireGenCoreTests/ContributorProxySynthesisTests.swift` (`bridgesSeededControllerViaScopeEntryThunk`), `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`bridgingProxyEmitsScopeEntryThunkCapturingSingletons`, `scopeEntryThunkPrunesUnreachableBindings`, `scopeEntryThunkTearsDownScopedBindings`), `Tests/IntegrationTests/AsyncScopeEntryTests.swift` (`eachEntryGetsItsOwnScopeAndItsOwnTeardown`). Two entries through the same thunk are not yet pinned: https://github.com/swift-wire/swift-wire/issues/453.
 
 ### Requirement: A bridging proxy is ordered after the singletons its thunk captures
 For every singleton a bridged subject's scope genuinely borrows, WireGen SHALL add a
@@ -162,8 +163,8 @@ target is a proxied subject at that subject's proxy, so the adapter-dependency a
 factory-synthesis passes append their edges to the proxy and the subject stays a plain binding.
 
 #### Scenario: a middleware factory on a proxied controller
-- **WHEN** `@Middleware` is declared `.injectsFromGraph`, a `@Factory(Keys.session)` template exists, and `@Middleware(Keys.session)` sits on a controller that has a contributor proxy
-- **THEN** the `_wireFactory_Keys_session` dependency is appended to the proxy and not to the controller
+- **WHEN** `@Middleware` is declared `.injectsFromGraph`, a `@Factory(Keys.factory)` template `RequireAPIKey` exists, and `@Middleware(Keys.factory)` sits on `TodosController<Repository: TodoRepository>`, whose `@Controller` annotation gives it the contributor proxy `_WireRouteContributor_TodosController`
+- **THEN** the `@Middleware` use-site targets `_WireRouteContributor_TodosController`, and the dependency of type `_WireFactory_Keys_factory` is appended to the proxy and not to `TodosController`
 
 Pinned by: `Tests/WireGenCoreTests/ContributorProxySynthesisTests.swift` (`reattributesFactoryUseSitesToProxy`, `factorySynthesisLandsFactoryEdgeOnProxyNotController`).
 
@@ -183,12 +184,12 @@ a numeric suffix on collision.
 - **THEN** one binding `_WireAggregateContributor_alpha` is synthesised with fields `_wireSubject_AggregateReportController`, `_wireSubject_AggregateSearchController` and `_wireEnterScope_AggregateTaskController`, and `key`'s multibinding receives one element for the three subjects
 
 #### Scenario: a second group value
-- **WHEN** another controller is annotated with the same `@Aggregate` as `@Aggregate(spec: "beta")`
-- **THEN** a separate `_WireAggregateContributor_beta` binding is synthesised
+- **WHEN** the `@Singleton` controller `BetaOnlyController` is annotated with the same `@Aggregate` as `@Aggregate(spec: "beta")`
+- **THEN** a separate `_WireAggregateContributor_beta` binding is synthesised, holding `BetaOnlyController` as its `_wireSubject`
 
 #### Scenario: a one-subject group
-- **WHEN** a group has exactly one held subject
-- **THEN** the proxy's field is `_wireSubject`, taken positionally
+- **WHEN** the `@Singleton` `SoloAggregateOnlyController` is the only subject of a bare `@SoloAggregateController`
+- **THEN** its proxy `_WireSoloAggregateContributor_IntegrationTests` holds it in a field `_wireSubject`, taken positionally
 
 Pinned by: `Tests/IntegrationTests/AggregateProxyContributorTests.swift` (`oneProxyHoldsEveryAnnotatedSubject`, `aBridgedSubjectIsBuiltPerRequestWhileHeldPeersAreShared`, `aSecondGroupOnTheSameAnnotationGetsItsOwnProxy`, `aOneSubjectAggregateKeepsTheSingularFieldName`, `perRootReachabilitySurvivesTheAggregate`), `GoldenHarness/Golden/_WireGraph.swift.golden`. The module-named default group is pinned by `aOneSubjectAggregateKeepsTheSingularFieldName` (`_WireSoloAggregateContributor_IntegrationTests`) and the golden file.
 
@@ -342,8 +343,8 @@ never yield itself. Yields SHALL be deduplicated and sorted by type name, and ea
 construction root of the thunk. A subject that is not scoped SHALL yield nothing.
 
 #### Scenario: a parameter naming a scope binding
-- **WHEN** a `@Scoped(seed: RequestSeed.self)` controller declares `func route(@AuthorizedDocument document: …)` and `AuthorizedDocument` is bound in the same seed
-- **THEN** `_WireScopeEntry_<Controller>` gains a field `authorizedDocument: AuthorizedDocument`
+- **WHEN** the `@Scoped(seed: RequestSeed.self)` controller `DocumentsController` declares `func read(@AuthorizedDocument document: Document)` and `AuthorizedDocument` is bound in the same seed
+- **THEN** `_WireScopeEntry_DocumentsController` gains a field `authorizedDocument: AuthorizedDocument`
 
 #### Scenario: a wrapper attribute naming a worker
 - **WHEN** the parameter attribute is `@Attribute`, which is not a binding but whose declaration carries `@X(Worker.self)` under an `.injectsFromGraph` annotation, and `Worker` is bound in the seed
@@ -353,7 +354,7 @@ construction root of the thunk. A subject that is not scoped SHALL yield nothing
 - **WHEN** two methods each take a parameter annotated with the same scope binding
 - **THEN** the entry struct has one field for it
 
-Pinned by: `Tests/WireGenCoreTests/ScopeYieldTests.swift` (`aParameterNamingAScopeBindingIsTheRequest`, `anAttributeThatIsNoBindingIsIgnored`, `aBindingInAnotherScopeIsNotYielded`, `anUnscopedSubjectYieldsNothing`, `aSubjectNeverYieldsItself`, `yieldsAreDeduplicatedAndOrderedByTypeName`, `aYieldIsAConstructionRootAndPullsItsOwnSubgraphIn`, `withoutTheYieldNeitherIsConstructed`, `anAttributeThatIsNotABindingYieldsWhatItsDeclarationNames`, `aDirectMatchIsPreferredOverTheHop`, `theHopIsFollowedOnlyOnce`, `anArgumentThatIsNotATypeReferenceIsNoHop`, `aRouteParameterIsDetectedThroughDiscoveryAndSynthesis`).
+Pinned by: `Tests/WireGenCoreTests/ScopeYieldTests.swift` (`aParameterNamingAScopeBindingIsTheRequest`, `yieldsAreNamedFieldsOnTheEntryStruct`, `anAttributeThatIsNoBindingIsIgnored`, `aBindingInAnotherScopeIsNotYielded`, `anUnscopedSubjectYieldsNothing`, `aSubjectNeverYieldsItself`, `yieldsAreDeduplicatedAndOrderedByTypeName`, `aYieldIsAConstructionRootAndPullsItsOwnSubgraphIn`, `withoutTheYieldNeitherIsConstructed`, `anAttributeThatIsNotABindingYieldsWhatItsDeclarationNames`, `aDirectMatchIsPreferredOverTheHop`, `theHopIsFollowedOnlyOnce`, `anArgumentThatIsNotATypeReferenceIsNoHop`, `aRouteParameterIsDetectedThroughDiscoveryAndSynthesis`).
 
 ### Requirement: A yield the subject's scope cannot construct is an error
 WireGen SHALL report, once per (subject, binding), a parameter attribute on a member method that
