@@ -231,8 +231,8 @@ testing-variant bootstrap SHALL take `inputs: <Type>`; a `@Container` graph's bo
 declaration in an `--external-module` dependency SHALL be ignored with a warning.
 
 #### Scenario: a module with graph inputs
-- **WHEN** the graph-inputs harness consumer declares `@GraphInputs struct AppInputs` with a `configuration` property and two `@Provides(key)` properties
-- **THEN** `try await Wire.bootstrap(inputs: …)` constructs the graph and the values reach their consumers by type and by key
+- **WHEN** the graph-inputs harness consumer declares `@GraphInputs struct AppInputs` with a `configuration: RuntimeConfiguration` property and two `@Provides(key)` properties keyed `InputKeys.region` and `InputKeys.stage`, `DeploymentTarget` injects `RuntimeConfiguration` by type and both keyed values, and `EndpointProbe` injects only `RuntimeConfiguration`
+- **THEN** `try await Wire.bootstrap(inputs: …)` constructs the graph, `DeploymentTarget` receives the configuration and the two keyed values passed in, and `EndpointProbe` receives the same configuration
 
 #### Scenario: a declaration in an external dependency
 - **WHEN** the only `@GraphInputs` declaration, `LibraryInputs`, comes from the external module `SomeLibrary`
