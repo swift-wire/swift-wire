@@ -111,8 +111,8 @@ variant app graph as its production binding; both are tracked as a possible defe
 https://github.com/swift-wire/swift-wire/issues/437.
 
 #### Scenario: a mocked eager provider
-- **WHEN** `EagerFixture.bindMock` mocks `any EagerWidget`, whose production provider counts its initialisations
-- **THEN** `Wire.bootstrapEagerFixture_bindMock()` records zero initialisations and its `introspect()` omits `any EagerWidget`, while `Wire.bootstrap()` records one and includes it
+- **WHEN** `EagerFixture.bindMock` mocks `any EagerWidget`, which production provides at app bootstrap from `EagerWidgetModule.widget()` and the `@Scoped(seed: EagerRequestSeed.self)` `EagerConsumer` injects
+- **THEN** `Wire.bootstrapEagerFixture_bindMock()` never calls `EagerWidgetModule.widget()` and returns a graph whose `introspect()` lists no `any EagerWidget` binding, while `Wire.bootstrap()` calls it once and lists the binding
 
 #### Scenario: an aggregate with a dropped contributor
 - **WHEN** an aggregate lists a contributor the variant drops
