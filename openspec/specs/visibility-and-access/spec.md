@@ -18,18 +18,18 @@ WireGen SHALL read a declaration's access from its own modifier list, treating a
 access modifier as `internal`. `internal`, `package`, `public` and `open` SHALL count as visible to the
 generated bootstrap; `fileprivate` and `private` SHALL NOT. A member of a `public extension` with no
 modifier of its own therefore reads as `internal`, although Swift makes it `public`. For a binding this
-is tracked as a defect in https://github.com/swift-wire/swift-wire/issues/342, and for a key declaration
+is tracked as a defect in https://github.com/swift-wire/swift-wire/issues/441, and for a key declaration
 in https://github.com/swift-wire/swift-wire/issues/342.
 
 #### Scenario: an unmodified singleton
 - **WHEN** a source declares `@Singleton struct Visible {}`
-- **THEN** discovery reports no error
+- **THEN** discovery records `Visible` with access level `internal` and reports no error
 
-#### Scenario: an unmodified provider in a public enum
-- **WHEN** a source declares `public enum Config { @Provides static let baseURL: URL = URL(string: "...")! }`
-- **THEN** discovery reports no error
+#### Scenario: an unmodified provider in a public extension
+- **WHEN** a source declares `public extension Config { @Provides static let baseURL: URL = URL(string: "...")! }`
+- **THEN** discovery records `baseURL` with access level `internal`, although Swift makes it `public`
 
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`internalSingletonDoesNotEmitDeclarationTooPrivateError`, `providesInPublicEnclosingEnumDoesNotEmitError`). The `public extension` reading is pinned by nothing yet.
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`singletonWithoutAccessModifierDefaultsToInternal` for the recorded access, `internalSingletonDoesNotEmitDeclarationTooPrivateError` for the absence of an error). The `public extension` reading is pinned by nothing yet.
 
 ### Requirement: A `@Singleton` or `@Scoped` type must be at least `internal`
 WireGen SHALL report an error "<surface> '<name>' is '<keyword>' but must be at least 'internal' —
@@ -86,7 +86,11 @@ or 'public'.", naming the most restrictive enclosing scope.
 - **WHEN** a `@Provides static let` sits in `public enum Inner` nested in `private enum Outer`
 - **THEN** the one error names `enclosing scope 'Outer' is 'private'`
 
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesInPrivateEnclosingEnumEmitsDeclarationTooPrivateError`, `providesFuncInFileprivateEnclosingEnumEmitsDeclarationTooPrivateError`, `singletonNestedInPrivateTypeEmitsDeclarationTooPrivateError`, `providesInNestedEnumsBlamesMostRestrictiveEnclosingScope`), `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`providesInPrivateEnclosingEnumRendersAsError`). The extension rule is pinned by nothing yet.
+#### Scenario: an unmodified provider in a public enum
+- **WHEN** a source declares `public enum Config { @Provides static let baseURL: URL = URL(string: "...")! }`
+- **THEN** discovery reports no error, the `public` enum leaving the effective access at the provider's own `internal`
+
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesInPublicEnclosingEnumDoesNotEmitError`, `providesInPrivateEnclosingEnumEmitsDeclarationTooPrivateError`, `providesFuncInFileprivateEnclosingEnumEmitsDeclarationTooPrivateError`, `singletonNestedInPrivateTypeEmitsDeclarationTooPrivateError`, `providesInNestedEnumsBlamesMostRestrictiveEnclosingScope`), `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`providesInPrivateEnclosingEnumRendersAsError`). The extension rule is pinned by nothing yet.
 
 ### Requirement: A too-private own modifier is reported ahead of its enclosing scope
 When the declaration's own modifier is itself `private` or `fileprivate`, WireGen SHALL report the
