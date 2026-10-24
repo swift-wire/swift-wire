@@ -235,15 +235,19 @@ binding once in every partition that consumes it, and append a dependency named
 `_wireFactory_<sanitised key>` of the factory's type to each consuming binding, deduplicated per
 key per consumer. A key with no matching template SHALL synthesise nothing.
 
+#### Scenario: one consumer of a key
+- **WHEN** `@Middleware` is declared `.injectsFromGraph`, a controller `AccountController` carries `@Middleware(MyMiddleware.session)`, and a `@Factory(MyMiddleware.session)` template exists
+- **THEN** a `_WireFactory_MyMiddleware_session` binding is registered and `AccountController` gains a dependency of that type named `_wireFactory_MyMiddleware_session`
+
 #### Scenario: two consumers of one key
-- **WHEN** `@Middleware` is declared `.injectsFromGraph`, two controllers in one partition each carry `@Middleware(MyMiddleware.session)`, and a `@Factory(MyMiddleware.session)` template exists
-- **THEN** exactly one `_WireFactory_MyMiddleware_session` binding is registered in the partition and both controllers gain a `_wireFactory_MyMiddleware_session` dependency
+- **WHEN** `@Middleware` is declared `.injectsFromGraph`, the controllers `AccountController` and `BillingController` in one partition each carry `@Middleware(MyMiddleware.session)`, and a `@Factory(MyMiddleware.session)` template exists
+- **THEN** exactly one `_WireFactory_MyMiddleware_session` binding is registered in the partition
 
 #### Scenario: a key without a template
 - **WHEN** `@Middleware` is declared `.injectsFromGraph` and a controller's `@Middleware(Keys.unknown)` names a key no `@Factory` declares
 - **THEN** no factory is synthesised and no edge is appended
 
-Pinned by: `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`synthesizesOneFactoryPerConsumedKeyDeduped`, `concreteSelfArgumentSynthesizesNoFactory`, `keyWithoutMatchingTemplateSynthesizesNoFactory`, `appendsFactoryEdgeAndRegistersBinding`, `registersFactoryBindingOncePerPartitionDespiteMultipleConsumers`, `nonFactoryCapabilityIsIgnored`, `synthesisFromDiscoveredSource`).
+Pinned by: `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`synthesizesOneFactoryPerConsumedKeyDeduped`, `concreteSelfArgumentSynthesizesNoFactory`, `keyWithoutMatchingTemplateSynthesizesNoFactory`, `appendsFactoryEdgeAndRegistersBinding`, `registersFactoryBindingOncePerPartitionDespiteMultipleConsumers`, `nonFactoryCapabilityIsIgnored`, `synthesisFromDiscoveredSource`). The factory edge on every consumer of a key, rather than on one, is not yet pinned: https://github.com/swift-wire/swift-wire/issues/454.
 
 ### Requirement: `.mapsFactoryRoles(roles:)` supplies the order of a factory's assisted parameters
 WireGen SHALL join a `.mapsFactoryRoles(roles:)` use-site to the `@Factory` template of the type
