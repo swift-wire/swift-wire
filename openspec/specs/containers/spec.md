@@ -38,7 +38,7 @@ WireGen SHALL record every `@Provides`, `@Singleton` and `@Scoped(seed:)` bindin
 partition whose `container` is the container's name. A *partition* is the set of bindings that
 share a container (none for the default graph) and a seed: the partition with no seed is the
 container's *singleton partition*, from which its app graph is built, and each seed's partition
-is one of its seed scopes. The binding's access path and qualified type
+holds the bindings of that seed's scope. The binding's access path and qualified type
 name SHALL carry the enclosing type names.
 
 #### Scenario: a static provider
