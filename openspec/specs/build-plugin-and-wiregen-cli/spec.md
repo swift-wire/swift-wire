@@ -245,8 +245,8 @@ For each binding the graph constructs but does not store, `_WireGraph.swift` SHA
 line in place of the stored property,
 `@available(*, unavailable, message: "'<property>' is constructed by the graph but not a direct property of it. To read it as 'graph.<property>', mark its binding at <file>:<line> 'allowUnused: true'.") internal var <property>: <Type> { fatalError() }`.
 
-#### Scenario: a reached leaf nothing declares a root
-- **WHEN** `Leaf` is injected by an `allowUnused` consumer and nothing else roots it
+#### Scenario: a constructed leaf nothing declares a root
+- **WHEN** the graph constructs `Leaf`, whose binding is not marked `allowUnused`
 - **THEN** the struct carries the `@available(*, unavailable, message:` stub for `leaf` naming its declaration's file and line, and the memberwise init omits it
 
 Pinned by: `Tests/WireGenCoreTests/RetentionTests.swift` (`aDroppedPropertyLeavesAnUnavailableStubNamingItsFix`, `theStubIsLineForLineWhatTheStoredPropertyWas`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
