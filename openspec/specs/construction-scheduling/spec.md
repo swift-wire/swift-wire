@@ -159,8 +159,8 @@ until the group is empty.
 - **THEN** the bootstrap calls `try building._wireAdd_pool(&_wireGroup)` and `try building._wireAdd_cache(&_wireGroup)` and not `try building._wireAdd_service(&_wireGroup)`
 
 #### Scenario: a dependent of the fast binding is built while the slow one is in flight
-- **WHEN** a container holds the independent async providers `makeFastSignal()` and `makeSlowSignal(clock:)` and the sync `FastDependent`, which reads only `makeFastSignal()`'s value, and `makeSlowSignal` stays suspended until `FastDependent` has been constructed (giving up after about a second)
-- **THEN** its bootstrap constructs `FastDependent` before `makeSlowSignal` returns, the order the linear chain would invert
+- **WHEN** `ParallelSchedulerContainer` holds the independent async providers `makeFastSignal()` and `makeSlowSignal(clock:)` and the sync `FastDependent`, which reads only `makeFastSignal()`'s value
+- **THEN** `Wire.bootstrapParallelSchedulerContainer()` constructs `FastDependent` once `makeFastSignal()` returns, without waiting for `makeSlowSignal(clock:)` to return, the order the linear chain would invert
 
 Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`onlyReadyBindingsAreDrivenFromTheBootstrap`, `theDrainRunsUntilTheGroupEmpties`), `Tests/IntegrationTests/ParallelSchedulerTests.swift` (`aDependentOfTheFastBindingRunsBeforeTheSlowOneFinishes`, `bothIndependentAsyncBindingsStillResolve`).
 
@@ -239,10 +239,10 @@ and a local `struct _WireScopeWireBuilding: ~Copyable` inside the thunk and retu
 from inside `withThrowingTaskGroup(of: _WireScopeWireTaskResult.self)`. It SHALL NOT emit sendable checks.
 
 #### Scenario: two independent async scope bindings
-- **WHEN** a bridged subject's scope reaches `AsyncScopeFast` and `AsyncScopeSlow`, neither reading the other, each with an `async throws` initialiser that records its start and then waits (up to about a second) for the other to start
-- **THEN** a single `_wireEnterScope` call has both initialisers in flight at once, so `AsyncScopeSlow`'s initialiser sees `AsyncScopeFast` start
+- **WHEN** a bridged subject's scope reaches `AsyncScopeFast` and `AsyncScopeSlow`, neither reading the other, each with an `async throws` initialiser, and `AsyncScopeDependent`, which reads only `AsyncScopeFast`
+- **THEN** a single `_wireEnterScope` call starts both initialisers before it constructs `AsyncScopeDependent`, with both in flight at once
 
-Pinned by: `Tests/IntegrationTests/AsyncScopeEntryTests.swift` (`bothIndependentAsyncBindingsAreInFlightAtOnce`, `theScopeStillBuildsEveryBindingAndSeedsThem`, `eachEntryGetsItsOwnScopeAndItsOwnTeardown`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
+Pinned by: `Tests/IntegrationTests/AsyncScopeEntryTests.swift` (`bothIndependentAsyncBindingsAreInFlightAtOnce`, `theScopeStillBuildsEveryBindingAndSeedsThem`, `eachEntryGetsItsOwnScopeAndItsOwnTeardown`), `GoldenHarness/Golden/_WireGraph.swift.golden`. That both initialisers are in flight at once is not yet pinned on its own, since the test would also pass under serial construction: https://github.com/swift-wire/swift-wire/issues/451.
 
 ### Requirement: A scope whose group reads a closure local keeps the chain
 WireGen SHALL keep a scope-entry thunk on the linear chain when any binding in its group region reads a
