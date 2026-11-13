@@ -103,6 +103,71 @@ multibinding fan-in. No emission specific to the annotation SHALL exist.
 
 Pinned by: `Tests/WireGenCoreTests/ContributionAliasTests.swift` (`injectsContributionForAliasedBinding`, `injectsContributionForAliasedProvider`), `AdapterHarness/run-adapter-harness.sh`.
 
+### Requirement: `.injectsFromGraph` dispatches on the argument's kind
+For a use-site `@X(argument)` of an `.injectsFromGraph` annotation on a scope-bound binding,
+WireGen SHALL append an init-time dependency chosen by the argument: `T.self` appends an unkeyed
+dependency on `T` named `_wire<T>` (the simple type name, generics and namespace stripped, first
+letter upper-cased); a reference matching a discovered `BindingKey<T>` appends a dependency on `T`
+keyed by that reference and named `_wire<sanitised key>`; any other reference is left to factory
+synthesis. Providers and aggregates SHALL receive no dependency. An annotation of another
+capability SHALL inject nothing.
+
+#### Scenario: a by-type argument
+- **WHEN** `@Middleware` is declared `.injectsFromGraph` and a scope-bound controller is annotated `@Middleware(SessionMiddlewareFactory.self)`
+- **THEN** the controller's binding gains a dependency on `SessionMiddlewareFactory` named `_wireSessionMiddlewareFactory`
+
+#### Scenario: a binding-key argument
+- **WHEN** `@Middleware` is declared `.injectsFromGraph`, a scope-bound controller is annotated `@Middleware(Gates.primary)`, and `Gates.primary` is a `BindingKey<AuthGate>`
+- **THEN** the binding gains a dependency on `AuthGate` keyed `Gates.primary` and named `_wireGates_primary`
+
+#### Scenario: a factory-key argument
+- **WHEN** `@Middleware` is declared `.injectsFromGraph`, a scope-bound controller is annotated `@Middleware(Keys.session)`, and no `BindingKey` of that name exists
+- **THEN** the adapter-dependency pass appends nothing
+
+Pinned by: `Tests/WireGenCoreTests/AdapterDependencyTests.swift` (`injectsSynthesizedDependency`, `injectsKeyedDependencyForBindingKeyArgument`, `leavesFactoryKeyArgumentToFactorySynthesis`, `contributesCapabilityInjectsNoDependency`, `capturesUseSiteArgument`).
+
+### Requirement: A factory-key argument synthesises a factory from the matching template
+For every `.injectsFromGraph` use-site whose argument is not a `.self` reference and matches a
+`@Factory(key)` template, WireGen SHALL synthesise one factory per distinct key, register its
+binding once in every partition that consumes it, and append a dependency named
+`_wireFactory_<sanitised key>` of the factory's type to each consuming binding, deduplicated per
+key per consumer. A key with no matching template SHALL synthesise nothing.
+
+#### Scenario: one consumer of a key
+- **WHEN** `@Middleware` is declared `.injectsFromGraph`, a controller `AccountController` carries `@Middleware(MyMiddleware.session)`, and a `@Factory(MyMiddleware.session)` template exists
+- **THEN** a `_WireFactory_MyMiddleware_session` binding is registered and `AccountController` gains a dependency of that type named `_wireFactory_MyMiddleware_session`
+
+#### Scenario: two consumers of one key
+- **WHEN** `@Middleware` is declared `.injectsFromGraph`, the controllers `AccountController` and `BillingController` in one partition each carry `@Middleware(MyMiddleware.session)`, and a `@Factory(MyMiddleware.session)` template exists
+- **THEN** exactly one `_WireFactory_MyMiddleware_session` binding is registered in the partition
+
+#### Scenario: a key without a template
+- **WHEN** `@Middleware` is declared `.injectsFromGraph` and a controller's `@Middleware(Keys.unknown)` names a key no `@Factory` declares
+- **THEN** no factory is synthesised and no edge is appended
+
+Pinned by: `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`synthesizesOneFactoryPerConsumedKeyDeduped`, `concreteSelfArgumentSynthesizesNoFactory`, `keyWithoutMatchingTemplateSynthesizesNoFactory`, `appendsFactoryEdgeAndRegistersBinding`, `registersFactoryBindingOncePerPartitionDespiteMultipleConsumers`, `nonFactoryCapabilityIsIgnored`, `synthesisFromDiscoveredSource`). The factory edge on every consumer of a key, rather than on one, is not yet pinned: https://github.com/swift-wire/swift-wire/issues/454.
+
+### Requirement: `.mapsFactoryRoles(roles:)` supplies the order of a factory's assisted parameters
+WireGen SHALL join a `.mapsFactoryRoles(roles:)` use-site to the `@Factory` template of the type
+it sits on. A bare `@X` SHALL map the template's assisted generic parameters (those not appearing
+in any `@Inject` dependency's type) to `roles` by position; `@X(.a, .b, …)` SHALL map them to the
+listed roles, each referenced as `.` followed by the role name with its first letter lower-cased.
+The synthesised `create` SHALL be generic over every canonical role in the declared order, with a
+role no parameter maps to left as a phantom parameter. For a template in the consumer's own
+module with an assisted parameter left unmapped, WireGen SHALL report an error
+`@Factory '<Template>': assisted generic parameter '<P>' has no role. The role mapping must assign one role per assisted parameter (a bare mapping assigns them in order; the custom form lists a role per parameter).`
+A template with no visible mapping SHALL keep a positional `create` and SHALL NOT be validated.
+
+#### Scenario: a reordered custom mapping
+- **WHEN** a `@Factory` template `Reordered<S, R, C>`, all three of whose parameters are assisted, is annotated `@MiddlewareFactory(.responseSender, .reader, .requestContext)`, and `@MiddlewareFactory` is declared `.mapsFactoryRoles(roles: ["RequestContext", "Reader", "ResponseSender"])`
+- **THEN** `create<RequestContext, Reader, ResponseSender>(_: RequestContext.Type, _: Reader.Type, _: ResponseSender.Type) -> Reordered<ResponseSender, Reader, RequestContext>` is emitted
+
+#### Scenario: an unrecognised role reference
+- **WHEN** the custom list names a role that is not in `roles`
+- **THEN** the parameter is unmapped and the error above is reported at the template
+
+Pinned by: `Tests/WireGenCoreTests/FactoryRoleMappingTests.swift` (`bareMappingIsPositional`, `customMappingReorders`, `customMappingSubsets`, `assistedParametersExcludeInjected`, `joinsMappingToTemplateByTypeIdentity`, `validatesEveryAssistedParameterHasARole`, `unrecognisedRoleReferenceIsAnError`, `validMappingHasNoDiagnostics`, `templateWithoutMappingIsNotValidated`, `rendersCanonicalRoleOrderedCreate`, `rendersReorderedCreate`, `rendersSubsetCreateWithPhantomRole`).
+
 ### Requirement: `.contributesProxy` synthesises one proxy binding per subject
 For each scope-bound subject (`@Singleton` or `@Scoped`) bearing a
 `.contributesProxy(to: key, proxyTypePrefix: prefix, proxyScope:)` annotation, WireGen SHALL
@@ -204,71 +269,6 @@ adapter's generated code to read.
 - **THEN** `_WireGlobalMiddleware_AppBootstrap` is synthesised holding `AppBootstrap` positionally, contributing to no key, with the `_wireFactory_Keys_factory` edge on the proxy and nothing injected onto `AppBootstrap`
 
 Pinned by: `Tests/WireGenCoreTests/LiftsPeersToProxyTests.swift` (`synthesisesAddressableProxyContributingToNothing`, `liftsGlobalMiddlewareFactoryOntoTheProxyNotTheRoot`), `Tests/WireGenCoreTests/ContributorProxySynthesisTests.swift` (`aLiftsPeersToProxySubjectIsRootedSoTheGraphStoresIt`).
-
-### Requirement: `.injectsFromGraph` dispatches on the argument's kind
-For a use-site `@X(argument)` of an `.injectsFromGraph` annotation on a scope-bound binding,
-WireGen SHALL append an init-time dependency chosen by the argument: `T.self` appends an unkeyed
-dependency on `T` named `_wire<T>` (the simple type name, generics and namespace stripped, first
-letter upper-cased); a reference matching a discovered `BindingKey<T>` appends a dependency on `T`
-keyed by that reference and named `_wire<sanitised key>`; any other reference is left to factory
-synthesis. Providers and aggregates SHALL receive no dependency. An annotation of another
-capability SHALL inject nothing.
-
-#### Scenario: a by-type argument
-- **WHEN** `@Middleware` is declared `.injectsFromGraph` and a scope-bound controller is annotated `@Middleware(SessionMiddlewareFactory.self)`
-- **THEN** the controller's binding gains a dependency on `SessionMiddlewareFactory` named `_wireSessionMiddlewareFactory`
-
-#### Scenario: a binding-key argument
-- **WHEN** `@Middleware` is declared `.injectsFromGraph`, a scope-bound controller is annotated `@Middleware(Gates.primary)`, and `Gates.primary` is a `BindingKey<AuthGate>`
-- **THEN** the binding gains a dependency on `AuthGate` keyed `Gates.primary` and named `_wireGates_primary`
-
-#### Scenario: a factory-key argument
-- **WHEN** `@Middleware` is declared `.injectsFromGraph`, a scope-bound controller is annotated `@Middleware(Keys.session)`, and no `BindingKey` of that name exists
-- **THEN** the adapter-dependency pass appends nothing
-
-Pinned by: `Tests/WireGenCoreTests/AdapterDependencyTests.swift` (`injectsSynthesizedDependency`, `injectsKeyedDependencyForBindingKeyArgument`, `leavesFactoryKeyArgumentToFactorySynthesis`, `contributesCapabilityInjectsNoDependency`, `capturesUseSiteArgument`).
-
-### Requirement: A factory-key argument synthesises a factory from the matching template
-For every `.injectsFromGraph` use-site whose argument is not a `.self` reference and matches a
-`@Factory(key)` template, WireGen SHALL synthesise one factory per distinct key, register its
-binding once in every partition that consumes it, and append a dependency named
-`_wireFactory_<sanitised key>` of the factory's type to each consuming binding, deduplicated per
-key per consumer. A key with no matching template SHALL synthesise nothing.
-
-#### Scenario: one consumer of a key
-- **WHEN** `@Middleware` is declared `.injectsFromGraph`, a controller `AccountController` carries `@Middleware(MyMiddleware.session)`, and a `@Factory(MyMiddleware.session)` template exists
-- **THEN** a `_WireFactory_MyMiddleware_session` binding is registered and `AccountController` gains a dependency of that type named `_wireFactory_MyMiddleware_session`
-
-#### Scenario: two consumers of one key
-- **WHEN** `@Middleware` is declared `.injectsFromGraph`, the controllers `AccountController` and `BillingController` in one partition each carry `@Middleware(MyMiddleware.session)`, and a `@Factory(MyMiddleware.session)` template exists
-- **THEN** exactly one `_WireFactory_MyMiddleware_session` binding is registered in the partition
-
-#### Scenario: a key without a template
-- **WHEN** `@Middleware` is declared `.injectsFromGraph` and a controller's `@Middleware(Keys.unknown)` names a key no `@Factory` declares
-- **THEN** no factory is synthesised and no edge is appended
-
-Pinned by: `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`synthesizesOneFactoryPerConsumedKeyDeduped`, `concreteSelfArgumentSynthesizesNoFactory`, `keyWithoutMatchingTemplateSynthesizesNoFactory`, `appendsFactoryEdgeAndRegistersBinding`, `registersFactoryBindingOncePerPartitionDespiteMultipleConsumers`, `nonFactoryCapabilityIsIgnored`, `synthesisFromDiscoveredSource`). The factory edge on every consumer of a key, rather than on one, is not yet pinned: https://github.com/swift-wire/swift-wire/issues/454.
-
-### Requirement: `.mapsFactoryRoles(roles:)` supplies the order of a factory's assisted parameters
-WireGen SHALL join a `.mapsFactoryRoles(roles:)` use-site to the `@Factory` template of the type
-it sits on. A bare `@X` SHALL map the template's assisted generic parameters (those not appearing
-in any `@Inject` dependency's type) to `roles` by position; `@X(.a, .b, …)` SHALL map them to the
-listed roles, each referenced as `.` followed by the role name with its first letter lower-cased.
-The synthesised `create` SHALL be generic over every canonical role in the declared order, with a
-role no parameter maps to left as a phantom parameter. For a template in the consumer's own
-module with an assisted parameter left unmapped, WireGen SHALL report an error
-`@Factory '<Template>': assisted generic parameter '<P>' has no role. The role mapping must assign one role per assisted parameter (a bare mapping assigns them in order; the custom form lists a role per parameter).`
-A template with no visible mapping SHALL keep a positional `create` and SHALL NOT be validated.
-
-#### Scenario: a reordered custom mapping
-- **WHEN** a `@Factory` template `Reordered<S, R, C>`, all three of whose parameters are assisted, is annotated `@MiddlewareFactory(.responseSender, .reader, .requestContext)`, and `@MiddlewareFactory` is declared `.mapsFactoryRoles(roles: ["RequestContext", "Reader", "ResponseSender"])`
-- **THEN** `create<RequestContext, Reader, ResponseSender>(_: RequestContext.Type, _: Reader.Type, _: ResponseSender.Type) -> Reordered<ResponseSender, Reader, RequestContext>` is emitted
-
-#### Scenario: an unrecognised role reference
-- **WHEN** the custom list names a role that is not in `roles`
-- **THEN** the parameter is unmapped and the error above is reported at the template
-
-Pinned by: `Tests/WireGenCoreTests/FactoryRoleMappingTests.swift` (`bareMappingIsPositional`, `customMappingReorders`, `customMappingSubsets`, `assistedParametersExcludeInjected`, `joinsMappingToTemplateByTypeIdentity`, `validatesEveryAssistedParameterHasARole`, `unrecognisedRoleReferenceIsAnError`, `validMappingHasNoDiagnostics`, `templateWithoutMappingIsNotValidated`, `rendersCanonicalRoleOrderedCreate`, `rendersReorderedCreate`, `rendersSubsetCreateWithPhantomRole`).
 
 ### Requirement: A `.rewritesInjection` site is any non-Wire attribute at an injection point
 WireGen SHALL capture, on an `@Inject` init parameter, an `@Inject` property or a `@Provides`
