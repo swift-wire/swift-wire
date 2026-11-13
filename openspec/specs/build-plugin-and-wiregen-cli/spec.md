@@ -196,15 +196,15 @@ struct and the bootstrap. The prefix, scheduled region, suffix and seam are as s
 
 #### Scenario: a wholly synchronous graph
 - **WHEN** the only binding is a synchronous `@Singleton Leaf`
-- **THEN** the bootstrap contains `let leaf = Leaf()` and no `_WireBindingState` or `WireBuilding`
+- **THEN** the graph does not qualify, the bootstrap constructs `Leaf` directly on the chain, and none of the scheduler's machinery is emitted: no `_WireBuilding` and no `_WireBindingState`
 
 #### Scenario: two independent async bindings
 - **WHEN** the graph holds two async bindings `Pool` and `Cache`, neither depending on the other
-- **THEN** the file declares `private struct _WireBuilding: ~Copyable {`, the bootstrap adds `_wireGroup.addTask { .pool(await Pool()) }`, and no `let pool = await Pool()` is emitted
+- **THEN** the graph qualifies, the file declares `_WireBuilding`, and `Pool` is constructed in a child task of the bootstrap's task group instead of being awaited on the chain, so its construction can overlap `Cache`'s
 
 #### Scenario: prefix and suffix around the scheduled region
 - **WHEN** `Config` is upstream of the async `Pool`, `Service` waits on `Pool` only, and `Host` injects `service: Service` and the async `cache: Cache`
-- **THEN** `let config = Config()` precedes `return try await withThrowingTaskGroup`, and `let host = Host(service: service, cache: cache)` follows the seam
+- **THEN** `Config` is constructed on the chain before the task group opens, `Host` is constructed on the chain after the seam from the `Service` and `Cache` the region produced, and neither is given state in `_WireBuilding`
 
 Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aWhollySyncGraphKeepsTheLinearChain`, `twoIndependentAsyncBindingsAreScheduled`, `aBindingUpstreamOfEveryAsyncOneStaysOnTheChain`, `aBindingWaitingOnEveryAsyncOneReturnsToTheChain`).
 
