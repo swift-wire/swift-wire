@@ -47,8 +47,11 @@ extension WireGen {
 
         var bySubject: [String: [DoublesField]] = [:]
         for proxy in productionProxies {
-            guard
-                let scopeEntry = proxy.dependencies.first(where: { $0.name == contributorProxyScopeEntryFieldName }),
+            // One subject per proxy, agreeing with `buildVariantContributorFacades`: a doubles struct for a
+            // subject whose variant proxy is never emitted would be a type no generated code can reach, and
+            // the adapter's `withClient(supplying:)` would offer a seam that serves nothing.
+            guard proxy.subjectCount == 1,
+                let scopeEntry = proxy.scopeEntryDependencies.first,
                 let parsed = scopeEntry.scopeEntry,
                 let scope = scopeBySeed[parsed.seed]
             else { continue }

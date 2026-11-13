@@ -318,6 +318,42 @@ package func unmarkedSeedlessRootDiagnostic(
     )
 }
 
+/// The diagnostic for a contributor proxy over **more than one subject** that a key's variant would have to
+/// re-emit doubles-threaded — the aggregate case the variant pass does not build yet
+/// (swift-wire/swift-wire#362).
+///
+/// An error rather than a silent skip. Every root finder in the variant pass matches a proxy's *singular*
+/// subject spellings, so before this diagnostic a group of two or more was matched by none of them and the
+/// whole variant — graph, doubles structs, proxies, facades, and the `@TestScopable` guidance — was simply
+/// not emitted. The author had written a valid `TestingKey` against a slot that really is bound, reached by a
+/// subject that really consumes it, and the build said nothing. Reporting what the pass can see and cannot
+/// serve is the difference between "unsupported" and "wrong".
+///
+/// Names the group rather than only the subject, because the group is what the author would change: the
+/// arrangement is supported at one subject per proxy, so splitting the document (or merging the controllers)
+/// is a real fix rather than a suggestion to wait.
+package func aggregateVariantUnsupportedDiagnostic(
+    proxyTypeName: String,
+    subjectNames: [String],
+    reachingSubjectName: String,
+    slotDisplay: String,
+    location: SourceLocation
+) -> Diagnostic {
+    Diagnostic(
+        location: location,
+        message:
+            "\(reachingSubjectName) consumes '\(slotDisplay)', which is bound per-request under test, but it "
+            + "shares one contributor proxy (\(proxyTypeName)) with \(subjectNames.count - 1) other "
+            + "\(subjectNames.count == 2 ? "subject" : "subjects") "
+            + "(\(subjectNames.filter { $0 != reachingSubjectName }.joined(separator: ", "))). The keyed "
+            + "@BindType harness rebuilds a contributor per request through that proxy, and building one "
+            + "over several subjects at once is not supported yet (swift-wire/swift-wire#362) — so this key "
+            + "would emit no harness at all. Give \(reachingSubjectName) a contributor proxy of its own, or "
+            + "remove the @BindType for '\(slotDisplay)' from this key.",
+        severity: .error
+    )
+}
+
 /// The WireGen flag opting a run into emitting test-graph variants. Passed by the build plugin for a test
 /// target only; a run without it refuses any `TestingKey` it discovers
 /// (``testingVariantsNotEnabledDiagnostic(_:consumerModule:)``). Declared here so WireGen and its tests name
