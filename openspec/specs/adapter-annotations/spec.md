@@ -115,7 +115,7 @@ more than one proxy annotation, the last use-site seen SHALL win, which is track
 https://github.com/swift-wire/swift-wire/issues/399.
 
 #### Scenario: a generic controller
-- **WHEN** `@Singleton @Controller struct TodosController<Repository: TodoRepository>` is annotated with a `.contributesProxy(to: Keys.routes, proxyTypePrefix: "_WireRouteContributor_", proxyScope: .singleton)` annotation
+- **WHEN** an adapter declares the `@Controller` annotation with the capability `.contributesProxy(to: Keys.routes, proxyTypePrefix: "_WireRouteContributor_", proxyScope: .singleton)`, and a consumer annotates `@Singleton @Controller struct TodosController<Repository: TodoRepository>`
 - **THEN** a binding `_WireRouteContributor_TodosController<Repository: TodoRepository>` is synthesised contributing to `Keys.routes`, and `TodosController` contributes to nothing
 
 #### Scenario: no proxy annotation
