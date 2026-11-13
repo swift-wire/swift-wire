@@ -62,7 +62,7 @@ The plugin SHALL add `--testing-variants` to the `WireGen` arguments when the ta
 
 #### Scenario: a test target declaring a `TestingKey`
 - **WHEN** `IntegrationTests` declares `WireDoublesFixture.bindMockRepo = TestingKey()` with a `@BindType`
-- **THEN** the build succeeds and `Wire.bootstrapWireDoublesFixture_bindMockRepo()` exists
+- **THEN** `WireGen` generates the testing variant for that key, and the test bootstraps it as `Wire.bootstrapWireDoublesFixture_bindMockRepo()`
 
 Pinned by: `Tests/IntegrationTests/BindTypeDoublesTests.swift` (`suppliedMockInstanceFlowsThroughScopeEntry`). The production-target half is pinned by nothing yet.
 
@@ -74,7 +74,7 @@ and SHALL still emit the build command.
 
 #### Scenario: 5001 input files
 - **WHEN** the input file list has 5001 entries
-- **THEN** the warning is emitted with `5001` as the count and the command is returned unchanged
+- **THEN** the build log shows the warning with `5001` as the count, and `WireGen` still runs over every file
 
 Pinned by: nothing yet.
 
@@ -110,7 +110,7 @@ a line `in testing variant '<Key>' scope '<Seed>':`.
 
 #### Scenario: every diagnostic line carries a position
 - **WHEN** a source set produces graph-validation errors, for example a duplicate binding with its `also bound here` note
-- **THEN** every rendered line begins with a `file:line:col:` prefix
+- **THEN** each error and each note, the `also bound here` note included, names the file, line and column it concerns, so the build log and an IDE can link it to its source
 
 #### Scenario: a discovery warning
 - **WHEN** `Mixed.swift` holds `@Container` on line 1, `@Singleton` on line 2 and `struct Mixed {` from column 1 of line 3
@@ -118,7 +118,7 @@ a line `in testing variant '<Key>' scope '<Seed>':`.
 
 #### Scenario: a pruning warning reaches the build log
 - **WHEN** the harness consumer declares an unreached `@Singleton UnreachedHomeBinding`
-- **THEN** `swift build` output contains `'UnreachedHomeBinding' is declared but nothing reachable` and `mark it 'allowUnused: true'`
+- **THEN** the `swift build` log carries the warning that `'UnreachedHomeBinding' is declared but nothing reachable` constructs it, with its fix, `mark it 'allowUnused: true'`
 
 Pinned by: `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`everyDiagnosticLineCarriesFileLineColPrefix`, `containerWithScopeRendersAsDiagnostic`, `privateInjectWeakVarRendersWithAsymmetryNote`), `CompositionHarness/run-harness.sh` via the `CompositionHarness` job in `.github/workflows/swift.yml`. The `in graph` and `in testing variant` headers are pinned by nothing yet.
 
@@ -166,11 +166,11 @@ SHALL be present only when the graph lifts opaque (`some P`) bindings, as specif
 
 #### Scenario: an empty graph
 - **WHEN** no bindings are discovered
-- **THEN** the file declares `internal struct _WireGraph: Introspectable, Teardownable {`, `private func _wireBootstrap() async throws -> _WireGraph {` returning `_WireGraph()`, and `internal enum Wire {` with `bootstrap()`
+- **THEN** `_WireGraph` is still emitted, with no stored properties, `_wireBootstrap()` constructs nothing and returns it, and `Wire.bootstrap()` exists, so a consumer can call it whatever the graph holds
 
 #### Scenario: one retained singleton with no dependencies
 - **WHEN** a retained `@Singleton A` is the only binding
-- **THEN** `_WireGraph` has `let a: A`, `_wireBootstrap()` constructs `let a = A()` and returns `_WireGraph(a: a)`
+- **THEN** `_WireGraph` stores `a: A`, and `_wireBootstrap()` constructs `A()` and returns a graph holding it
 
 #### Scenario: imports are normalised
 - **WHEN** input files import one module at several access levels, with `@testable` on one of them, and another module twice
@@ -216,11 +216,11 @@ collected onto the single trailing `enum Wire`.
 
 #### Scenario: one container
 - **WHEN** the module declares `@Container Test` and no default-graph bindings
-- **THEN** the file declares both `_WireGraph` with `bootstrap()` and `_TestWireGraph` with `bootstrapTest()`
+- **THEN** the default graph is still emitted, empty, beside `Test`'s graph, `_TestWireGraph`, and `Wire` offers both `bootstrap()` and `bootstrapTest()`
 
 #### Scenario: several containers
 - **WHEN** the module declares containers `Beta` and `Alpha`
-- **THEN** `_AlphaWireGraph` is emitted before `_BetaWireGraph`
+- **THEN** `Alpha`'s graph is emitted before `Beta`'s, whatever order they are declared in
 
 Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`singleContainerEmitsItsOwnStructAlongsideEmptyDefault`, `defaultAndContainerBothEmitSideBySide`, `multipleContainersAreEmittedInSortedOrder`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
@@ -247,7 +247,7 @@ line in place of the stored property,
 
 #### Scenario: a constructed leaf nothing declares a root
 - **WHEN** the graph constructs `Leaf`, whose binding is not marked `allowUnused`
-- **THEN** the struct carries the `@available(*, unavailable, message:` stub for `leaf` naming its declaration's file and line, and the memberwise init omits it
+- **THEN** `graph.leaf` is declared but unavailable, its message naming the file and line of `Leaf`'s binding and the `allowUnused: true` fix, and the graph's memberwise init takes no `leaf`
 
 Pinned by: `Tests/WireGenCoreTests/RetentionTests.swift` (`aDroppedPropertyLeavesAnUnavailableStubNamingItsFix`, `theStubIsLineForLineWhatTheStoredPropertyWas`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
@@ -263,19 +263,19 @@ only the header comment block and the normalised imports.
 
 #### Scenario: no keyed bindings
 - **WHEN** the input holds only unkeyed bindings
-- **THEN** the file contains the header and no `_wireTypeCheck_` function
+- **THEN** there is nothing to check: the file is still written, and it holds no type-check function
 
 #### Scenario: a keyed provider
 - **WHEN** `@Provides(Database.primary)` binds `Database` at `App.swift:5`
-- **THEN** the file contains `private func _wireTypeCheck_1()`, `#sourceLocation(file: "App.swift", line: 5)` and `_check(Database.primary, Database.self)`
+- **THEN** one type-check function unifies `Database.primary` with `Database`, attributed to `App.swift:5`, so a key whose value type is not `Database` fails to compile at the provider's own line
 
 #### Scenario: one pair at three sites
 - **WHEN** a keyed provider and two keyed consumers all use `(Database.primary, Database)`
-- **THEN** one function carries three `_check` calls, each under its own `#sourceLocation`
+- **THEN** the three sites share one type-check function and each check is attributed to its own site, so a mismatch is reported at every site it affects
 
 #### Scenario: an existential keyed provider
 - **WHEN** `@Provides(Logger.fancy)` binds `any Logger`
-- **THEN** the file contains no `_wireTypeCheck_` function
+- **THEN** the site is not type-checked, and no type-check function is emitted for it
 
 Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`keyChecksEmptyInputProducesHeaderOnlyFile`, `keyChecksUnkeyedBindingsProduceNoFunctions`, `keyedProviderProducesCheckFunction`, `keyedDependencyProducesCheckFunction`, `sameKeyAndTypeAtMultipleSitesDedupesToOneFunction`, `anyProtocolBindingsAreSkipped`, `someProtocolBindingsAreSkipped`), `GoldenHarness/Golden/_WireKeyChecks.swift.golden`.
 
