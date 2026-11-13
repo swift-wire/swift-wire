@@ -23,7 +23,7 @@ which build a proxy from a graph that already exists and are synchronous and non
 
 #### Scenario: a wholly synchronous graph
 - **WHEN** a graph's only binding is a `@Singleton` with a synchronous, non-throwing initialiser
-- **THEN** WireGen emits `private func _wireBootstrap() async throws -> _WireGraph {` and `static func bootstrap() async throws -> _WireGraph {`
+- **THEN** `_wireBootstrap()` and `Wire.bootstrap()` are both still declared `async throws`, though nothing in the graph suspends or throws
 
 Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`propertyAssignmentMemberInjectionEmitsAsDirectAssignmentAfterConstruction`, `methodCallMemberInjectionEmitsAsMethodCallAfterConstruction`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
@@ -35,11 +35,11 @@ SHALL be treated as synchronous and non-throwing.
 
 #### Scenario: an async throwing computed provider
 - **WHEN** `@Provides var fetchedFoo: Foo { get async throws { … } }` is bound
-- **THEN** its construction line is `let foo = try await fetchedFoo`
+- **THEN** it is recorded as async and throwing, so the bootstrap reads it with `try await`, as `try await fetchedFoo`
 
 #### Scenario: an async throwing initialiser
 - **WHEN** `@Singleton struct DatabasePool` declares `@Inject init() async throws`
-- **THEN** its construction line is `let databasePool = try await DatabasePool()`
+- **THEN** it is recorded as async and throwing, so the bootstrap constructs it with `try await`, as `try await DatabasePool()`
 
 Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`injectInitWithAsyncCapturesFlag`, `injectInitWithThrowsCapturesFlag`, `injectInitWithAsyncThrowsCapturesBothFlags`, `injectPropertySynthesizedInitIsSync`, `providesFunctionWithEffectsCapturesFlags`, `providesComputedPropertyWithEffectsCapturesFlags`, `providesStoredPropertyHasNoEffects`), `Tests/WireGenCoreTests/EffectAwareEmissionTests.swift` (`asyncThrowsComputedPropertyEmitsTryAwaitPrefix`, `asyncThrowsInitOnScopeBoundEmitsTryAwaitPrefix`, `asyncInitOnScopeBoundEmitsAwaitPrefix`), `Tests/IntegrationTests/BootstrapTests.swift` (`asyncThrowsProviderFunctionResolvesThroughBootstrap`, `asyncThrowsComputedPropertyResolvesThroughBootstrap`, `asyncThrowsInjectInitResolvesThroughBootstrap`). The shorthand-getter clause is pinned by nothing yet.
 
@@ -50,11 +50,11 @@ dependencies.
 
 #### Scenario: one prefix per colour
 - **WHEN** `@Provides func makeFoo() async -> Foo`, `@Provides func makeBar() throws -> Bar` and `@Provides func makeQux() -> Qux` are bound
-- **THEN** the lines are `let foo = await makeFoo()`, `let bar = try makeBar()` and `let qux = makeQux()`
+- **THEN** `makeFoo()` is awaited, `makeBar()` is tried, and `makeQux()` is called with neither
 
 #### Scenario: a mixed chain
 - **WHEN** a synchronous `Logger` is injected as `logger` into an `async throws` `DatabasePool`, which is injected as `pool` into an `async throws` `Application`
-- **THEN** the lines are `let logger = Logger()`, `let databasePool = try await DatabasePool(logger: logger)` and `let application = try await Application(pool: databasePool)`
+- **THEN** `Logger` is constructed with neither keyword, and `DatabasePool` and `Application` each with `try await`, none taking its prefix from the bindings it reads
 
 Pinned by: `Tests/WireGenCoreTests/EffectAwareEmissionTests.swift` (`asyncFunctionProviderEmitsAwaitPrefix`, `throwsFunctionProviderEmitsTryPrefix`, `asyncThrowsFunctionProviderEmitsTryAwaitPrefix`, `syncFunctionProviderEmitsNoPrefix`, `syncInitOnScopeBoundEmitsNoPrefix`, `chainOfMixedEffectsRendersEachCallWithCorrectPrefix`).
 
@@ -68,7 +68,7 @@ synchronous.
 
 #### Scenario: a single async binding
 - **WHEN** the only async binding is `Pool` with `@Inject init() async`
-- **THEN** the bootstrap contains `let pool = await Pool()` and no `_WireBindingState`
+- **THEN** the graph is not scheduled: `Pool` is awaited on the linear chain and no cell is declared
 
 #### Scenario: async bindings joined through a sync one
 - **WHEN** async `Pool` is read by sync `Bridge`, which is read by async `Cache`
@@ -76,7 +76,7 @@ synchronous.
 
 #### Scenario: an independent async pair
 - **WHEN** async `Pool` and async `Cache` share no dependency path
-- **THEN** WireGen emits `private struct _WireBuilding: ~Copyable {` and `_wireGroup.addTask { .pool(await Pool()) }`, and no `let pool = await Pool()`
+- **THEN** the graph is scheduled: the file declares `_WireBuilding`, and `Pool` is constructed in a child task of the bootstrap's task group instead of being awaited on the chain
 
 Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aWhollySyncGraphKeepsTheLinearChain`, `aSingleAsyncBindingKeepsTheLinearChain`, `aChainOfAsyncBindingsKeepsTheLinearChain`, `independenceIsTransitiveThroughSyncBindings`, `twoIndependentAsyncBindingsAreScheduled`).
 
@@ -89,15 +89,15 @@ be built on the linear chain before the group opens and the suffix after the gro
 
 #### Scenario: an upstream binding stays on the chain
 - **WHEN** sync `Config` is read by async `Pool`, async `Cache` is independent of `Pool`, sync `Service` reads only `Pool`, and sync `Host` injects `service: Service` and `cache: Cache`
-- **THEN** `let config = Config()` is emitted before the group opens and there is no `_wireState_config`
+- **THEN** `Config` is in the prefix: it is constructed on the chain before the group opens, and it has no cell
 
 #### Scenario: a binding waiting on only some async bindings is scheduled
 - **WHEN** sync `Config` is read by async `Pool`, async `Cache` is independent of `Pool`, sync `Service` reads only `Pool`, and sync `Host` injects `service: Service` and `cache: Cache`
-- **THEN** the building struct declares `var _wireState_service: _WireBindingState<Service> = .unmarked`
+- **THEN** `Service` is in the group: it has a cell in the building struct, and it is fired once `Pool` resolves rather than after the group drains
 
 #### Scenario: a binding waiting on every async binding returns to the chain
 - **WHEN** sync `Config` is read by async `Pool`, async `Cache` is independent of `Pool`, sync `Service` reads only `Pool`, and sync `Host` injects `service: Service` and `cache: Cache`
-- **THEN** `let host = Host(service: service, cache: cache)` is emitted after the seam and there is no `_wireState_host`
+- **THEN** `Host` is in the suffix: it is constructed on the chain after the seam, from the locals the seam binds, and it has no cell
 
 Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aBindingUpstreamOfEveryAsyncOneStaysOnTheChain`, `aBindingWaitingOnOnlySomeAsyncBindingsIsScheduled`, `aBindingWaitingOnEveryAsyncOneReturnsToTheChain`).
 
@@ -110,7 +110,7 @@ binding. The cell type SHALL come from the `Wire` module rather than being emitt
 
 #### Scenario: two scheduled graphs in one file
 - **WHEN** the default graph and a `@Container` graph named `Other` are both scheduled
-- **THEN** the file declares `private struct _WireBuilding: ~Copyable {` and `private struct _OtherWireBuilding: ~Copyable {` and no `enum _WireBindingState`
+- **THEN** each graph gets its own building struct, `_WireBuilding` and `_OtherWireBuilding`, and both use the `_WireBindingState` cell type from `Wire` rather than a copy declared in the file
 
 Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`theCellTypeComesFromTheLibraryRatherThanBeingEmitted`, `twoIndependentAsyncBindingsAreScheduled`), `Tests/WireTests/BindingStateTests.swift` (`onlyTheFirstClaimantConstructs`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
@@ -125,8 +125,8 @@ type-annotated local, `let <name>: <T> = <construction>`, which the task returns
 the cell resolves with as `asResolved(<name>)`.
 
 #### Scenario: a fan-in dependent is fired from each dependency
-- **WHEN** group binding `Service` reads two scheduled bindings
-- **THEN** `try _wireAdd_service(&_wireGroup)` appears twice and its dependency guard precedes its `asPending()` guard
+- **WHEN** group binding `Service` reads the scheduled bindings `Pool` and `Cache`, and a third independent async binding, `Spare`, keeps `Service` out of the suffix
+- **THEN** `Service`'s `add` is fired when `Pool` resolves and again when `Cache` does, and it checks that both have resolved before it claims its cell, so it is constructed only once both are ready
 
 Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aDependentIsFiredFromEveryDependencyAndGuardedUntilAllResolve`, `aCollectedAggregateInTheGroupRegionIsScheduled`). The specialised generic form is pinned by nothing yet.
 
@@ -139,11 +139,11 @@ bindings SHALL NOT have a case.
 
 #### Scenario: a scheduled binding cascades from the drain
 - **WHEN** async `Pool` has group dependent `Service`
-- **THEN** `_wireUpdate` contains `case .pool(let _wireValue):`, `_wireState_pool.asResolved(_wireValue)` and `try _wireAdd_service(&_wireGroup)`
+- **THEN** when `Pool`'s child task returns, `_wireUpdate` resolves `Pool`'s cell with the returned value and fires `Service`'s `add`
 
 #### Scenario: the marker carries only suspending bindings
 - **WHEN** the group holds async `Pool` and `Cache` and sync `Service`
-- **THEN** the enum declares `case pool(Pool)` and `case cache(Cache)` and no `case service(Service)`
+- **THEN** the task-result enum has a case for `Pool` and one for `Cache`, and none for `Service`, which is constructed in place rather than in a child task
 
 Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aScheduledBindingCascadesFromTheDrainRatherThanFromItsOwnAdd`, `theTaskResultMarkerCarriesOnlyTheScheduledBindingsThatSuspend`, `theCellTypeComesFromTheLibraryRatherThanBeingEmitted`).
 
@@ -156,7 +156,7 @@ until the group is empty.
 
 #### Scenario: only ready bindings are driven
 - **WHEN** the group holds `Pool`, `Cache` and `Service`, which reads `Pool`
-- **THEN** the bootstrap calls `try building._wireAdd_pool(&_wireGroup)` and `try building._wireAdd_cache(&_wireGroup)` and not `try building._wireAdd_service(&_wireGroup)`
+- **THEN** the bootstrap drives `Pool` and `Cache` directly, and leaves `Service` to be fired when `Pool` resolves
 
 #### Scenario: a dependent of the fast binding is built while the slow one is in flight
 - **WHEN** `ParallelSchedulerContainer` holds the independent async providers `makeFastSignal()` and `makeSlowSignal(clock:)` and the sync `FastDependent`, which reads only `makeFastSignal()`'s value
@@ -170,7 +170,7 @@ initialiser by label, copied to a local inside the `add` that reads it, and not 
 
 #### Scenario: a frontier value
 - **WHEN** group binding `Pool` reads prefix binding `Config`
-- **THEN** the struct declares `let config: Config`, the bootstrap constructs `var building = _WireBuilding(config: config)`, `_wireAdd_pool` contains `let config = self.config`, and no `_wireState_config.value()` is emitted
+- **THEN** `Config` is handed to the building struct's initialiser and stored as a plain `let`, `Pool`'s `add` copies it to a local before its child task captures it, and `Pool` does not wait on a cell for it
 
 Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aPrefixBindingAScheduledOneReadsCrossesAsAStoredProperty`).
 
@@ -181,7 +181,7 @@ initialiser SHALL be emitted over those locals inside the group closure.
 
 #### Scenario: the graph is returned from locals
 - **WHEN** the independent pair `Pool` and `Cache` is scheduled
-- **THEN** the bootstrap contains `let pool = building._wireState_pool.take()`, `let cache = building._wireState_cache.take()` and `return _WireGraph(pool: pool, cache: cache)`
+- **THEN** once the group drains, `Pool` and `Cache` are each taken out of their cells into locals, and the graph is returned from those locals
 
 Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`theSeamTurnsEveryScheduledBindingBackIntoALocal`, `aMemberInjectionNoLongerBlocksScheduling`, `aTeardownBindingNoLongerBlocksScheduling`), `Tests/IntegrationTests/ParallelSchedulerTests.swift` (`bothIndependentAsyncBindingsStillResolve`).
 
@@ -192,7 +192,7 @@ prefix or suffix SHALL NOT prevent scheduling, and collected and mapped aggregat
 
 #### Scenario: a builder fold in the prefix
 - **WHEN** a builder aggregate for `Keys.routes` over `any Route` reads only a synchronous contributor and two independent async bindings exist
-- **THEN** the graph is scheduled and the fold is emitted as `func _wireFoldKeysRoutes() -> [any Route] {`
+- **THEN** the graph is still scheduled, and the fold is emitted as the chain always emits it, as the local function `_wireFoldKeysRoutes()`
 
 #### Scenario: a builder fold in the group
 - **WHEN** a builder aggregate reads an async contributor that is independent of another async binding
@@ -210,7 +210,7 @@ placement is tracked as a possible defect in https://github.com/swift-wire/swift
 
 #### Scenario: a proxy whose construction arguments reach an async binding
 - **WHEN** a bridging proxy with a scope-entry thunk reaches a scheduled async binding through an ordinary construction argument, so it lands in the group region of an otherwise scheduled graph
-- **THEN** the bootstrap is the linear chain
+- **THEN** the graph is not scheduled, and the bootstrap is the linear chain
 
 Pinned by: nothing yet.
 
@@ -224,11 +224,11 @@ SHALL be asserted.
 
 #### Scenario: a scheduled binding and the frontier value it captures
 - **WHEN** sync `Config` is read by async `Pool`, async `Cache` is independent of `Pool`, sync `Service` reads only `Pool`, and sync `Host` injects `service: Service` and `cache: Cache`, so `Pool` and `Cache` are scheduled with `Service` in the group and `Host` in the suffix
-- **THEN** the checks contain `_check((Config).self)`, `_check((Pool).self)` and `_check((Cache).self)` and neither `_check((Service).self)` nor `_check((Host).self)`
+- **THEN** `Pool` and `Cache`, which return from child tasks, and `Config`, which `Pool`'s task captures, are asserted `Sendable`, and `Service` and `Host`, which never leave the parent, are not
 
 #### Scenario: the directive names the declaring line
 - **WHEN** `Pool` is declared at line 1 of `Pool.swift`
-- **THEN** its check is preceded by `#sourceLocation(file: "Pool.swift", line: 1)`
+- **THEN** its `Sendable` assertion is attributed to `Pool.swift:1`, so a non-`Sendable` `Pool` is reported at its own declaration
 
 Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`everyBindingCrossingTheTaskBoundaryIsAssertedSendableAtItsOwnSourceLine`, `aFrontierValueCapturedByAScheduledBindingIsAssertedTooButOthersAreNot`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
@@ -252,7 +252,7 @@ binding that reads one does not keep the chain; the field crosses as a frontier 
 
 #### Scenario: a group binding reads the seed
 - **WHEN** two independent async scope bindings exist and one of them takes the seed as an initialiser parameter
-- **THEN** the thunk constructs every scope binding as a `let` chain and declares no `_WireScopeWireBuilding`
+- **THEN** the thunk is not scheduled: it constructs every scope binding on the linear chain
 
 Pinned by: nothing yet.
 
