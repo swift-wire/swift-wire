@@ -83,10 +83,10 @@ modules are aggregated, and a candidate matching no declared annotation SHALL ha
 - **THEN** a use-site named `HummingbirdRoute` with target identity `makeController` is captured
 
 #### Scenario: an attribute on a route method
-- **WHEN** `@Middleware` is declared `.injectsFromGraph`, a `@Factory(MyMiddleware.session)` template exists, and `@Middleware(MyMiddleware.session)` sits on a method of a `@Singleton` controller rather than on the type
-- **THEN** the synthesised factory's dependency lands on the controller's binding
+- **WHEN** `@Singleton struct AccountController` declares `@Middleware(MyMiddleware.session) func show()`, with the attribute on the method rather than on the type
+- **THEN** a use-site named `Middleware` with target identity `AccountController` is captured, as though the attribute sat on the type
 
-Pinned by: `Tests/WireGenCoreTests/ContributionAliasTests.swift` (`capturesAliasUseSitesNameAgnostically`, `capturesAliasUseSitesOnProviderFunctions`, `nonAliasAttributesAreNotInjected`), `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`routeScopeMiddlewareAttributesToEnclosingController`).
+Pinned by: `Tests/WireGenCoreTests/ContributionAliasTests.swift` (`capturesAliasUseSitesNameAgnostically`, `capturesAliasUseSitesOnProviderFunctions`, `nonAliasAttributesAreNotInjected`), `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`routeScopeMiddlewareAttributesToEnclosingController`, which observes the method's use-site through the factory edge it lands on `AccountController`).
 
 ### Requirement: `.contributes(to:)` aliases `@Contributes(to:)`
 For each use-site of a `.contributes(to: key)` annotation, WireGen SHALL append a synthetic
