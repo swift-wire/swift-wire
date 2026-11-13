@@ -122,7 +122,7 @@ capability SHALL inject nothing.
 
 #### Scenario: a factory-key argument
 - **WHEN** `@Middleware` is declared `.injectsFromGraph`, a scope-bound controller is annotated `@Middleware(Keys.session)`, and no `BindingKey` of that name exists
-- **THEN** the adapter-dependency pass appends nothing
+- **THEN** the controller gains no dependency from this annotation, and `Keys.session` is left to factory synthesis, as specified in the next requirement
 
 Pinned by: `Tests/WireGenCoreTests/AdapterDependencyTests.swift` (`injectsSynthesizedDependency`, `injectsKeyedDependencyForBindingKeyArgument`, `leavesFactoryKeyArgumentToFactorySynthesis`, `contributesCapabilityInjectsNoDependency`, `capturesUseSiteArgument`).
 
