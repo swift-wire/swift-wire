@@ -52,7 +52,7 @@ declaration missing either argument SHALL be ignored. The declaration SHALL neve
 - **WHEN** a definition is written with `capability: .injectsFromGraph`
 - **THEN** discovery yields the `.injectsFromGraph` capability
 
-Pinned by: `Tests/WireGenCoreTests/ContributionAliasTests.swift` (`discoversContributesToForm`), `Tests/WireGenCoreTests/AdapterDependencyTests.swift` (`discoversInjectsDependencyCapability`), and for a `selector: .labelled("source")` definition read from source, `InjectionRewriteHarness/run-injection-rewrite-harness.sh` (`InjectionRewriteHarness/Adapter/Sources/WireHarnessSettings/Settings.swift`). Reading `roles:`, reading a `selector:` that is not `.labelled` applied to a string literal, and ignoring a qualified or `.init` call are pinned by nothing yet.
+Pinned by: `Tests/WireGenCoreTests/ContributionAliasTests.swift` (`discoversContributesToForm`), `Tests/WireGenCoreTests/AdapterDependencyTests.swift` (`discoversInjectsDependencyCapability`), and for a `selector: .labelled("source")` definition read from source, `InjectionRewriteHarness/run-injection-rewrite-harness.sh` (`InjectionRewriteHarness/Adapter/Sources/WireHarnessSettings/Settings.swift`). Reading `roles:`, reading a `selector:` that is not `.labelled` applied to a string literal, and ignoring a qualified or `.init` call are pinned by nothing yet. That these spellings are dropped without a diagnostic is tracked as a defect in https://github.com/swift-wire/swift-wire/issues/457.
 
 ### Requirement: Definitions reach a consumer from any activated module
 The build plugin SHALL pass to WireGen the sources of every Wire-aware library the target directly
