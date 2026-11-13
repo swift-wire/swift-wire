@@ -61,8 +61,8 @@ Pinned by: `Tests/WireGenCoreTests/EffectAwareEmissionTests.swift` (`asyncFuncti
 ### Requirement: A graph is scheduled only when two async bindings are independent
 WireGen SHALL emit the scheduled form for a graph only if it has two async bindings neither of which
 reaches the other through construction edges, sync bindings included; the exclusions in "Constructs the
-group cannot hold keep the whole graph on the chain" and "A scope-entry thunk in the group keeps the
-graph on the chain" can still keep such a graph on the chain. A graph without such a pair SHALL be
+scheduler has not yet translated keep the whole graph on the chain" and "A scope-entry thunk in the
+group keeps the graph on the chain" can still keep such a graph on the chain. A graph without such a pair SHALL be
 built as the linear `let` chain and SHALL NOT reference `_WireBindingState`. Aggregates SHALL count as
 synchronous.
 
@@ -185,10 +185,13 @@ initialiser SHALL be emitted over those locals inside the group closure.
 
 Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`theSeamTurnsEveryScheduledBindingBackIntoALocal`, `aMemberInjectionNoLongerBlocksScheduling`, `aTeardownBindingNoLongerBlocksScheduling`), `Tests/IntegrationTests/ParallelSchedulerTests.swift` (`bothIndependentAsyncBindingsStillResolve`).
 
-### Requirement: Constructs the group cannot hold keep the whole graph on the chain
+### Requirement: Constructs the scheduler has not yet translated keep the whole graph on the chain
 WireGen SHALL NOT schedule a graph whose group region contains a builder aggregate, a binding with an
 opaque `some` bound type, or either endpoint of an existential promotion. The same constructs in the
 prefix or suffix SHALL NOT prevent scheduling, and collected and mapped aggregates SHALL be scheduled.
+None of the three is a limit of the scheduled form: each lacks a translation into it, and each
+translation is to be written when a graph needs it. They are tracked in
+https://github.com/swift-wire/swift-wire/issues/458.
 
 #### Scenario: a builder fold in the prefix
 - **WHEN** a builder aggregate for `Keys.routes` over `any Route` reads only a synchronous contributor and two independent async bindings exist
@@ -207,6 +210,8 @@ singletons its thunk borrows is a `.scopeCapture` dependency, which is not one. 
 path to a scheduled binding is its thunk's borrow lands in the prefix, this rule does not apply, and the
 thunk is emitted before the group opens, ahead of the seam that binds the captured local. That
 placement is tracked as a possible defect in https://github.com/swift-wire/swift-wire/issues/408.
+The exclusion itself is a translation not yet written, not a limit of the scheduled form, and is
+tracked with the others in https://github.com/swift-wire/swift-wire/issues/458.
 
 #### Scenario: a proxy whose construction arguments reach an async binding
 - **WHEN** a bridging proxy with a scope-entry thunk reaches a scheduled async binding through an ordinary construction argument, so it lands in the group region of an otherwise scheduled graph
