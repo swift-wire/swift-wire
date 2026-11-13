@@ -136,7 +136,7 @@ teardown alongside it, so two calls of one thunk with different seeds SHALL each
 subject and return their own `_wireScopeTeardown`.
 
 #### Scenario: a request-scoped controller under an app-scoped proxy
-- **WHEN** `@Scoped(seed: RequestSeed.self) struct SessionController` bears a `.contributesProxy(…, proxyScope: .singleton)` annotation
+- **WHEN** `@Controller` is declared `.contributesProxy(…, proxyScope: .singleton)`, and `@Scoped(seed: RequestSeed.self) struct SessionController` is annotated `@Controller`
 - **THEN** the proxy binding's first dependency is named `_wireEnterScope` with type `@Sendable (RequestSeed) async throws -> _WireScopeEntry_SessionController` and the proxy joins the app partition
 
 #### Scenario: two entries, each from its own graph
@@ -163,7 +163,7 @@ target is a proxied subject at that subject's proxy, so the adapter-dependency a
 factory-synthesis passes append their edges to the proxy and the subject stays a plain binding.
 
 #### Scenario: a middleware factory on a proxied controller
-- **WHEN** `@Middleware` is declared `.injectsFromGraph`, a `@Factory(Keys.factory)` template `RequireAPIKey` exists, and `@Middleware(Keys.factory)` sits on `TodosController<Repository: TodoRepository>`, whose `@Controller` annotation gives it the contributor proxy `_WireRouteContributor_TodosController`
+- **WHEN** `@Middleware` is declared `.injectsFromGraph`, a `@Factory(Keys.factory)` template `RequireAPIKey` exists, and `@Middleware(Keys.factory)` sits on `TodosController<Repository: TodoRepository>`, whose `@Controller` annotation, declared `.contributesProxy`, gives it the contributor proxy `_WireRouteContributor_TodosController`
 - **THEN** the `@Middleware` use-site targets `_WireRouteContributor_TodosController`, and the dependency of type `_WireFactory_Keys_factory` is appended to the proxy and not to `TodosController`
 
 Pinned by: `Tests/WireGenCoreTests/ContributorProxySynthesisTests.swift` (`reattributesFactoryUseSitesToProxy`, `factorySynthesisLandsFactoryEdgeOnProxyNotController`).
@@ -200,7 +200,7 @@ contribution list, and SHALL mark the subject `allowUnused` so the graph stores 
 adapter's generated code to read.
 
 #### Scenario: a composition root with global middleware
-- **WHEN** `@Singleton @WireMVCBootstrap struct AppBootstrap` bears a `.liftsPeersToProxy(proxyTypePrefix: "_WireGlobalMiddleware_", proxyScope: .singleton)` annotation and a `@Middleware(Keys.factory)` peer, where `@Middleware` is declared `.injectsFromGraph` and a `@Factory(Keys.factory)` template exists
+- **WHEN** `@WireMVCBootstrap` is declared `.liftsPeersToProxy(proxyTypePrefix: "_WireGlobalMiddleware_", proxyScope: .singleton)` and `@Middleware` is declared `.injectsFromGraph`, a `@Factory(Keys.factory)` template exists, and `@Singleton @WireMVCBootstrap struct AppBootstrap` carries a `@Middleware(Keys.factory)` peer
 - **THEN** `_WireGlobalMiddleware_AppBootstrap` is synthesised holding `AppBootstrap` positionally, contributing to no key, with the `_wireFactory_Keys_factory` edge on the proxy and nothing injected onto `AppBootstrap`
 
 Pinned by: `Tests/WireGenCoreTests/LiftsPeersToProxyTests.swift` (`synthesisesAddressableProxyContributingToNothing`, `liftsGlobalMiddlewareFactoryOntoTheProxyNotTheRoot`), `Tests/WireGenCoreTests/ContributorProxySynthesisTests.swift` (`aLiftsPeersToProxySubjectIsRootedSoTheGraphStoresIt`).
@@ -294,7 +294,7 @@ keyed `_wireRewriteKey_<suffix>`, and re-point the site's dependency at that key
 match a plain binding of `T`.
 
 #### Scenario: a defaulted string site
-- **WHEN** a `@Provides` function declares `@Configuration(forKey: "a", default: "x") host: String` under a `.rewritesInjection(provider: "ConfigReader")` annotation
+- **WHEN** `@Configuration` is declared `.rewritesInjection(provider: "ConfigReader")`, and a `@Provides` function declares the parameter `@Configuration(forKey: "a", default: "x") host: String`
 - **THEN** the producer's body is `try _wireRewritten(Configuration<String>.wireValue(from: _wireProvider, forKey: "a", default: "x"))` and its parameter is `_wireProvider: ConfigReader`
 
 #### Scenario: the site's dependency
@@ -390,7 +390,7 @@ input-edge reattribution), then adapter dependencies, then factory synthesis. Ea
 consume the previous pass's output.
 
 #### Scenario: a factory demanded by a proxied subject
-- **WHEN** a subject has both a `.contributesProxy` annotation and a `@Middleware(key)` factory demand
+- **WHEN** `@Controller` is declared `.contributesProxy` and `@Middleware` `.injectsFromGraph`, and a subject annotated `@Controller` also carries a `@Middleware(key)` factory demand
 - **THEN** the factory edge is appended to the proxy synthesised in the earlier pass
 
 Pinned by: `Tests/WireGenCoreTests/ContributorProxySynthesisTests.swift` (`factorySynthesisLandsFactoryEdgeOnProxyNotController`) for proxies before factory synthesis. The full order is pinned by nothing yet.
