@@ -164,11 +164,10 @@ Pinned by: nothing yet.
 When discovering bindings, dependencies, contributions and teardowns, WireGen SHALL recognise a Wire
 macro attribute written with an SE-0491 module selector naming `Wire` (`@Wire::Singleton`,
 `@Wire::Inject`, `@Wire::Contributes`, and so on, whitespace around `::` ignored) exactly as the bare
-name, and SHALL NOT recognise the same name qualified with any other module. The injection-rewrite
-candidate scan is the exception: it skips only the bare `Bind`, `Inject`, `Provides` and `Teardown`, so
-on `@Wire::Inject @FromSettings(...) var level: String` it records `Wire::Inject` as the candidate and
-no adapter rewrite happens, which is tracked as a defect in
-https://github.com/swift-wire/swift-wire/issues/413.
+name, and SHALL NOT recognise the same name qualified with any other module. This includes the
+injection-rewrite candidate scan, which skips `Bind`, `Inject`, `Provides` and `Teardown` in either
+spelling, so on `@Wire::Inject @FromSettings(...) var level: String` the adapter annotation
+`FromSettings` is the candidate.
 
 #### Scenario: qualified Wire macros
 - **WHEN** a source declares `@Wire::Singleton final class View { @Wire::Inject var logger: Logger }`
@@ -178,7 +177,11 @@ https://github.com/swift-wire/swift-wire/issues/413.
 - **WHEN** a source declares `@OtherDI::Singleton final class View {}`
 - **THEN** discovery records no singleton
 
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`moduleQualifiedWireMacrosRecognized`, `otherModuleQualifiedMacroNotRecognizedAsWire`), `Tests/WireGenCoreTests/ContributionDiscoveryTests.swift` (`moduleQualifiedContributesSelectorIsRecognised`). The injection-rewrite exception is pinned by nothing yet.
+#### Scenario: a qualified Wire attribute before an adapter annotation
+- **WHEN** a source declares `@Singleton final class View { @Wire::Inject @FromSettings(named: "level", default: "info") var level: String }`
+- **THEN** discovery records `FromSettings` as the `level` dependency's injection-rewrite candidate
+
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`moduleQualifiedWireMacrosRecognized`, `otherModuleQualifiedMacroNotRecognizedAsWire`, `moduleQualifiedInjectDoesNotHideAnInjectionRewriteCandidate`, `moduleQualifiedBindDoesNotHideAParameterInjectionRewriteCandidate`, `anotherModulesQualifiedInjectIsStillARewriteCandidate`), `Tests/WireGenCoreTests/ContributionDiscoveryTests.swift` (`moduleQualifiedContributesSelectorIsRecognised`).
 
 ### Requirement: `@Replaces` is a marker that generates nothing
 The `@Replaces` macro SHALL be an argumentless peer macro whose expansion is empty.

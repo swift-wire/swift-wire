@@ -782,6 +782,54 @@ struct DiscoveryTests {
         #expect(result.isEmpty)
     }
 
+    @Test func moduleQualifiedInjectDoesNotHideAnInjectionRewriteCandidate() {
+        // The injection-rewrite candidate scan skips Wire's own attributes and takes the first other one.
+        // `@Wire::Inject` is Wire's `@Inject`, so it is skipped and the adapter annotation after it is the
+        // candidate — the same as the bare `@Inject @FromSettings(...)` the InjectionRewriteHarness writes.
+        let source = """
+            @Singleton
+            final class View {
+                @Wire::Inject @FromSettings(named: "level", default: "info") var level: String
+            }
+            """
+        let result = discoverSingletons(in: source, sourcePath: "View.swift")
+        #expect(result.count == 1)
+        #expect(result[0].dependencies.count == 1)
+        let rewrite = result[0].dependencies.first?.injectionRewrite
+        #expect(rewrite?.annotationName == "FromSettings")
+        #expect(rewrite?.arguments.map(\.label) == ["named", "default"])
+    }
+
+    @Test func moduleQualifiedBindDoesNotHideAParameterInjectionRewriteCandidate() {
+        // The parameter scan is the same one: `@Wire::Bind(<key>)` keys the parameter and is skipped as a
+        // rewrite candidate, leaving the adapter annotation after it.
+        let source = """
+            @Provides
+            func makeLogger(@Wire::Bind(Settings.level) @FromSettings(named: "level") level: String) -> Logger {
+                Logger(level: level)
+            }
+            """
+        let result = discoverProviders(in: source, sourcePath: "App.swift")
+        #expect(result.count == 1)
+        #expect(result[0].dependencies.count == 1)
+        #expect(result[0].dependencies[0].keyIdentifier == "Settings.level")
+        #expect(result[0].dependencies[0].injectionRewrite?.annotationName == "FromSettings")
+    }
+
+    @Test func anotherModulesQualifiedInjectIsStillARewriteCandidate() {
+        // Only Wire's selector is skipped: `@OtherDI::Inject` is not Wire's attribute, so the scan takes it
+        // as the candidate (and `applyInjectionRewrites` later discards it unless an adapter declared it).
+        let source = """
+            @Singleton
+            final class View {
+                @Inject @OtherDI::Inject var level: String
+            }
+            """
+        let result = discoverSingletons(in: source, sourcePath: "View.swift")
+        #expect(result.count == 1)
+        #expect(result[0].dependencies.first?.injectionRewrite?.annotationName == "OtherDI::Inject")
+    }
+
     @Test func injectFuncBecomesMethodCallMemberInjection() {
         // The general form: `@Inject func setX(_ x: T)` captures the
         // method's parameter list as the injection's parameters and
