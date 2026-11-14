@@ -148,11 +148,80 @@ struct PrunedBindingDiagnosticsTests {
         #expect(
             deadBindingDiagnostics(
                 across: [.default: [binding]],
-                judgedByReachability: [binding.identity]
+                judgedByReachability: [nil: [binding.identity]]
             ).isEmpty
         )
         // Unjudged — a seed-scope partition — and the first-order check still speaks for it.
         #expect(deadBindingDiagnostics(across: [.default: [binding]]).count == 1)
+        // A container's app graph is skipped on its own container's judgement and no other's.
+        let containerPartition = Partition(container: "A")
+        #expect(
+            deadBindingDiagnostics(
+                across: [containerPartition: [binding]],
+                judgedByReachability: ["A": [binding.identity]]
+            ).isEmpty
+        )
+        #expect(
+            deadBindingDiagnostics(
+                across: [containerPartition: [binding]],
+                judgedByReachability: [nil: [binding.identity]]
+            ).count == 1
+        )
+    }
+
+    private func scoped(_ name: String, seed: String) -> DiscoveredBinding {
+        .scopeBound(
+            DiscoveredScopeBoundType(
+                typeName: name,
+                typeKind: "struct",
+                genericParameterNames: [],
+                dependencies: [],
+                location: mockLocation("Scoped\(name).swift"),
+                scopeKey: ScopeKey(seed: seed),
+                accessLevel: .internal,
+                originModule: testModule
+            )
+        )
+    }
+
+    /// swift-wire#440, across containers. An unconsumed seed-scope `Logger` in the default container was
+    /// skipped because container `A`'s app graph judged a `Logger` of its own: one module-wide set was
+    /// applied to every container. Reachability never saw the seed-scope binding, so the dead-binding
+    /// pass is the only thing that can report it.
+    @Test("A seed-scope binding is judged even when another container's app graph judged its identity")
+    func seedScopeBindingIsJudgedDespiteAnotherContainersAppGraph() throws {
+        let seedLogger = scoped("Logger", seed: "Req")
+        let appLogger = singleton("Logger")
+        let diagnostics = deadBindingDiagnostics(
+            across: [
+                Partition(scope: ScopeKey(seed: "Req")): [seedLogger],
+                Partition(container: "A"): [appLogger],
+            ],
+            judgedByReachability: [nil: [], "A": [appLogger.identity]]
+        )
+        let diagnostic = try #require(diagnostics.first)
+        #expect(diagnostics.count == 1)
+        #expect(diagnostic.location == seedLogger.location)
+        #expect(diagnostic.message.contains("'Logger' is declared but nothing in the build consumes it"))
+    }
+
+    /// swift-wire#440, within one container. The app graph's `Logger` was judged (and, unconsumed, pruned
+    /// and reported by `prunedBindingDiagnostics`), and the exclusion also swallowed the seed-scope
+    /// `Logger` that shares its identity. Only the app-graph one is excluded now.
+    @Test("A seed-scope binding is judged even when its own container's app graph judged its identity")
+    func seedScopeBindingIsJudgedDespiteItsOwnContainersAppGraph() throws {
+        let seedLogger = scoped("Logger", seed: "Req")
+        let appLogger = singleton("Logger")
+        let diagnostics = deadBindingDiagnostics(
+            across: [
+                Partition(scope: ScopeKey(seed: "Req")): [seedLogger],
+                .default: [appLogger],
+            ],
+            judgedByReachability: [nil: [appLogger.identity]]
+        )
+        let diagnostic = try #require(diagnostics.first)
+        #expect(diagnostics.count == 1)
+        #expect(diagnostic.location == seedLogger.location)
     }
 
     // MARK: - The fixed point (the diagnostic fold)

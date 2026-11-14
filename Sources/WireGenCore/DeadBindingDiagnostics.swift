@@ -14,8 +14,8 @@
 // `table: ConcreteTable`); that substituted edge lives in the resolved
 // graph's bindings, so feeding those in keeps the concrete producer live.
 //
-// **This no longer judges a binding any graph's reachability has
-// already judged.** The first-order check here could not see that a binding
+// **This no longer judges an app-graph binding its container's
+// reachability has already judged.** The first-order check here could not see that a binding
 // consumed solely by another *dead* binding is itself dead; reachability
 // is that fixed point by construction, so wherever a graph is pruned,
 // `prunedBindingDiagnostics` is the dead-code diagnostic and this pass
@@ -52,26 +52,37 @@
 /// so a binding provided solely for an adapter to use stays subject to the
 /// normal check. Adapters register in the default graph, so these apply to
 /// the default (`nil`) container.
-/// `judgedByReachability` are the identities some graph's reachability already decided — the retained and
-/// the pruned together, not just the pruned. They are excluded here rather than re-judged, which is what
-/// makes this a fold rather than a suppression: a binding a pruned graph kept is live *because a root
-/// reaches it*, and one it dropped is reported by `prunedBindingDiagnostics` in terms that say more. What
-/// this pass still judges is what reachability did not — seed-scope partitions.
+/// `judgedByReachability` holds, per container, the identities that container's app graph's reachability
+/// already decided — the retained and the pruned together, not just the pruned. Those app-graph bindings
+/// are excluded here rather than re-judged, which is what makes this a fold rather than a suppression: a
+/// binding a pruned graph kept is live *because a root reaches it*, and one it dropped is reported by
+/// `prunedBindingDiagnostics` in terms that say more. What this pass still judges is what reachability did
+/// not — seed-scope partitions, and the app graph of a container that was not pruned.
+///
+/// The exclusion is applied to a binding only when its own partition is the app graph (`scope == nil`) of
+/// the container whose reachability judged it. Identity is bound type plus key, not partition, so a set
+/// pooled across containers, or applied to every partition, also skipped a seed-scope binding that merely
+/// shares its type and key with an app-graph binding somewhere (swift-wire#440): reachability never saw the
+/// seed-scope one, so nothing reported it.
 ///
 /// Bindings still count as *consumers* whether or not they were judged: an app singleton consumed only
 /// from inside a seed scope is live, which is why liveness merges a container's scopes in the first place.
 package func deadBindingDiagnostics(
     across bindingsByPartition: [Partition: [DiscoveredBinding]],
     resolvedByContainer: [String?: [DiscoveredBinding]] = [:],
-    judgedByReachability: Set<BindingIdentity> = []
+    judgedByReachability: [String?: Set<BindingIdentity>] = [:]
 ) -> [Diagnostic] {
     var bindingsByContainer: [String?: [DiscoveredBinding]] = [:]
+    var unjudgedByContainer: [String?: [DiscoveredBinding]] = [:]
     for (partition, bindings) in bindingsByPartition {
         bindingsByContainer[partition.container, default: []].append(contentsOf: bindings)
+        let judged = partition.scope == nil ? judgedByReachability[partition.container] ?? [] : []
+        unjudgedByContainer[partition.container, default: []]
+            .append(contentsOf: bindings.filter { !judged.contains($0.identity) })
     }
     let diagnostics = bindingsByContainer.flatMap { container, discovered in
         deadBindingDiagnostics(
-            in: discovered.filter { !judgedByReachability.contains($0.identity) },
+            in: unjudgedByContainer[container] ?? [],
             consumers: discovered + (resolvedByContainer[container] ?? [])
         )
     }

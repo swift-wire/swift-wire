@@ -121,24 +121,27 @@ SHALL be as specified in [injection-points](../injection-points/spec.md). The fl
 Pinned by: `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`privateInjectWeakVarRendersWithAsymmetryNote`, `privateInjectFuncRendersWithAsymmetryNote`).
 
 ### Requirement: The dead-binding warning covers only what reachability did not judge
-WireGen SHALL run the dead-binding check only over bindings whose identity (bound type and key) no
-pruned graph's reachability decided, retained or pruned. The decided identities are collected across
-the default graph and every container's app graph and applied to every container, so in practice the
-check covers seed-scope partitions, less any seed-scope binding that shares its identity with a binding
-some app graph judged; that exclusion is tracked as a defect in
-https://github.com/swift-wire/swift-wire/issues/440. A binding a pruned graph judged SHALL be reported,
-if at all, by the pruned-binding warning of
+WireGen SHALL skip, in the dead-binding check, a binding in a container's app graph whose identity
+(bound type and key) that container's own app-graph reachability decided, retained or pruned. The
+decided identities SHALL be kept per container, and a seed-scope binding SHALL NOT be skipped, since
+reachability does not judge seed scopes, even when it shares its identity with a binding some app graph
+judged, in its own container or another. In practice the check covers seed-scope partitions. A binding
+a pruned graph judged SHALL be reported, if at all, by the pruned-binding warning of
 [reachability-and-retention](../reachability-and-retention/spec.md).
 
 #### Scenario: a pruned home binding is reported once
 - **WHEN** an unconsumed `internal` binding sits in the default graph, which reachability prunes
 - **THEN** the pruned-binding warning reports it and the dead-binding pass does not
 
-#### Scenario: a seed-scope binding sharing an app-graph identity
+#### Scenario: a seed-scope binding sharing another container's app-graph identity
 - **WHEN** an unconsumed `@Scoped(seed: Req.self)` binding of `Logger` sits in the default container and container `A`'s app graph has a `Logger`
-- **THEN** the dead-binding pass does not judge the seed-scope `Logger`
+- **THEN** the dead-binding pass reports the seed-scope `Logger` as declared but consumed by nothing
 
-Pinned by: `Tests/WireGenCoreTests/PrunedBindingDiagnosticsTests.swift` (`reachabilitySupersedesTheDeadBindingWarning` for the dead-binding pass standing aside, `transitivelyDeadBindingIsReported` for the pruned-binding warning reporting an unconsumed binding of a pruned graph). The module-wide collection of decided identities is pinned by nothing yet.
+#### Scenario: a seed-scope binding sharing its own container's app-graph identity
+- **WHEN** an unconsumed `@Scoped(seed: Req.self)` binding of `Logger` and an app-graph `Logger` that reachability judged sit in the same container
+- **THEN** the dead-binding pass reports the seed-scope `Logger` and not the app-graph one
+
+Pinned by: `Tests/WireGenCoreTests/PrunedBindingDiagnosticsTests.swift` (`reachabilitySupersedesTheDeadBindingWarning` for the dead-binding pass standing aside on its own container's judgement only, `seedScopeBindingIsJudgedDespiteAnotherContainersAppGraph`, `seedScopeBindingIsJudgedDespiteItsOwnContainersAppGraph`, `transitivelyDeadBindingIsReported` for the pruned-binding warning reporting an unconsumed binding of a pruned graph). That WireGen builds the per-container sets from each app graph is pinned by nothing yet.
 
 ### Requirement: An unconsumed `internal` or `package` binding warns
 Among the bindings the dead-binding pass judges (seed-scope partitions), WireGen SHALL warn "'<Type>'
