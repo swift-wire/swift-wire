@@ -21,8 +21,8 @@ type-annotated `@Inject` stored-property binding in declaration order, assigning
 `self.<name> = <name>`, or `init()` when there are none. A binding without its own annotation, such
 as `a` in `@Inject var a, b: Dep`, gets no parameter, which is tracked as a possible defect in
 https://github.com/swift-wire/swift-wire/issues/411. The generated `init` SHALL carry the host
-type's access keyword verbatim, omitting `internal`; for an `open` host that is `open init`, which
-Swift rejects, tracked in https://github.com/swift-wire/swift-wire/issues/407.
+type's access keyword, omitting `internal`; for an `open` host it is `public init`, because Swift
+rejects `open init`.
 
 #### Scenario: one injected property
 - **WHEN** `@Singleton struct A { @Inject var b: B }` is expanded
@@ -32,7 +32,7 @@ Swift rejects, tracked in https://github.com/swift-wire/swift-wire/issues/407.
 - **WHEN** `@Singleton public struct` declares `@Inject` properties
 - **THEN** the synthesised initialiser is declared `public init(…)`
 
-Pinned by: `Tests/WireMacrosImplTests/SingletonMacroTests.swift` (`test_singletonWithOneInject_generatesParameterisedInit`, `test_singletonWithMultipleInjects_preservesDeclarationOrder`, `test_singletonOnPublicStruct_emitsPublicInitAndKey`), `Tests/WireMacrosImplTests/FactoryMacroTests.swift` (`test_factoryWithInjectProperty_generatesInitFromInjectMembers`).
+Pinned by: `Tests/WireMacrosImplTests/SingletonMacroTests.swift` (`test_singletonWithOneInject_generatesParameterisedInit`, `test_singletonWithMultipleInjects_preservesDeclarationOrder`, `test_singletonOnPublicStruct_emitsPublicInitAndKey`, `test_singletonOnOpenClass_emitsPublicInitAndKey`), `Tests/WireMacrosImplTests/FactoryMacroTests.swift` (`test_factoryWithInjectProperty_generatesInitFromInjectMembers`, `test_openFactoryClass_generatesPublicInit`).
 
 ### Requirement: A constructor-injected property may be `private`
 WireGen SHALL NOT raise an access-level error for a constructor-injected `@Inject` property

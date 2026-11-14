@@ -392,6 +392,53 @@ final class SingletonMacroTests: XCTestCase {
         )
     }
 
+    func test_singletonOnOpenClass_emitsPublicInitAndKey() {
+        // Swift rejects `open init` and `open static`, so an `open` host's
+        // synthesised members carry `public`, the widest access they can have.
+        assertMacroExpansion(
+            """
+            @Singleton
+            open class A {
+                @Inject var b: B
+            }
+            """,
+            expandedSource: """
+                open class A {
+                    var b: B
+
+                    public init(b: B) {
+                        self.b = b
+                    }
+
+                    public static let key = BindingKey<A>()
+                }
+                """,
+            macros: macros
+        )
+    }
+
+    func test_singletonOnGenericOpenClass_emitsPublicComputedKey() {
+        assertMacroExpansion(
+            """
+            @Singleton
+            open class A<T> {
+            }
+            """,
+            expandedSource: """
+                open class A<T> {
+
+                    public init() {
+                    }
+
+                    public static var key: BindingKey<A<T>> {
+                        BindingKey<A<T>>()
+                    }
+                }
+                """,
+            macros: macros
+        )
+    }
+
     // MARK: - Class and actor variants
 
     func test_singletonOnClass_works() {

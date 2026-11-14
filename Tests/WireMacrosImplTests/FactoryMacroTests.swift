@@ -82,4 +82,27 @@ final class FactoryMacroTests: XCTestCase {
             macros: macros
         )
     }
+
+    func test_openFactoryClass_generatesPublicInit() {
+        // Swift rejects `open init`, so an `open` host's synthesised init is
+        // `public`.
+        assertMacroExpansion(
+            """
+            @Factory(MyMiddleware.session)
+            open class SessionMiddleware {
+                @Inject public var store: SessionStore
+            }
+            """,
+            expandedSource: """
+                open class SessionMiddleware {
+                    public var store: SessionStore
+
+                    public init(store: SessionStore) {
+                        self.store = store
+                    }
+                }
+                """,
+            macros: macros
+        )
+    }
 }
