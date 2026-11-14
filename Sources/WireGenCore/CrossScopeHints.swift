@@ -161,15 +161,17 @@ private func factoryTemplateSuggestion(
     consumerPartition: Partition,
     bindingPartitions: [Partition]
 ) -> String {
-    // With the type bound in several partitions there is no single scope to name, so the message stays
-    // general rather than picking one of the notes printed above it arbitrarily.
-    let bindingScope =
+    // With the type bound in several partitions there is no single scope to name, so the message points
+    // back at the notes printed above it rather than picking one arbitrarily. It does not call them
+    // "narrower": this branch runs before any shape check, so a partition may be another `@Container`
+    // or a sibling seeded scope, neither of which is narrower than the consumer's.
+    let bindingSubject =
         bindingPartitions.count == 1
-        ? "\(describe(partition: bindingPartitions[0])) "
-        : "a narrower "
+        ? "A \(describe(partition: bindingPartitions[0])) binding"
+        : "A binding in any of the listed scopes"
     let consumerScope = describe(partition: consumerPartition)
     return
-        "'\(template)' is a @Factory template, so it has no scope of its own: it is constructed per `create` call, and its @Inject members resolve once — where the factory Wire synthesises for its key is constructed, in \(consumerScope). A \(bindingScope)binding can't be one of them. Produce '\(dependencyType)' at \(consumerScope), or move the scope-bound concern out of the template and into a binding that lives in the scope. Annotating '\(template)' with a scope is not a move: @Factory is itself a lifetime, and a declaration has one."
+        "'\(template)' is a @Factory template, so it has no scope of its own: it is constructed per `create` call, and its @Inject members resolve once — where the factory Wire synthesises for its key is constructed, in \(consumerScope). \(bindingSubject) can't be one of them. Produce '\(dependencyType)' at \(consumerScope), or move the scope-bound concern out of the template and into a binding that lives in the scope. Annotating '\(template)' with a scope is not a move: @Factory is itself a lifetime, and a declaration has one."
 }
 
 /// The consumer's type name (or a synthetic placeholder for

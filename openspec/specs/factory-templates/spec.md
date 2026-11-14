@@ -177,18 +177,21 @@ Pinned by: `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`rendersEveryCo
 When a synthesised factory's dependency is missing from its partition but is bound in another
 partition (a narrower scope or another container), WireGen SHALL name the template, not the synthesised factory, in the missing-binding hint, with
 the suggestion
-`` '<Template>' is a @Factory template, so it has no scope of its own: it is constructed per `create` call, and its @Inject members resolve once — where the factory Wire synthesises for its key is constructed, in <consumer scope>. A <binding scope>binding can't be one of them. Produce '<Type>' at <consumer scope>, or move the scope-bound concern out of the template and into a binding that lives in the scope. Annotating '<Template>' with a scope is not a move: @Factory is itself a lifetime, and a declaration has one. ``
-where `<binding scope>` carries its own trailing space: it is the one scope the type is bound in
-followed by a space, or `a narrower ` when it is bound in several, which renders
-`A a narrower binding can't be one of them.` and is tracked as a defect in
-https://github.com/swift-wire/swift-wire/issues/414. A declared consumer SHALL keep the ordinary
-cross-scope advice.
+`` '<Template>' is a @Factory template, so it has no scope of its own: it is constructed per `create` call, and its @Inject members resolve once — where the factory Wire synthesises for its key is constructed, in <consumer scope>. <binding subject> can't be one of them. Produce '<Type>' at <consumer scope>, or move the scope-bound concern out of the template and into a binding that lives in the scope. Annotating '<Template>' with a scope is not a move: @Factory is itself a lifetime, and a declaration has one. ``
+where `<binding subject>` is `A <binding scope> binding` when the type is bound in one other
+partition, and `A binding in any of the listed scopes` when it is bound in several, since those may
+include another container or a sibling seeded scope, neither narrower than the consumer's. A
+declared consumer SHALL keep the ordinary cross-scope advice.
 
 #### Scenario: a template injecting a request-scoped caller
 - **WHEN** `@Factory(ControllerMiddleware.screenAccess) struct ScreenAccess<Ctx>` injects `@Scoped(seed: HTTPRequest.self)` `Caller` and `@Singleton` `DocumentsController` carries `@Middleware(ControllerMiddleware.screenAccess)`
 - **THEN** the build reports `error: no binding produces 'Caller'` with a hint that names the template rather than the factory WireGen synthesises for it: it says `'ScreenAccess' is a @Factory template`, that `A @Scoped(seed: HTTPRequest.self) binding can't be one of them`, and to `Produce 'Caller' at @Singleton`, and never offers to change the scope of `_WireFactory_ControllerMiddleware_screenAccess`
 
-Pinned by: `Tests/WireGenCoreTests/FactoryLifetimeDiagnosticsTests.swift` (`aTemplateInjectingAScopedBindingIsNamedByTheTemplate`, `theNoteStatesTheConstraintThatActuallyBites`, `theNoteOffersOnlyMovesThatCanBeWritten`, `aDeclaredConsumerStillGetsTheOrdinaryAdvice`). The several-partitions wording and the other-container case are pinned by nothing yet.
+#### Scenario: the caller is also bound in another container
+- **WHEN** the same graph also declares `@Container enum Alpha { @Provides static let caller: Caller = Caller() }`
+- **THEN** the hint says `A binding in any of the listed scopes can't be one of them.`, and does not call either binding narrower
+
+Pinned by: `Tests/WireGenCoreTests/FactoryLifetimeDiagnosticsTests.swift` (`aTemplateInjectingAScopedBindingIsNamedByTheTemplate`, `theNoteStatesTheConstraintThatActuallyBites`, `theNoteOffersOnlyMovesThatCanBeWritten`, `aDeclaredConsumerStillGetsTheOrdinaryAdvice`, `aDependencyBoundInSeveralPartitionsPointsAtTheListedScopes`). The single other-container case is pinned by nothing yet.
 
 ### Requirement: An unconsumed internal template warns
 WireGen SHALL warn at an `internal` template declared in the module being built whose key no

@@ -95,6 +95,25 @@ struct FactoryLifetimeDiagnosticsTests {
         #expect(rendered.contains("A @Scoped(seed: HTTPRequest.self) binding can't be one of them"))
     }
 
+    @Test func aDependencyBoundInSeveralPartitionsPointsAtTheListedScopes() {
+        // swift-wire#414. With no single scope to name, the sentence used to read "A a narrower
+        // binding". The partitions here are a seeded scope and another container, and the container is
+        // not narrower than `@Singleton`, so the sentence names neither and points at the notes.
+        let source =
+            templateInjectingAScopedBinding + """
+
+                @Container
+                enum Alpha {
+                    @Provides static let caller: Caller = Caller()
+                }
+                """
+        let rendered = validate(source: source, sourcePath: "App.swift")
+        #expect(rendered.contains("note: 'Caller' is also bound in"))
+        #expect(rendered.contains("A binding in any of the listed scopes can't be one of them."))
+        #expect(!rendered.contains("A a "))
+        #expect(!rendered.contains("narrower"))
+    }
+
     @Test func theNoteOffersOnlyMovesThatCanBeWritten() {
         // The two that exist, and an explicit refusal of the one that does not. Asserting the refusal
         // matters as much as the offers: this is the note a reader reaches after being told a scoped
