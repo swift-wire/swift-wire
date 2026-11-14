@@ -853,22 +853,34 @@ private func resolveDependencies(
 }
 
 /// Build a `TypealiasHint` for a missing dependency when its type
-/// matches a known typealias name AND the typealias's underlying
-/// type IS bound under the same key. Returns `nil` otherwise.
+/// names a known typealias AND the typealias's underlying type would
+/// satisfy it under the same key. Returns `nil` otherwise.
+///
+/// The alias is looked up by the dependency's identity base, so an
+/// optional use (`UserID?`, `UserID!`) and whitespace variants find
+/// it. The underlying identity carries the dependency's own
+/// optionality, and is matched with the ordinary promotion rules: a
+/// `UserID?` dependency is hinted when `UUID?` or `UUID` is bound,
+/// exactly the producers `UUID?` written directly would accept.
 private func typealiasHintFor(
     dependency: DependencyParameter,
     typealiasByName: [String: DiscoveredTypealias],
     resolvedBindings: [BindingIdentity: DiscoveredBinding]
 ) -> TypealiasHint? {
-    guard let typealiasDecl = typealiasByName[dependency.type] else { return nil }
+    let written = identityComponents(dependency.type)
+    guard written.qualifier == .none,
+        let typealiasDecl = typealiasByName[written.base]
+    else { return nil }
     let underlying = identityComponents(typealiasDecl.underlyingType)
     let underlyingIdentity = BindingIdentity(
         qualifier: underlying.qualifier,
         base: underlying.base,
-        isOptional: underlying.isOptional,
+        isOptional: underlying.isOptional || written.isOptional,
         key: dependency.keyIdentifier
     )
-    guard resolvedBindings[underlyingIdentity] != nil else { return nil }
+    guard case .resolved = matchProducer(for: underlyingIdentity, in: resolvedBindings) else {
+        return nil
+    }
     return TypealiasHint(
         typealiasName: typealiasDecl.name,
         underlyingType: typealiasDecl.underlyingType,
