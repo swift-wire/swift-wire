@@ -278,8 +278,9 @@ private func methodCallInjection(
 ) -> MemberInjection {
     let parameters = funcDecl.signature.parameterClause.parameters.map {
         parameter -> DependencyParameter in
-        let parameterKey = attribute(in: parameter.attributes, named: "Inject")
-            .flatMap { keyIdentifier(from: $0) }
+        // Keyed the same way as an `@Inject init` or `@Provides func` parameter: `@Bind(<key>)`, the
+        // spelling that compiles on a parameter, with the legacy `@Inject(<key>)` still matched.
+        let parameterKey = parameterKeyIdentifier(from: parameter)
         return DependencyParameter(
             name: parameterName(parameter),
             type: parameter.type.trimmedDescription,

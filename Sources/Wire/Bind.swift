@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 the swift-wire project authors
 
-/// Name the keyed binding an `@Inject init` parameter should resolve to.
+/// Name the keyed binding an `@Inject init`, `@Inject func` or `@Provides func` parameter should resolve to.
 ///
 /// `@Inject(Key)` keys a *property* (`@Inject(Database.primary) var db: Database`), but `@Inject` is a
 /// peer macro and Swift does not allow a macro attribute on a function parameter. When the dependency has

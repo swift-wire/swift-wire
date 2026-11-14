@@ -153,6 +153,15 @@ struct BootstrapTests {
         #expect(graph.appName.value == "IntegrationTests")
     }
 
+    @Test func keyedInjectFuncParameterInjectsTheMatchingKeyedProvider() async throws {
+        // KeyedInjectFuncConsumer has `@Inject func receive(@Bind(AppName.boundViaInit) name: AppName)`. The
+        // post-construction call must pass the keyed `AppName("bound-via-init")`, not the unkeyed `appName`
+        // — the `@Inject func` parameter is keyed the same way as an `@Inject init` parameter.
+        let graph = try await Wire.bootstrap()
+        #expect(graph.keyedInjectFuncConsumer.current() == "bound-via-init")
+        #expect(graph.appName.value == "IntegrationTests")
+    }
+
     // MARK: - Effect-aware emission
 
     @Test func asyncThrowsProviderFunctionResolvesThroughBootstrap() async throws {

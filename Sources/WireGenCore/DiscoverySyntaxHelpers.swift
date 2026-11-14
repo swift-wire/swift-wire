@@ -58,7 +58,7 @@ func parameterName(_ parameter: FunctionParameterSyntax) -> String? {
 }
 
 /// The keyed binding a parameter names, or `nil` when it resolves by type. `@Inject` is a peer macro and
-/// cannot attach to a parameter, so a keyed `@Inject init` / `@Provides func` parameter carries the
+/// cannot attach to a parameter, so a keyed `@Inject init` / `@Inject func` / `@Provides func` parameter carries the
 /// `@Bind(<key>)` property wrapper instead — read here. The legacy `@Inject(<key>)` spelling is still
 /// accepted (it never compiled on a parameter, but costs nothing to keep matching).
 func parameterKeyIdentifier(from parameter: FunctionParameterSyntax) -> String? {
