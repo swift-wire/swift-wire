@@ -142,6 +142,15 @@ struct BootstrapTests {
         #expect(graph.appNameKeyedAppNameAlternate.value == "alternate")
     }
 
+    @Test func keyedOptionalSitesInjectTheirKeyedProviders() async throws {
+        // KeyedOptionalConsumer has two keyed `AppName?` sites: one whose key is
+        // `BindingKey<AppName>` (borrowing a non-optional producer) and one whose key is
+        // `BindingKey<AppName?>` (an exact optional producer). That this target compiled at all
+        // is the key-checks half (swift-wire#421); the values confirm the graph half.
+        let graph = try await Wire.bootstrap()
+        #expect(graph.keyedOptionalConsumer.describe() == "optional consumer with borrowed and exact")
+    }
+
     @Test func keyedInitParameterInjectsTheMatchingKeyedProvider() async throws {
         // KeyedInitConsumer has `@Inject init(@Bind(AppName.boundViaInit) name: AppName)`. `@Inject` is a
         // peer macro and can't key a parameter, so `@Bind` (a property wrapper) carries the key. The

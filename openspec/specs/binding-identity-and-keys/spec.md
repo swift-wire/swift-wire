@@ -204,9 +204,11 @@ injection-rewrite key and whose written type does not begin with `some ` or `any
 begins with `some ` or `any ` SHALL get no check. A keyed member injection (`@Inject(<key>) weak
 var`, or an `@Inject func` parameter keyed with `@Bind(<key>)`) gets no check, noted in
 https://github.com/swift-wire/swift-wire/issues/425. An optional
-site's check names the optional type (`_check(K.primary, Database?.self)`), which fails to compile
-even for a matching key; this is tracked as a defect in
-https://github.com/swift-wire/swift-wire/issues/421.
+consumer site's check names the optional type (`_check(K.primary, Database?.self)`), and its
+function SHALL also declare `_check<T>(_: BindingKey<T>, _: T?.Type)`, so a `BindingKey<Database>`
+key (a `T?` consumer borrowing a `T` producer) and a `BindingKey<Database?>` key both compile while
+a `BindingKey<Database?>` key at a `Database` site still fails. Provider sites and non-optional
+consumer sites get only the exact overload, so a keyed provider must return its key's type exactly.
 
 #### Scenario: an existential keyed provider
 - **WHEN** a provider keyed `Logger.fancy` binds `any Logger`
@@ -216,7 +218,11 @@ https://github.com/swift-wire/swift-wire/issues/421.
 - **WHEN** `Tests/IntegrationTests/KeyedExample.swift` declares `@Provides(AppName.alternate)` over `let alternateAppName: AppName = …` on line 21, and `AppName.alternate` is declared `BindingKey<AppName>()`
 - **THEN** `_WireKeyChecks.swift` contains `_check(AppName.alternate, AppName.self)` under `#sourceLocation(file: "Tests/IntegrationTests/KeyedExample.swift", line: 21)`
 
-Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`anyProtocolBindingsAreSkipped`, `someProtocolBindingsAreSkipped`, `differentKeysProduceSeparateFunctions`, `differentTypesProduceSeparateFunctions`), `GoldenHarness/Golden/_WireKeyChecks.swift.golden`. The multibinding-key, rewrite-key, member-injection and optional-site cases are pinned by nothing yet.
+#### Scenario: a keyed optional consumer of a non-optional key
+- **WHEN** `KeyedOptionalConsumer` declares `@Inject(AppName.borrowedOptional) var borrowed: AppName?`, and `AppName.borrowedOptional` is declared `BindingKey<AppName>()`
+- **THEN** `_WireKeyChecks.swift` contains `_check(AppName.borrowedOptional, AppName?.self)` in a function that also declares `func _check<T>(_: BindingKey<T>, _: T?.Type) {}`, and the target compiles
+
+Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`anyProtocolBindingsAreSkipped`, `someProtocolBindingsAreSkipped`, `differentKeysProduceSeparateFunctions`, `differentTypesProduceSeparateFunctions`, `keyedOptionalDependencyAlsoAcceptsTheNonOptionalKey`, `keyedOptionalProviderGetsOnlyTheExactOverload`), `Tests/IntegrationTests/BootstrapTests.swift` (`keyedOptionalSitesInjectTheirKeyedProviders`), `GoldenHarness/Golden/_WireKeyChecks.swift.golden`. The multibinding-key, rewrite-key and member-injection cases are pinned by nothing yet.
 
 ### Requirement: An instantiation with two candidate producers is a duplicate
 When a dependency's instantiation is bound both by a concrete binding the user declared and by a
