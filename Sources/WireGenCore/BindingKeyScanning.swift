@@ -76,6 +76,7 @@ func bindingKey(
     from node: VariableDeclSyntax,
     enclosingTypeNames: [String],
     enclosingAccessLevels: [AccessLevel],
+    enclosingExtensionAccess: AccessLevel?,
     sourcePath: String,
     converter: SourceLocationConverter,
     module: String
@@ -92,7 +93,9 @@ func bindingKey(
     let keyReference = (enclosingTypeNames + [pattern.identifier.text]).joined(separator: ".")
     let effectiveAccess =
         enclosingAccessLevels
-        .reduce(accessLevel(from: node.modifiers)) { $0.mostRestrictive(with: $1) }
+        .reduce(memberAccessLevel(from: node.modifiers, enclosingExtensionAccess: enclosingExtensionAccess)) {
+            $0.mostRestrictive(with: $1)
+        }
 
     return DiscoveredBindingKey(
         keyReference: keyReference,
