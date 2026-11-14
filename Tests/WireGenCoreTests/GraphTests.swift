@@ -1476,6 +1476,107 @@ struct GraphTests {
         #expect(provider.genericParameterNames.isEmpty)
     }
 
+    /// The specialised provider of `accessPath` in a successful graph's order.
+    private func specialisedProvider(_ accessPath: String, in result: GraphResult) throws -> DiscoveredProvider {
+        let order = try #require(result.outcome.topologicalOrder)
+        let provider = order.compactMap { binding -> DiscoveredProvider? in
+            guard case .provider(let provider) = binding, provider.accessPath == accessPath else { return nil }
+            return provider
+        }.first
+        return try #require(provider)
+    }
+
+    /// `@Provides func make<T: Sendable>(item: T) -> Box<T>`, with the given effects and access, and a
+    /// provider of `Int` so its `Box<Int>` specialisation resolves.
+    private func boxTemplateGraph(
+        isAsync: Bool = false,
+        isThrowing: Bool = false,
+        accessLevel: AccessLevel = .internal,
+        contributions: [Contribution] = [],
+        isReplacer: Bool = false,
+        itemRewrite: InjectionRewriteSite? = nil
+    ) -> GraphResult {
+        buildDependencyGraph(from: [
+            .provider(
+                DiscoveredProvider(
+                    boundType: "Box<T>",
+                    accessPath: "make",
+                    form: .function,
+                    dependencies: [
+                        DependencyParameter(
+                            name: "item",
+                            type: "T",
+                            kind: .providerFunctionParameter,
+                            location: mockLocation("make.swift"),
+                            keyIdentifier: itemRewrite == nil ? nil : "Config.item",
+                            injectionRewrite: itemRewrite
+                        )
+                    ],
+                    genericParameterNames: ["T"],
+                    location: mockLocation("make.swift"),
+                    isAsync: isAsync,
+                    isThrowing: isThrowing,
+                    accessLevel: accessLevel,
+                    contributions: contributions,
+                    isReplacer: isReplacer,
+                    originModule: testModule
+                )
+            ),
+            .provider(
+                DiscoveredProvider(
+                    boundType: "Int",
+                    accessPath: "number",
+                    form: .property,
+                    dependencies: [],
+                    genericParameterNames: [],
+                    location: mockLocation("number.swift"),
+                    keyIdentifier: itemRewrite == nil ? nil : "Config.item",
+                    originModule: testModule
+                )
+            ),
+            singleton("App", dependencies: [(name: "box", type: "Box<Int>")]),
+        ])
+    }
+
+    @Test func specialisedGenericProviderKeepsTheTemplatesEffects() throws {
+        // swift-wire#428: the specialisation was rebuilt field by field and left `isAsync` and
+        // `isThrowing` at their `false` defaults, so an `async throws` template was called bare.
+        let result = boxTemplateGraph(isAsync: true, isThrowing: true)
+        let provider = try specialisedProvider("make", in: result)
+        #expect(provider.boundType == "Box<Int>")
+        #expect(provider.isAsync)
+        #expect(provider.isThrowing)
+        let output = renderWireGraph(imports: [], topologicalOrder: try #require(result.outcome.topologicalOrder))
+        #expect(output.contains("let boxOfInt: Box<Int> = try await make(item: int)"))
+    }
+
+    @Test func specialisedGenericProviderKeepsTheTemplatesDeclarationFacts() throws {
+        // Access level, contributions and `@Replaces` are the template's too. None of them is read off
+        // a specialisation today — the visibility checks, fan-in and replacement all run over the
+        // templates — so this pins the copy itself, which is what keeps a later reader from seeing a
+        // `public` template's specialisation as `internal`.
+        let contribution = Contribution(keyReference: "App.boxes", location: mockLocation("make.swift"))
+        let result = boxTemplateGraph(accessLevel: .public, contributions: [contribution], isReplacer: true)
+        let provider = try specialisedProvider("make", in: result)
+        #expect(provider.accessLevel == .public)
+        #expect(provider.contributions == [contribution])
+        #expect(provider.isReplacer)
+    }
+
+    @Test func specialisedDependencyKeepsItsInjectionRewriteSite() throws {
+        // The substituted `item: T` → `item: Int` keeps every annotation the parameter carried, not
+        // only its label, kind, location and key (swift-wire#428).
+        let site = InjectionRewriteSite(
+            annotationName: "ConfigProperty",
+            arguments: [.init(label: "forKey", text: "\"ITEM\"")]
+        )
+        let result = boxTemplateGraph(itemRewrite: site)
+        let dependency = try #require(try specialisedProvider("make", in: result).dependencies.first)
+        #expect(dependency.type == "Int")
+        #expect(dependency.keyIdentifier == "Config.item")
+        #expect(dependency.injectionRewrite == site)
+    }
+
     @Test func multipleConsumersOfSameSpecialisationShareOneBinding() throws {
         // Two singletons both depend on `Repository<DynamoDBTable>`.
         // The specialisation phase should produce *one* specialised
