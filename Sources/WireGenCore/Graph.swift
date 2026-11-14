@@ -320,15 +320,8 @@ private func specialiseBinding(
     let substitutions = Dictionary(
         uniqueKeysWithValues: zip(parameterNames, concreteArguments)
     )
-    let substitutedDependencies = binding.dependencies.map { dep -> DependencyParameter in
-        guard let replacement = substitutions[dep.type] else { return dep }
-        return DependencyParameter(
-            name: dep.name,
-            type: replacement,
-            kind: dep.kind,
-            location: dep.location,
-            keyIdentifier: dep.keyIdentifier
-        )
+    let substitutedDependencies = binding.dependencies.map { dep in
+        substitutions[dep.type].map(dep.retyped) ?? dep
     }
     switch binding {
     case .scopeBound:
@@ -342,30 +335,19 @@ private func specialiseBinding(
         // For functions, splice the concrete arguments at the call
         // site via `concreteGenericArguments` and update `boundType`
         // to the concrete instantiation so identity matching picks
-        // up the specialised binding.
+        // up the specialised binding. Everything else is the template's: `specialised(as:…)` copies
+        // it, so the specialisation keeps its effects (`try`/`await` at the call site), access level,
+        // contributions, `@Replaces`, `allowUnused:` and teardown. A field-by-field rebuild here once
+        // dropped five of those (swift-wire#428). In particular `allowUnused:` names a binding the app
+        // reaches through a door Wire cannot see, and what the app holds is `Container<DataPoint>` —
+        // the specialisation — never the `makeContainer<T>` template, which produces nothing on its own.
         let parsedReturn = parseGenericType(canonicalTypeName(provider.boundType))
         let concreteType = "\(parsedReturn.base)<\(concreteArguments.joined(separator: ", "))>"
         return .provider(
-            DiscoveredProvider(
-                boundType: concreteType,
-                accessPath: provider.accessPath,
-                form: provider.form,
+            provider.specialised(
+                as: concreteType,
                 dependencies: substitutedDependencies,
-                genericParameterNames: [],
-                location: provider.location,
-                keyIdentifier: provider.keyIdentifier,
-                concreteGenericArguments: provider.form == .function
-                    ? concreteArguments
-                    : [],
-                scopeKey: provider.scopeKey,
-                // Carried onto the specialisation, not left at the template. `allowUnused:` names a
-                // binding the app reaches through a door Wire cannot see, and what the app actually holds
-                // is `Container<DataPoint>` — the specialisation — never the `makeContainer<T>` template,
-                // which produces nothing on its own. Dropping it here made the annotation inert for every
-                // generic binding: not a reachability root, and not a stored property.
-                allowUnused: provider.allowUnused,
-                teardown: provider.teardown,
-                originModule: provider.originModule
+                concreteArguments: concreteArguments
             )
         )
     case .aggregate:
