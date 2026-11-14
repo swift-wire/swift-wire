@@ -636,6 +636,82 @@ struct GraphTests {
         #expect(hint.underlyingType == "UUID")
     }
 
+    @Test(arguments: [
+        (written: "UserID?", producer: "UUID"),
+        (written: "UserID?", producer: "UUID?"),
+        (written: "UserID !", producer: "UUID"),
+    ])
+    func missingBindingForOptionalTypealiasAttachesHintWhenUnderlyingIsBound(
+        written: String,
+        producer: String
+    ) throws {
+        // `@Inject var userID: UserID?` where `UserID` is a typealias of
+        // `UUID`. The alias is found through the dependency's identity
+        // base, and the underlying identity is `UUID?`, which `UUID?` or
+        // (by promotion) `UUID` satisfies. An IUO with stray whitespace
+        // reaches the same base.
+        let result = buildDependencyGraph(
+            from: [
+                singleton("A", dependencies: [(name: "userID", type: written)]),
+                .provider(
+                    DiscoveredProvider(
+                        boundType: producer,
+                        accessPath: "uuid",
+                        form: .property,
+                        dependencies: [],
+                        genericParameterNames: [],
+                        location: mockLocation("UUID.swift"),
+                        originModule: testModule
+                    )
+                ),
+            ],
+            typealiases: [
+                DiscoveredTypealias(
+                    name: "UserID",
+                    underlyingType: "UUID",
+                    location: mockLocation("Types.swift", line: 3, column: 1)
+                )
+            ]
+        )
+        let errors = try #require(result.outcome.validationErrors)
+        #expect(errors.missingBindings.count == 1)
+        let hint = try #require(errors.missingBindings[0].typealiasHint)
+        #expect(hint.typealiasName == "UserID")
+        #expect(hint.underlyingType == "UUID")
+    }
+
+    @Test func missingBindingForTypealiasHasNoHintWhenOnlyOptionalUnderlyingIsBound() throws {
+        // The non-optional alias `UserID` asks for `UUID`; a `UUID?`
+        // producer can't satisfy that, so injecting the underlying type
+        // directly wouldn't help and no hint is attached.
+        let result = buildDependencyGraph(
+            from: [
+                singleton("A", dependencies: [(name: "userID", type: "UserID")]),
+                .provider(
+                    DiscoveredProvider(
+                        boundType: "UUID?",
+                        accessPath: "uuid",
+                        form: .property,
+                        dependencies: [],
+                        genericParameterNames: [],
+                        location: mockLocation("UUID.swift"),
+                        originModule: testModule
+                    )
+                ),
+            ],
+            typealiases: [
+                DiscoveredTypealias(
+                    name: "UserID",
+                    underlyingType: "UUID",
+                    location: mockLocation("Types.swift")
+                )
+            ]
+        )
+        let errors = try #require(result.outcome.validationErrors)
+        #expect(errors.missingBindings.count == 1)
+        #expect(errors.missingBindings[0].typealiasHint == nil)
+    }
+
     @Test func missingBindingWithTypealiasButUnboundUnderlyingHasNoHint() throws {
         // Typealias exists but underlying type isn't bound either —
         // adding a hint would mislead the user. No hint attached.

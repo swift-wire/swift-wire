@@ -73,14 +73,19 @@ dependency is missing and a module-scope, non-generic typealias of that name has
 that is bound under the same key, the missing-binding error SHALL carry the note "'<Alias>' is a
 typealias of '<Underlying>' which is bound; typealiases aren't unwrapped at resolution, so inject
 '<Underlying>' directly or add a separate binding for '<Alias>'" at the typealias. A dependency
-written as an optional of the alias (`UserID?`) gets no such note, which is tracked as a defect in
-https://github.com/swift-wire/swift-wire/issues/424.
+written as an optional of the alias (`UserID?` or `UserID!`) finds the alias by name with its
+optional layer removed, and gets the note when a producer would satisfy the underlying type with
+the dependency's optionality: `UserID?` is noted when `UUID?` or `UUID` is bound.
 
 #### Scenario: an alias of a bound type
 - **WHEN** `typealias UserID = UUID` is declared, `@Provides let uuid: UUID = UUID()` is bound, and `Service` declares `@Inject var userID: UserID`
 - **THEN** the output contains "error: no binding produces 'UserID'" and "note: 'UserID' is a typealias of 'UUID'"
 
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`missingBindingForTypealiasAttachesHintWhenUnderlyingIsBound`, `missingBindingWithTypealiasButUnboundUnderlyingHasNoHint`), `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`missingBindingForTypealiasRendersNoteAtUnderlyingType`), `Tests/WireGenCoreTests/DiscoveryTests.swift` (`moduleScopeTypealiasIsCaptured`, `nestedTypealiasIsNotCaptured`, `genericTypealiasIsNotCaptured`). The optional-alias case is pinned by nothing yet.
+#### Scenario: an optional use of an alias of a bound type
+- **WHEN** `typealias UserID = UUID` is declared, `@Provides let uuid: UUID = UUID()` is bound, and `Service` declares `@Inject var userID: UserID?`
+- **THEN** the missing-binding error for `UserID?` carries the note that `UserID` is a typealias of `UUID`
+
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`missingBindingForTypealiasAttachesHintWhenUnderlyingIsBound`, `missingBindingForOptionalTypealiasAttachesHintWhenUnderlyingIsBound`, `missingBindingForTypealiasHasNoHintWhenOnlyOptionalUnderlyingIsBound`, `missingBindingWithTypealiasButUnboundUnderlyingHasNoHint`), `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`missingBindingForTypealiasRendersNoteAtUnderlyingType`), `Tests/WireGenCoreTests/DiscoveryTests.swift` (`moduleScopeTypealiasIsCaptured`, `nestedTypealiasIsNotCaptured`, `genericTypealiasIsNotCaptured`).
 
 ### Requirement: Two producers of one identity are a duplicate-binding error
 When two or more bindings in one partition (see [seeded-scopes](../seeded-scopes/spec.md)) have the same identity, and none of them is an
