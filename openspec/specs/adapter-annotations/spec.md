@@ -139,13 +139,17 @@ key per consumer. A key with no matching template SHALL synthesise nothing.
 
 #### Scenario: two consumers of one key
 - **WHEN** `@Middleware` is declared `.injectsFromGraph`, the controllers `AccountController` and `BillingController` in one partition each carry `@Middleware(MyMiddleware.session)`, and a `@Factory(MyMiddleware.session)` template exists
-- **THEN** exactly one `_WireFactory_MyMiddleware_session` binding is registered in the partition
+- **THEN** exactly one `_WireFactory_MyMiddleware_session` binding is registered in the partition, and `AccountController` and `BillingController` each gain one dependency of that type named `_wireFactory_MyMiddleware_session`
+
+#### Scenario: one consumer carrying a key twice
+- **WHEN** `@Middleware` is declared `.injectsFromGraph`, two `@Middleware(MyMiddleware.session)` use-sites are attributed to the one controller `BillingController`, and a `@Factory(MyMiddleware.session)` template exists
+- **THEN** `BillingController` gains exactly one `_wireFactory_MyMiddleware_session` dependency
 
 #### Scenario: a key without a template
 - **WHEN** `@Middleware` is declared `.injectsFromGraph` and a controller's `@Middleware(Keys.unknown)` names a key no `@Factory` declares
 - **THEN** no factory is synthesised and no edge is appended
 
-Pinned by: `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`synthesizesOneFactoryPerConsumedKeyDeduped`, `concreteSelfArgumentSynthesizesNoFactory`, `keyWithoutMatchingTemplateSynthesizesNoFactory`, `appendsFactoryEdgeAndRegistersBinding`, `registersFactoryBindingOncePerPartitionDespiteMultipleConsumers`, `nonFactoryCapabilityIsIgnored`, `synthesisFromDiscoveredSource`). The factory edge on every consumer of a key, rather than on one, is not yet pinned: https://github.com/swift-wire/swift-wire/issues/454.
+Pinned by: `Tests/WireGenCoreTests/FactorySynthesisTests.swift` (`synthesizesOneFactoryPerConsumedKeyDeduped`, `concreteSelfArgumentSynthesizesNoFactory`, `keyWithoutMatchingTemplateSynthesizesNoFactory`, `appendsFactoryEdgeAndRegistersBinding`, `registersFactoryBindingOncePerPartitionDespiteMultipleConsumers`, `nonFactoryCapabilityIsIgnored`, `synthesisFromDiscoveredSource`). `registersFactoryBindingOncePerPartitionDespiteMultipleConsumers` also pins the edge on each of the two consumers and its deduplication when one consumer carries the key twice.
 
 ### Requirement: `.mapsFactoryRoles(roles:)` supplies the order of a factory's assisted parameters
 WireGen SHALL join a `.mapsFactoryRoles(roles:)` use-site to the `@Factory` template of the type

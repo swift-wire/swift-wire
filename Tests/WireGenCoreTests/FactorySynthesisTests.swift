@@ -174,6 +174,7 @@ struct FactorySynthesisTests {
             useSites: [
                 useSite(argument: "MyMiddleware.session", on: "AccountController"),
                 useSite(argument: "MyMiddleware.session", on: "BillingController"),
+                useSite(argument: "MyMiddleware.session", on: "BillingController"),
             ],
             consumerModule: testModule
         )
@@ -182,6 +183,14 @@ struct FactorySynthesisTests {
             $0.typeName == "_WireFactory_MyMiddleware_session"
         }
         #expect(factoryBindings.count == 1)
+
+        // Every consumer of the key gains the edge, not just the first, and a consumer carrying the
+        // use-site twice still gains it once.
+        for consumer in ["AccountController", "BillingController"] {
+            let binding = try #require(bindings.compactMap(scopeBound).first { $0.typeName == consumer })
+            let edges = binding.dependencies.filter { $0.name == "_wireFactory_MyMiddleware_session" }
+            #expect(edges.map(\.type) == ["_WireFactory_MyMiddleware_session"], "\(consumer)")
+        }
     }
 
     @Test func noConsumersLeavesBindingsUnchanged() {
