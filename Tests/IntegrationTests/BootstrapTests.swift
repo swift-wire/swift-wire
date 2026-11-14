@@ -37,6 +37,29 @@ struct BootstrapTests {
         #expect(scope.scopedGreetingReporter.report() == "[req-9] Hello, world!")
     }
 
+    @Test func keyedOpaqueBindingsOfOneProtocolLiftAParameterEach() async throws {
+        // swift-wire#368 — `K.alpha` and `K.beta` are two `some KeyedNamer` bindings with a lifted
+        // parameter each, so the pair holds the alpha namer in `x` and the beta namer in `y`, not one
+        // namer twice.
+        let graph = try await Wire.bootstrap()
+        #expect(graph.someKeyedNamerKeyedKeyedNamerKeysAlpha.name() == "alpha")
+        #expect(graph.someKeyedNamerKeyedKeyedNamerKeysBeta.name() == "beta")
+        #expect(graph.keyedNamerPairOfSomeKeyedNamerAndSomeKeyedNamer.x.name() == "alpha")
+        #expect(graph.keyedNamerPairOfSomeKeyedNamerAndSomeKeyedNamer.y.name() == "beta")
+    }
+
+    @Test func aScopedConsumerOfKeyedOpaqueBindingsBorrowsEachByKey() async throws {
+        // The seed-scope lift keys its axes the same way: the scoped pair's parameters are filled by its
+        // dependencies' keys, whatever order it declares them in.
+        let graph = try await Wire.bootstrap()
+        let scope = try await Wire.bootstrapTestRequestSeedScope(
+            seed: TestRequestSeed(id: "req-368"),
+            wireGraph: graph
+        )
+        #expect(scope.scopedKeyedNamerPairOfSomeKeyedNamerAndSomeKeyedNamer.first.name() == "beta")
+        #expect(scope.scopedKeyedNamerPairOfSomeKeyedNamerAndSomeKeyedNamer.second.name() == "alpha")
+    }
+
     @Test func storedPropertiesAreNamedByLowerCamelCasedTypeName() async throws {
         // Confirms WireGen's naming convention round-trips: the
         // accessor on the generated struct is lowerCamelCased(typeName).

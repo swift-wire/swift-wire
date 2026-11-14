@@ -1883,6 +1883,33 @@ struct CodeEmissionTests {
         #expect(promoting?.contains("\"maybeDB.swift\"") == false)
     }
 
+    @Test func keyedDependencyTypedByAGenericParameterIsSkipped() {
+        // `@Inject(K.a) var x: X` in `Consumer<X: P>` — `X` exists only inside `Consumer`, so a
+        // file-scope `_check(K.a, X.self)` cannot compile (`cannot find 'X' in scope`). Found by the
+        // swift-wire#368 integration fixture, which this used to stop compiling before the graph did.
+        let consumer: DiscoveredBinding = .scopeBound(
+            DiscoveredScopeBoundType(
+                typeName: "Consumer",
+                typeKind: "struct",
+                genericParameterNames: ["X"],
+                genericParameterConstraints: ["X": "P"],
+                dependencies: [
+                    DependencyParameter(
+                        name: "x",
+                        type: "X",
+                        kind: .injectProperty,
+                        location: mockLocation("Consumer.swift"),
+                        keyIdentifier: "K.a"
+                    )
+                ],
+                location: mockLocation("Consumer.swift"),
+                originModule: testModule
+            )
+        )
+        let output = renderWireKeyChecks(imports: [], allBindings: [consumer])
+        #expect(!output.contains("_wireTypeCheck_"))
+    }
+
     @Test func keyedProviderInGraphGetsKeyedAccessorName() {
         // A keyed `@Provides Database` paired with the unkeyed
         // `Database`-typed binding has to get a distinct identifier

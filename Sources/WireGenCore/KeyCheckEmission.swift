@@ -161,10 +161,16 @@ private func collectKeyCheckSites(
                 )
             )
         }
+        // A dependency typed by the consumer's own generic parameter (`@Inject(K.a) var x: X` in
+        // `Consumer<X: P>`) names a type that exists only inside the consumer; the file-scope check
+        // function cannot spell it, and `X` is filled by an opaque `some P` binding the helper can't
+        // unify with anyway — the same reason `some`/`any` types are skipped.
+        let genericParameters = Set(binding.genericParameterNames)
         for dependency in binding.dependencies {
             guard let key = dependency.keyIdentifier else { continue }
             guard !multibindingKeyReferences.contains(key) else { continue }
             guard shouldEmitCheck(forType: dependency.type) else { continue }
+            guard genericParameters.isDisjoint(with: identifierTokens(dependency.type)) else { continue }
             sites.append(
                 KeyCheckSite(
                     keyExpression: key,

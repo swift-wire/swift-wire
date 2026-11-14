@@ -167,7 +167,7 @@ package struct GraphStoragePatch {
     package let parentLocal: String
     package let topologicalOrder: [DiscoveredBinding]
     package let roots: Set<BindingIdentity>
-    package let liftedParameterForIdentity: [String: String]
+    let lifted: LiftedParameters
     package let hasTeardown: Bool
     package let propertyBlockIndex: Int
     package let returnLineIndex: Int
@@ -211,10 +211,7 @@ package func resolveStoragePatches(_ patches: [GraphStoragePatch], in lines: ino
         var storedNames: [String] = []
         for binding in patch.topologicalOrder {
             let property = propertyName(for: binding)
-            let type = wireGraphFieldType(
-                for: binding,
-                liftedParameterForIdentity: patch.liftedParameterForIdentity
-            )
+            let type = wireGraphFieldType(for: binding, lifted: patch.lifted)
             if retained.contains(property) {
                 properties.append("    let \(property): \(type)")
                 storedNames.append(property)

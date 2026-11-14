@@ -169,8 +169,7 @@ Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`aConcreteBindingIsNotADup
 
 ### Requirement: Each bare `some P` binding lifts a parameter onto the graph struct
 For each binding in a graph whose type is written with a leading `some `, in topological order, the
-generated struct SHALL declare a generic parameter `T<n>: <P>`, store that binding as `T<n>` (except
-for a second keyed binding of the same `some P`, described in the next requirement), and the
+generated struct SHALL declare a generic parameter `T<n>: <P>`, store that binding as `T<n>`, and the
 bootstrap and `Wire` facade SHALL return `<Struct><some P0, …>`. A graph with no such binding SHALL
 keep the bare struct name.
 
@@ -184,28 +183,40 @@ keep the bare struct name.
 
 Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`opaqueBindingsLiftGenericParametersOntoWireGraph`), `Tests/WireGenCoreTests/RetentionTests.swift` (`anOpaqueLiftedBindingIsStored`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
-### Requirement: Keyed bindings of one `some P` share the first one's parameter
-When the same `some P` is bound more than once under different keys, the generated struct SHALL
-declare a generic parameter for each binding but SHALL type every one of their stored properties with
-the first binding's parameter, which is tracked as a defect in
-https://github.com/swift-wire/swift-wire/issues/368.
+### Requirement: Keyed bindings of one `some P` each lift their own parameter
+When the same `some P` is bound more than once under different keys, each binding SHALL lift its own
+generic parameter, and its stored property SHALL be typed with that parameter: the lifted parameters
+are assigned by binding identity, type and key together, not by type alone.
 
-#### Scenario: two keyed opaque loggers
-- **WHEN** `some Logger` is bound under `Log.a` and again under `Log.b`, in that topological order
-- **THEN** the struct declares `T0: Logger, T1: Logger` and both stored properties are typed `T0`
+#### Scenario: two keyed opaque providers
+- **WHEN** `@Provides(K.a) func makeA() -> some P` and `@Provides(K.b) func makeB() -> some P` are bound, in that topological order
+- **THEN** the struct declares `_WireGraph<T0: P, T1: P>` and stores `let somePKeyedKA: T0` and `let somePKeyedKB: T1`
 
-Pinned by: nothing yet.
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`twoKeyedSomeProducersOfOneProtocolLiftAParameterEach`, `keyedSomeProducersFillAConsumerByKeyNotByPosition`), `Tests/IntegrationTests/BootstrapTests.swift` (`keyedOpaqueBindingsOfOneProtocolLiftAParameterEach`).
 
 ### Requirement: A structural lift node reuses its bridge targets' parameters
 A determined generic `@Singleton` SHALL lift no parameter of its own; its stored property SHALL be
-typed `<Type><T<n>, …>`, each argument the lifted parameter of the `some <constraint>` binding its
-generic parameter bridges to.
+typed `<Type><T<n>, …>`, each argument the lifted parameter of the opaque binding that fills that
+generic parameter. The filling binding is the producer of the dependency the parameter types, keyed as
+that dependency is keyed (`@Inject(K.b) var y: Y` is filled by the `some P` bound under `K.b`). A
+parameter that appears only as a top-level generic argument of a dependency on another structural lift
+node (`Consumer<X, Y>`) is filled by whatever fills that node's parameter in the same position. A
+parameter reached any other way falls back to the first lifted `some <constraint>` binding, whatever
+its key. A seeded scope's struct lifts the parent graph's axes it uses by the same identities.
+
+#### Scenario: a consumer of two keyed opaque providers
+- **WHEN** `some P` is bound under `K.a` and `K.b` and `@Singleton struct Consumer<X: P, Y: P> { @Inject(K.a) var x: X; @Inject(K.b) var y: Y }` is in the graph
+- **THEN** the struct stores the consumer as `Consumer<T0, T1>` and the bootstrap passes it the `K.a` binding as `x` and the `K.b` binding as `y`
+
+#### Scenario: a scoped consumer of two keyed opaque providers
+- **WHEN** the app graph binds `some KeyedNamer` under `KeyedNamerKeys.alpha` and `KeyedNamerKeys.beta`, and `@Scoped(seed: TestRequestSeed.self) struct ScopedKeyedNamerPair<X: KeyedNamer, Y: KeyedNamer>` injects `KeyedNamerKeys.beta` as `first: Y` and `KeyedNamerKeys.alpha` as `second: X`
+- **THEN** the scope's `first` is the beta binding and `second` is the alpha binding
 
 #### Scenario: a controller over a lifted repository
 - **WHEN** the graph is the chain `some DBTable & Sendable` (lifted as `T0`), `some TaskRepo` (lifted as `T1`) and `Controller<Repository: TaskRepo>`, a structural lift node over the `some TaskRepo` binding
 - **THEN** the graph struct stores the controller as `Controller<T1>` and declares only the two generic parameters `T0` and `T1`
 
-Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`structuralLiftNodeReusesBridgeTargetParameterAsNestedField`, `multiParamStructuralLiftNodeSubstitutesEachParameterIndependently`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
+Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`structuralLiftNodeReusesBridgeTargetParameterAsNestedField`, `multiParamStructuralLiftNodeSubstitutesEachParameterIndependently`), `Tests/WireGenCoreTests/GraphTests.swift` (`twoKeyedSomeProducersOfOneProtocolLiftAParameterEach`, `keyedSomeProducersFillAConsumerByKeyNotByPosition`, `aProxyOverAKeyedConsumerThreadsEachParameterThroughIt`), `Tests/IntegrationTests/BootstrapTests.swift` (`keyedOpaqueBindingsOfOneProtocolLiftAParameterEach`, `aScopedConsumerOfKeyedOpaqueBindingsBorrowsEachByKey`), `GoldenHarness/Golden/_WireGraph.swift.golden`. The constraint-text fallback is pinned by nothing yet.
 
 ### Requirement: A constructed bare `some P` binding is always stored
 A binding whose type is written with a leading `some ` that the graph constructs SHALL be a stored
