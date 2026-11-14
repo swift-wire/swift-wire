@@ -185,22 +185,33 @@ part of the type it is bound as.
 
 Pinned by: `Tests/IntegrationTests/TeardownTests.swift` (`teardownRunsActionsInReverseDependencyOrder`).
 
-### Requirement: A graph with a `@Teardown` binding compiles only when its construction can throw
-WireGen SHALL generate a graph that compiles and bootstraps when the graph has a `@Teardown` binding
-and its construction can throw. When its construction cannot throw, the generated file does not
-compile, because the bootstrap records teardown actions into a list it declares only when it unwinds
-a throw (see the unwind requirement below). This is tracked as a defect in
-https://github.com/swift-wire/swift-wire/issues/366.
+### Requirement: A graph with a `@Teardown` binding compiles whether or not construction or teardown can throw
+WireGen SHALL generate a bootstrap that compiles, and draws no `'catch' block is unreachable` warning,
+for a graph with a `@Teardown` binding in each pairing of a construction that can or cannot throw with a
+teardown that can or cannot throw. The bootstrap SHALL declare
+`var _wireTeardownActions: [@Sendable () async -> [any Error]] = []` whenever the graph has a `@Teardown`
+binding, because the graph's `_wireTeardown` folds it on success. It SHALL wrap construction in the
+`do`/`catch` of the unwind requirement below only when construction itself can throw: a `try` inside a
+recorded teardown action does not make construction throwing. A scope-entry thunk, seeded or
+reconstructed from test doubles alone, SHALL do the same with `_wireScopeTeardownActions`.
 
 #### Scenario: construction that can throw
 - **WHEN** the default graph holds `@Teardown` bindings and its construction can throw
 - **THEN** the generated file compiles and `Wire.bootstrap()` returns a graph whose `teardown()` runs those bindings' actions
 
-#### Scenario: construction that cannot throw
-- **WHEN** `@Singleton(allowUnused: true) final class Cache` declares `@Inject init() {}` and `@Teardown func close() async {}`, and nothing else in the graph can throw
-- **THEN** the generated file does not compile
+#### Scenario: neither construction nor teardown can throw
+- **WHEN** in `@Container PlainBuildPlainTeardownContainer`, the only binding `PlainPlainResource` declares `@Inject package init() {}` and `@Teardown package func close() async`
+- **THEN** the bootstrap declares `_wireTeardownActions` and has no `do`, and `Wire.bootstrapPlainBuildPlainTeardownContainer()` returns a graph whose `teardown()` runs `close()` once and returns no errors
 
-Pinned by: `Tests/IntegrationTests/TeardownTests.swift` (`teardownRunsActionsInReverseDependencyOrder`). The case that does not compile is pinned by nothing yet.
+#### Scenario: only teardown can throw
+- **WHEN** in `@Container PlainBuildThrowingTeardownContainer`, the only binding `PlainThrowingResource` declares `@Inject package init() {}` and a `@Teardown package func close() async throws` that throws `TeardownEffectPairFailure`
+- **THEN** the bootstrap declares `_wireTeardownActions` and has no `do`, and the graph's `teardown()` runs `close()` once and returns that error
+
+#### Scenario: a scope entry whose only throw is in teardown
+- **WHEN** the `PlainThrowingScopeSeed` scope's subject `PlainThrowingScopeController` declares `@Inject package init() {}` and a `@Teardown package func close() async throws` that throws `TeardownEffectPairFailure`, and an entry is made and its `_wireScopeTeardown()` awaited
+- **THEN** the thunk declares `_wireScopeTeardownActions` and has no `do`, and the teardown runs `close()` once and returns that error
+
+Pinned by: `Tests/IntegrationTests/TeardownTests.swift` (`teardownRunsActionsInReverseDependencyOrder`), `Tests/IntegrationTests/TeardownEffectPairsTests.swift` (`aGraphThatCannotThrowAnywhereStillTearsDown`, `aGraphWhoseOnlyThrowIsInTeardownReportsIt`, `aGraphWhoseOnlyThrowIsInConstructionTearsDown`, `aGraphThatCanThrowInBothReportsTheTeardownError`, `aScopeThatCannotThrowAnywhereStillTearsDown`, `aScopeWhoseOnlyThrowIsInTeardownReportsIt`, `aScopeWhoseOnlyThrowIsInConstructionTearsDown`, `aScopeThatCanThrowInBothReportsTheTeardownError`, `aSeedlessReconstructionWhoseOnlyThrowIsInTeardownTearsDown`), `GoldenHarness/Golden/_WireGraph.swift.golden`. The golden pins that these bodies have no `do`; that the build draws no warning is pinned by nothing yet, since the build does not treat warnings as errors.
 
 ### Requirement: `teardown()` runs actions in reverse construction order and collects errors
 The graph's `teardown()` SHALL run the teardown of each constructed `@Teardown` binding in reverse

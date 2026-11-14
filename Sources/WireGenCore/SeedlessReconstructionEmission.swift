@@ -139,19 +139,23 @@ private func seedlessScopeEntryThunkLines(
             && name != constructionExpression(for: binding)
     }
     let torn = constructed.contains { $0.teardown != nil }
+    // The construction lines alone, kept beside the body so the `try` scan below never sees an append
+    // closure: a throwing teardown puts a `try` inside one, and a `try` in a closure does not make the
+    // enclosing `do` throw (swift-wire#431).
+    let constructionLines = constructed.map {
+        "        let \(propertyName(for: $0)) = \(constructionExpression(for: $0))"
+    }
     var body: [String] = []
-    for binding in constructed {
-        let name = propertyName(for: binding)
-        body.append("        let \(name) = \(constructionExpression(for: binding))")
-        if torn {
-            body.append(
-                contentsOf: teardownActionAppendLines(
-                    for: binding,
-                    indent: "        ",
-                    accumulator: scopeTeardownAccumulator
-                )
+    for (binding, constructionLine) in zip(constructed, constructionLines) {
+        body.append(constructionLine)
+        // Unconditional: a binding without a `@Teardown` appends nothing, so an untorn thunk gets none.
+        body.append(
+            contentsOf: teardownActionAppendLines(
+                for: binding,
+                indent: "        ",
+                accumulator: scopeTeardownAccumulator
             )
-        }
+        )
     }
     body.append(
         contentsOf: torn
@@ -164,7 +168,7 @@ private func seedlessScopeEntryThunkLines(
             : scopeTeardownClosureLines(scope, local: scopeTeardownLocalName, reachable: nil)
     )
     var lines: [String] = ["    let \(thunkLocal) = { @Sendable (doubles: \(doublesType)) async throws in"]
-    let unwinds = torn && constructionCanThrow(body)
+    let unwinds = torn && constructionCanThrow(constructionLines)
     if torn {
         lines.append(
             contentsOf: teardownAccumulatorLines(indent: "        ", name: scopeTeardownAccumulator)
