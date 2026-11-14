@@ -6,8 +6,8 @@ The places a type declares what it depends on, and how each is delivered. `@Inje
 that the lifetime macro reads to synthesise an initialiser and that WireGen reads to discover
 dependencies. Constructor injection covers `@Inject` stored properties and a single user-written
 `@Inject init`; post-construction member injection covers `@Inject weak var` and `@Inject func`.
-The `@Bind(key)` property wrapper keys an initialiser or provider parameter, where a macro
-attribute cannot go.
+The `@Bind(key)` property wrapper keys an initialiser, method or provider parameter, where a
+macro attribute cannot go.
 
 Rationale: [WeakInjectionSupport](../../../Documentation/Notes/WeakInjectionSupport.md), [VisibilityModel](../../../Documentation/Notes/VisibilityModel.md), [OptionalMatchingAndCycles](../../../Documentation/Notes/OptionalMatchingAndCycles.md).
 Documentation: [InjectionPoints](../../../Sources/Wire/Wire.docc/InjectionPoints.md).
@@ -240,17 +240,21 @@ They SHALL NOT be added to the dependency edges that drive the topological sort 
 
 Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`missingBindingDetectionFiresForWeakDeps`, `cycleThroughWeakInjectIsLegal`).
 
-### Requirement: `@Bind(key)` keys an initialiser or provider parameter
+### Requirement: `@Bind(key)` keys an initialiser, method or provider parameter
 `Bind<Value>` SHALL be a `@propertyWrapper` whose `wrappedValue` is the parameter's value, with
 initialisers taking a `BindingKey<Value>`, a `CollectedKey<Element>` (where `Value == [Element]`),
 a `MappedKey<Key, Element>` (where `Value == [Key: Element]`) and a `BuilderKey<Builder>`. WireGen
-SHALL read the key of `@Bind(<key>)` on an `@Inject init` or `@Provides func` parameter as that
-dependency's key, and the generated bootstrap SHALL pass the keyed binding's value under the
-parameter's label, as for an unkeyed parameter.
+SHALL read the key of `@Bind(<key>)` on an `@Inject init`, `@Inject func` or `@Provides func`
+parameter as that dependency's key, and the generated bootstrap SHALL pass the keyed binding's value
+under the parameter's label, as for an unkeyed parameter.
 
 #### Scenario: a keyed single binding
 - **WHEN** `KeyedInitConsumer` declares `@Inject init(@Bind(AppName.boundViaInit) name: AppName)`, `@Provides(AppName.boundViaInit)` binds an `AppName` `k`, and an unkeyed `@Provides` binds a different `AppName` `u`
 - **THEN** `graph.keyedInitConsumer` is constructed with `k` as `name`, while the unkeyed `graph.appName` is `u`
+
+#### Scenario: a keyed member-injection parameter
+- **WHEN** `KeyedInjectFuncConsumer` declares `@Inject func receive(@Bind(AppName.boundViaInit) name: AppName)`, `@Provides(AppName.boundViaInit)` binds an `AppName` `k`, and an unkeyed `@Provides` binds a different `AppName` `u`
+- **THEN** `Wire.bootstrap()` calls `receive(name:)` on `graph.keyedInjectFuncConsumer` with `k`
 
 #### Scenario: discovery reads the key
 - **WHEN** a `@Singleton` declares `@Inject init(@Bind(Database.primary) db: Database, logger: Logger)`
@@ -260,7 +264,7 @@ parameter's label, as for an unkeyed parameter.
 - **WHEN** a `@Provides func formatterChain(@Bind(FormatterKeys.all) formatters: [any Formatter])` and an `@Inject init(@Bind(FormatterKeys.byName) byName: [String: any Formatter], chain: FormatterChain)` are declared
 - **THEN** the generated graph compiles, passing the `FormatterKeys.all` aggregate as `formatters` and the `FormatterKeys.byName` aggregate as `byName`
 
-Pinned by: `Tests/IntegrationTests/BootstrapTests.swift` (`keyedInitParameterInjectsTheMatchingKeyedProvider`) over `Tests/IntegrationTests/KeyedInitParameterExample.swift`, `Tests/WireGenCoreTests/DiscoveryTests.swift` (`injectInitParameterWithBindKeyExtractsCanonicalText`), `Tests/IntegrationTests/BindAggregateParameterExample.swift` (compiled with the IntegrationTests target). The `BuilderKey` overload is pinned by nothing yet.
+Pinned by: `Tests/IntegrationTests/BootstrapTests.swift` (`keyedInitParameterInjectsTheMatchingKeyedProvider`, `keyedInjectFuncParameterInjectsTheMatchingKeyedProvider`) over `Tests/IntegrationTests/KeyedInitParameterExample.swift` and `Tests/IntegrationTests/KeyedInjectFuncParameterExample.swift`, `Tests/WireGenCoreTests/DiscoveryTests.swift` (`injectInitParameterWithBindKeyExtractsCanonicalText`, `injectFuncParameterWithBindKeyExtractsCanonicalText`), `Tests/IntegrationTests/BindAggregateParameterExample.swift` (compiled with the IntegrationTests target). The `BuilderKey` overload is pinned by nothing yet.
 
 ### Requirement: `@Inject` on members of a type no macro reads is a warning
 When a type carries none of `@Singleton`, `@Scoped` or `@Factory`, WireGen SHALL warn at each

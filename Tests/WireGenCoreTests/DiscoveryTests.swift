@@ -2382,6 +2382,28 @@ struct DiscoveryTests {
         #expect(result[0].dependencies[1].keyIdentifier == nil)
     }
 
+    @Test func injectFuncParameterWithBindKeyExtractsCanonicalText() {
+        // An `@Inject func` parameter is keyed the same way as an `@Inject init` one: `@Bind(<key>)`, since
+        // `@Inject` cannot attach to a parameter. The keyed parameter carries the canonical key text, the
+        // unkeyed one stays nil.
+        let source = """
+            @Singleton
+            final class Repo {
+                @Inject init() {}
+                @Inject func configure(@Bind(Database.primary) db: Database, logger: Logger) {}
+            }
+            """
+        let result = discoverSingletons(in: source, sourcePath: "Repo.swift")
+        #expect(result.count == 1)
+        #expect(result[0].memberInjections.count == 1)
+        let parameters = result[0].memberInjections.first?.parameters ?? []
+        #expect(parameters.count == 2)
+        #expect(parameters.first?.name == "db")
+        #expect(parameters.first?.keyIdentifier == "Database.primary")
+        #expect(parameters.last?.name == "logger")
+        #expect(parameters.last?.keyIdentifier == nil)
+    }
+
     @Test func providesFunctionParameterWithKeyExtractsCanonicalText() {
         // The same per-parameter `@Inject(<key>)` keying applies to
         // `@Provides func` parameters — they're deps just like

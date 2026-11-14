@@ -157,16 +157,14 @@ Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`sameTypeWithDifferentKeys
 
 ### Requirement: A key is identified by its written text
 WireGen SHALL record a key reference (`@Provides(<key>)`, `@Inject(<key>)`, or `@Bind(<key>)` on an
-`@Inject init` or `@Provides func` parameter) as the trimmed source text of the expression and
-compare keys by that text. A `@Bind(<key>)` on an `@Inject func` parameter is not read, so that
-parameter is recorded as unkeyed, which is tracked as a defect in
-https://github.com/swift-wire/swift-wire/issues/367.
+`@Inject init`, `@Inject func` or `@Provides func` parameter) as the trimmed source text of the
+expression and compare keys by that text.
 
 #### Scenario: a member-access key
 - **WHEN** `@Provides(Database.primary) let db: Database = Database()` is discovered
 - **THEN** the provider's key is `Database.primary`
 
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesWithMemberAccessKeyExtractsCanonicalText`, `injectPropertyWithKeyExtractsCanonicalText`, `injectInitParameterWithBindKeyExtractsCanonicalText`, `bareIdentifierKeyExtractsAsIs`). The `@Inject func` parameter case is pinned by nothing yet.
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesWithMemberAccessKeyExtractsCanonicalText`, `injectPropertyWithKeyExtractsCanonicalText`, `injectInitParameterWithBindKeyExtractsCanonicalText`, `injectFuncParameterWithBindKeyExtractsCanonicalText`, `bareIdentifierKeyExtractsAsIs`).
 
 ### Requirement: `BindingKey<T>` is a stateless phantom type
 `BindingKey<Value>` SHALL be a public `Sendable` struct with a single `public init()` and no stored
@@ -204,7 +202,8 @@ key is not a multibinding key (`CollectedKey`, `MappedKey`, `BuilderKey`) or a g
 injection-rewrite key and whose written type does not begin with `some ` or `any `, so a key whose
 `BindingKey<T>` disagrees with the site's type fails to compile at the user's line. Sites whose type
 begins with `some ` or `any ` SHALL get no check. A keyed member injection (`@Inject(<key>) weak
-var`) gets no check, noted in https://github.com/swift-wire/swift-wire/issues/425. An optional
+var`, or an `@Inject func` parameter keyed with `@Bind(<key>)`) gets no check, noted in
+https://github.com/swift-wire/swift-wire/issues/425. An optional
 site's check names the optional type (`_check(K.primary, Database?.self)`), which fails to compile
 even for a matching key; this is tracked as a defect in
 https://github.com/swift-wire/swift-wire/issues/421.
