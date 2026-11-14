@@ -738,11 +738,7 @@ extension BindingDiscovery {
                     initIsThrowing: injectResult.initIsThrowing,
                     memberInjections: injectResult.memberInjections,
                     accessLevel: accessLevel(from: modifiers),
-                    contributions: contributions(
-                        in: attributes,
-                        sourcePath: sourcePath,
-                        converter: converter
-                    ),
+                    contributions: scanContributions(in: attributes),
                     allowUnused: allowUnused,
                     teardown: injectResult.teardown,
                     isReplacer: hasReplacesMarker(in: attributes),

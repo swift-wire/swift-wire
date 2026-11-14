@@ -94,17 +94,27 @@ Pinned by: `Tests/WireMacrosImplTests/ContributesMacroTests.swift` (`test_contri
 WireGen SHALL record each `@Contributes` attribute on a `@Singleton` or `@Scoped` type, or on a
 `@Provides` property or function, as a contribution of that binding, capturing the key reference,
 the `withOrder:` integer and the `atKey:` expression text verbatim. A declaration carrying several
-`@Contributes` attributes SHALL contribute to each named key. WireGen SHALL read `withOrder:` only
-when its source text parses with `Int(_:)`, which in practice means an integer literal without
-separators; any other expression, such as `withOrder: Rank.auth` or `withOrder: 1_000`, is recorded
-as unranked, which is tracked as a possible defect in
-https://github.com/swift-wire/swift-wire/issues/419.
+`@Contributes` attributes SHALL contribute to each named key. WireGen SHALL read `withOrder:` from
+syntax: an integer literal in any radix and with `_` separators (`withOrder: 1_000`), or one negated
+by a prefix `-`. Any other expression, such as `withOrder: Rank.auth`, SHALL be the error
+"'withOrder: <expression>' on @Contributes(to: <reference>) is not an integer literal — WireGen reads
+a contributor's rank from source, so it can't evaluate a named constant or other expression. Write
+the rank as an integer literal, e.g. 'withOrder: 10'." at the argument, and the all-or-none ordering
+check SHALL NOT also report that contribution as having no `withOrder:`.
 
 #### Scenario: one contributor, three builder keys
 - **WHEN** `@Singleton` `LoggingMiddleware` carries `@Contributes(to:withOrder:)` for `MiddlewareRegistry.pipeline`, `.list` and `.composed`
 - **THEN** it is folded into all three aggregates
 
-Pinned by: `Tests/WireGenCoreTests/ContributionDiscoveryTests.swift` (`singletonContributionCapturesKeyReference`, `withOrderArgumentIsCaptured`, `atKeyArgumentIsCapturedVerbatim`, `multipleContributesAttributesYieldMultipleContributions`, `providesPropertyContributionIsCaptured`, `providesFunctionContributionIsCaptured`), `Tests/IntegrationTests/BootstrapTests.swift` (`builderMultibindingFoldsToConcreteResultInRankOrder`, `builderMultibindingFoldsToCollectionResult`, `builderMultibindingFoldsToExistentialResult`). The treatment of a non-literal `withOrder:` as unranked is pinned by nothing yet.
+#### Scenario: a literal with separators
+- **WHEN** a contributor carries `@Contributes(to: App.alpha, withOrder: 1_000)`
+- **THEN** its contribution is ranked 1000 and no diagnostic is reported
+
+#### Scenario: a named constant
+- **WHEN** `AuthMiddleware` carries `@Contributes(to: App.middleware, withOrder: Rank.auth)`
+- **THEN** discovery reports one error, at `Rank.auth`, containing "'withOrder: Rank.auth' on @Contributes(to: App.middleware) is not an integer literal"
+
+Pinned by: `Tests/WireGenCoreTests/ContributionDiscoveryTests.swift` (`singletonContributionCapturesKeyReference`, `withOrderArgumentIsCaptured`, `atKeyArgumentIsCapturedVerbatim`, `multipleContributesAttributesYieldMultipleContributions`, `providesPropertyContributionIsCaptured`, `providesFunctionContributionIsCaptured`, `withOrderLiteralWithSeparatorsIsRanked`, `withOrderThatIsNotAnIntegerLiteralIsAnError`), `Tests/WireGenCoreTests/MultibindingValidationTests.swift` (`nonLiteralWithOrderIsNotAlsoReportedAsMissing`), `Tests/IntegrationTests/BootstrapTests.swift` (`builderMultibindingFoldsToConcreteResultInRankOrder`, `builderMultibindingFoldsToCollectionResult`, `builderMultibindingFoldsToExistentialResult`).
 
 ### Requirement: A contributor keeps its own binding identity
 A contributing binding SHALL remain an ordinary binding under its own identity, and the aggregate

@@ -64,11 +64,7 @@ extension BindingDiscovery {
                     isThrowing: propertyEffects.isThrowing,
                     accessLevel: providerAccess,
                     scopeKey: scopeKey,
-                    contributions: contributions(
-                        in: node.attributes,
-                        sourcePath: sourcePath,
-                        converter: converter
-                    ),
+                    contributions: scanContributions(in: node.attributes),
                     allowUnused: providesAttribute.map { allowUnusedFlag(from: $0) } ?? false,
                     teardown: teardown.action,
                     isReplacer: hasReplacesMarker(in: node.attributes),
@@ -154,11 +150,7 @@ extension BindingDiscovery {
                     isThrowing: effects.isThrowing,
                     accessLevel: providerAccess,
                     scopeKey: scopeKey,
-                    contributions: contributions(
-                        in: node.attributes,
-                        sourcePath: sourcePath,
-                        converter: converter
-                    ),
+                    contributions: scanContributions(in: node.attributes),
                     allowUnused: providesAttribute.map { allowUnusedFlag(from: $0) } ?? false,
                     teardown: teardown.action,
                     isReplacer: hasReplacesMarker(in: node.attributes),
