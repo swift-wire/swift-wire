@@ -121,6 +121,31 @@ struct BindingIdentityTests {
         #expect(match == .resolved(identity("some Logger")))
     }
 
+    @Test func aParenthesisedOptionalExistentialPromotes() {
+        // `(any Logger)?` — the spelling Swift requires — splits like `any Logger?`: qualifier `any`,
+        // base `Logger`, optional. It reaches an `any Logger` producer by optional promotion and a
+        // `some Logger` producer by both (swift-wire#426).
+        #expect(identity("(any Logger)?") == identity("any Logger?"))
+        #expect(identity("(any Logger)") == identity("any Logger"))
+        #expect(
+            matchProducer(for: identity("(any Logger)?"), in: producers("any Logger"))
+                == .resolved(identity("any Logger"))
+        )
+        #expect(
+            matchProducer(for: identity("(any Logger)?"), in: producers("some Logger"))
+                == .resolved(identity("some Logger"))
+        )
+    }
+
+    @Test func anOptionalFunctionTypeMatchesItsFunctionProducer() {
+        #expect(identity("(() -> Foo)?") == BindingIdentity(base: "()->Foo", isOptional: true, key: nil))
+        #expect(identity("() -> Foo?") == BindingIdentity(base: "()->Foo?", isOptional: false, key: nil))
+        #expect(
+            matchProducer(for: identity("(() -> Foo)?"), in: producers("() -> Foo")) == .resolved(identity("() -> Foo"))
+        )
+        #expect(matchProducer(for: identity("() -> Foo?"), in: producers("() -> Foo")) == .missing(nil))
+    }
+
     @Test func aConcreteProducerNeverSatisfiesAnExistential() {
         // The line that keeps this from becoming conformance search: `Logger` is
         // a different identity from `any Logger`, promotion or not.

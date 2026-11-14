@@ -437,6 +437,51 @@ struct GraphTests {
         #expect(optionalityStripped("Box<Bar?>").isOptional == false)
     }
 
+    @Test func aFunctionWithAnOptionalResultIsNotOptional() {
+        // swift-wire#426: the `?` after a depth-0 arrow belongs to the result type, so the function
+        // type itself is non-optional — canonical or as written.
+        for type in ["()->Foo?", "() -> Foo?", "()->Foo!", "(Int) async throws -> Foo?"] {
+            #expect(optionalityStripped(type).isOptional == false, "\(type)")
+            #expect(optionalityStripped(type).base == type, "\(type)")
+        }
+    }
+
+    @Test func aParenthesisedOptionalDropsItsParentheses() {
+        // The parentheses Swift requires around an optional function or existential are not part of
+        // the base; a tuple's are.
+        #expect(optionalityStripped("(()->Foo)?") == ("()->Foo", true))
+        #expect(optionalityStripped("(() -> Foo)?") == ("() -> Foo", true))
+        #expect(optionalityStripped("(any Logger)?") == ("any Logger", true))
+        #expect(optionalityStripped("(Int,String)?") == ("(Int,String)", true))
+        #expect(optionalityStripped("((Int)->Foo,Bar)?") == ("((Int)->Foo,Bar)", true))
+        #expect(optionalLayerDropped("(any Logger)?") == "any Logger")
+        #expect(optionalLayerDropped("any Logger?") == "any Logger")
+        #expect(optionalLayerDropped("() -> Foo?") == "() -> Foo?")
+    }
+
+    @Test func anOptionalFunctionDependencyPromotesToTheFunctionProducer() throws {
+        let result = buildDependencyGraph(from: [
+            providerProperty("makeFoo", boundType: "() -> Foo"),
+            singleton("App", dependencies: [(name: "makeFoo", type: "(() -> Foo)?")]),
+        ])
+        let order = try #require(result.outcome.topologicalOrder)
+        #expect(order.map(\.boundType) == ["() -> Foo", "App"])
+    }
+
+    @Test func aFunctionWithAnOptionalResultIsNotPromotedToTheNonOptionalResult() throws {
+        // `() -> Foo?` is its own non-optional type: a `() -> Foo` producer is a different slot, and no
+        // optional-mismatch note applies.
+        let result = buildDependencyGraph(from: [
+            providerProperty("makeFoo", boundType: "() -> Foo"),
+            singleton("App", dependencies: [(name: "makeFoo", type: "() -> Foo?")]),
+        ])
+        let errors = try #require(result.outcome.validationErrors)
+        let missing = try #require(errors.missingBindings.first)
+        #expect(errors.missingBindings.count == 1)
+        #expect(missing.dependency.type == "() -> Foo?")
+        #expect(missing.optionalMismatchHint == nil)
+    }
+
     @Test func weakOptionalDepPromotesToNonOptionalProducer() throws {
         // `@Inject weak var x: Coordinator?` resolves against a
         // `Coordinator` producer via promotion. `#require`-ing the order
@@ -849,6 +894,19 @@ struct GraphTests {
         #expect(promotion.producer.displayType == "someLogger")
         #expect(promotion.existentialType == "any Logger")
         #expect(promotion.aliasName == "anyLogger")
+    }
+
+    @Test func aParenthesisedOptionalExistentialConsumerResolvesToTheSomeProducer() throws {
+        // `(any Logger)?` is how Swift spells an optional existential; the `any` inside the parentheses
+        // is still the promotable qualifier (swift-wire#426).
+        let result = buildDependencyGraph(from: [
+            providerProperty("opaqueLogger", boundType: "some Logger"),
+            singleton("Service", dependencies: [(name: "logger", type: "(any Logger)?")]),
+        ])
+        #expect(result.outcome.validationErrors == nil)
+        let promotion = try #require(result.existentialPromotions.first)
+        #expect(promotion.producer.displayType == "someLogger")
+        #expect(promotion.existentialType == "any Logger")
     }
 
     @Test func aSomeConsumerIsNotSatisfiedByAnAnyProducer() throws {
