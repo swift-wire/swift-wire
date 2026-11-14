@@ -20,6 +20,15 @@
 /// failing `_check` call, each attributed via `#sourceLocation` to the
 /// originating user-source line.
 ///
+/// An optional consumer site (`@Inject(K.primary) var db: Database?`) may
+/// borrow a `T` producer under the same key, as the graph's matcher does, so
+/// its function also declares `_check<T>(_: BindingKey<T>, _: T?.Type)`: with
+/// both overloads in scope, `BindingKey<Database>` and `BindingKey<Database?>`
+/// each type-check against `Database?.self`. Provider sites, and non-optional
+/// consumer sites, never see that overload — a keyed `@Provides` must return
+/// its key's type exactly, and keeping the single overload keeps the
+/// mismatch error a plain "cannot convert" at those sites.
+///
 /// Dedup: each `(keyExpression, declaredType)` pair gets one function.
 /// All sites using the same pair are emitted as separate `_check`
 /// calls inside that function. The success case (consistent
@@ -67,7 +76,11 @@ package func renderWireKeyChecks(
     // gathering (keyExpression, declaredType, location) for each.
     var groupedSites: [KeyCheckPair: [KeyCheckSite]] = [:]
     for site in collectKeyCheckSites(allBindings, excludingKeys: multibindingKeyReferences) {
-        let pair = KeyCheckPair(key: site.keyExpression, type: site.declaredType)
+        let pair = KeyCheckPair(
+            key: site.keyExpression,
+            type: site.declaredType,
+            admitsOptionalPromotion: site.isConsumer && optionalityStripped(site.declaredType).isOptional
+        )
         groupedSites[pair, default: []].append(site)
     }
 
@@ -79,6 +92,9 @@ package func renderWireKeyChecks(
         lines.append("")
         lines.append("private func \(functionName)() {")
         lines.append("    func _check<T>(_: BindingKey<T>, _: T.Type) {}")
+        if pair.admitsOptionalPromotion {
+            lines.append("    func _check<T>(_: BindingKey<T>, _: T?.Type) {}")
+        }
         for site in sites {
             lines.append("")
             lines.append(
@@ -100,18 +116,23 @@ private struct KeyCheckSite {
     let keyExpression: String
     let declaredType: String
     let location: SourceLocation
+    /// A keyed dependency rather than a keyed provider.
+    let isConsumer: Bool
 }
 
 /// Deduplication key for emitted check functions. Two sites with the
 /// same `(key, type)` share a function; each contributes its own
-/// `_check` call inside.
+/// `_check` call inside. Optional consumer sites are grouped apart from
+/// providers of the same pair, because only they get the `T?.Type` overload.
 private struct KeyCheckPair: Hashable, Comparable {
     let key: String
     let type: String
+    let admitsOptionalPromotion: Bool
 
     static func < (lhs: Self, rhs: Self) -> Bool {
         if lhs.type != rhs.type { return lhs.type < rhs.type }
-        return lhs.key < rhs.key
+        if lhs.key != rhs.key { return lhs.key < rhs.key }
+        return !lhs.admitsOptionalPromotion && rhs.admitsOptionalPromotion
     }
 }
 
@@ -135,7 +156,8 @@ private func collectKeyCheckSites(
                 KeyCheckSite(
                     keyExpression: key,
                     declaredType: provider.boundType,
-                    location: provider.location
+                    location: provider.location,
+                    isConsumer: false
                 )
             )
         }
@@ -147,7 +169,8 @@ private func collectKeyCheckSites(
                 KeyCheckSite(
                     keyExpression: key,
                     declaredType: dependency.type,
-                    location: dependency.location
+                    location: dependency.location,
+                    isConsumer: true
                 )
             )
         }

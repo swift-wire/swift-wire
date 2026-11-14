@@ -27,11 +27,45 @@ private func _wireTypeCheck_1() {
 private func _wireTypeCheck_2() {
     func _check<T>(_: BindingKey<T>, _: T.Type) {}
 
+    #sourceLocation(file: "Tests/IntegrationTests/KeyedOptionalExample.swift", line: 18)
+    _check(AppName.borrowedOptional, AppName.self)
+    #sourceLocation()
+}
+
+private func _wireTypeCheck_3() {
+    func _check<T>(_: BindingKey<T>, _: T.Type) {}
+
     #sourceLocation(file: "Tests/IntegrationTests/KeyedInitParameterExample.swift", line: 18)
     _check(AppName.boundViaInit, AppName.self)
     #sourceLocation()
 
     #sourceLocation(file: "Tests/IntegrationTests/KeyedInitParameterExample.swift", line: 24)
     _check(AppName.boundViaInit, AppName.self)
+    #sourceLocation()
+}
+
+private func _wireTypeCheck_4() {
+    func _check<T>(_: BindingKey<T>, _: T.Type) {}
+    func _check<T>(_: BindingKey<T>, _: T?.Type) {}
+
+    #sourceLocation(file: "Tests/IntegrationTests/KeyedOptionalExample.swift", line: 25)
+    _check(AppName.borrowedOptional, AppName?.self)
+    #sourceLocation()
+}
+
+private func _wireTypeCheck_5() {
+    func _check<T>(_: BindingKey<T>, _: T.Type) {}
+
+    #sourceLocation(file: "Tests/IntegrationTests/KeyedOptionalExample.swift", line: 21)
+    _check(AppName.exactOptional, AppName?.self)
+    #sourceLocation()
+}
+
+private func _wireTypeCheck_6() {
+    func _check<T>(_: BindingKey<T>, _: T.Type) {}
+    func _check<T>(_: BindingKey<T>, _: T?.Type) {}
+
+    #sourceLocation(file: "Tests/IntegrationTests/KeyedOptionalExample.swift", line: 26)
+    _check(AppName.exactOptional, AppName?.self)
     #sourceLocation()
 }

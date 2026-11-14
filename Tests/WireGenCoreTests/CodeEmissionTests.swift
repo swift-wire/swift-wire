@@ -1828,6 +1828,61 @@ struct CodeEmissionTests {
         #expect(!output.contains("_wireTypeCheck_"))
     }
 
+    @Test func keyedOptionalDependencyAlsoAcceptsTheNonOptionalKey() {
+        // swift-wire#421. A `T?` consumer may borrow a `T` producer under the same key, so its
+        // check function declares the `T?.Type` overload too: `BindingKey<Database>` and
+        // `BindingKey<Database?>` both type-check against `Database?.self`, and the call is
+        // still the plain `_check(<key>, <written type>.self)`.
+        let output = renderWireKeyChecks(
+            imports: [],
+            allBindings: [
+                consumerWithKeyedDep(
+                    "Repo",
+                    depName: "db",
+                    depType: "Database?",
+                    depKey: "Database.primary",
+                    depLine: 10,
+                    depSourcePath: "Repo.swift"
+                )
+            ]
+        )
+        #expect(output.contains("func _check<T>(_: BindingKey<T>, _: T.Type) {}"))
+        #expect(output.contains("func _check<T>(_: BindingKey<T>, _: T?.Type) {}"))
+        #expect(output.contains("_check(Database.primary, Database?.self)"))
+    }
+
+    @Test func keyedOptionalProviderGetsOnlyTheExactOverload() {
+        // A keyed provider must return its key's type exactly, so an optional provider's check
+        // keeps the single overload, and a non-optional consumer's check never gains the second.
+        // An optional consumer of the same pair is grouped into its own function.
+        let output = renderWireKeyChecks(
+            imports: [],
+            allBindings: [
+                keyedProperty("maybeDB", boundType: "Database?", key: "Database.primary"),
+                consumerWithKeyedDep(
+                    "Plain",
+                    depName: "db",
+                    depType: "Database",
+                    depKey: "Database.primary"
+                ),
+                consumerWithKeyedDep(
+                    "Repo",
+                    depName: "db",
+                    depType: "Database?",
+                    depKey: "Database.primary"
+                ),
+            ]
+        )
+        #expect(output.contains("_wireTypeCheck_3()"))
+        #expect(!output.contains("_wireTypeCheck_4"))
+        #expect(output.split(separator: "_: T?.Type) {}").count - 1 == 1)
+        let promoting = output.split(separator: "private func ").first {
+            $0.contains("_: T?.Type")
+        }
+        #expect(promoting?.contains("\"Repo.swift\"") == true)
+        #expect(promoting?.contains("\"maybeDB.swift\"") == false)
+    }
+
     @Test func keyedProviderInGraphGetsKeyedAccessorName() {
         // A keyed `@Provides Database` paired with the unkeyed
         // `Database`-typed binding has to get a distinct identifier
