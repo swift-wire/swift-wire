@@ -7,9 +7,13 @@
 /// `MappedKey` / `BuilderKey`), but unlike those it is **not** typed to a
 /// produced value. A `@Factory` template is generic — the value it produces
 /// varies per consumer — so no single `Value` could be fixed. It is a pure
-/// *namespace token*: its identity in the graph is the *canonical text* of its
-/// declaring reference (`MyMiddleware.session`), from which the build plugin
-/// derives the synthesised factory's type name (`_WireFactory_session`).
+/// *namespace token*: its identity in the graph is the whitespace-trimmed source
+/// text of the reference as written (`MyMiddleware.session`), compared as a
+/// string, so the template and every consumer must spell it identically —
+/// `Keys.session` and `MyModule.Keys.session` are different keys. WireGen
+/// derives the synthesised factory's type name from that full text, with
+/// every character that is not a letter, digit or underscore replaced by `_`
+/// (`_WireFactory_MyMiddleware_session`).
 ///
 /// Declare one as a static member alongside the template, and reference it from
 /// both the template and its consumers:
