@@ -3,7 +3,7 @@
 ## Purpose
 
 How WireGen matches a dependency to a producer across optionality. A binding identity records
-whether its type ends in one optional marker (`?` or `!`); the matcher lets a `T` producer satisfy a
+whether its type carries one top-level optional marker (`?` or `!`); the matcher lets a `T` producer satisfy a
 `T?` or `T!` dependency, never the reverse, and never satisfies an optional dependency with an
 absent producer. The missing-binding diagnostics explain both refusals, and a `T` and a `T?`
 producer under one key are rejected as a generated-name collision.
@@ -13,14 +13,17 @@ Documentation: [InjectionPoints](../../../Sources/Wire/Wire.docc/InjectionPoints
 
 ## Requirements
 
-### Requirement: An identity strips at most one trailing optional marker
-`optionalityStripped` SHALL remove one trailing `?` or `!` from a canonical type and report it as
+### Requirement: An identity strips at most one top-level optional marker
+`optionalityStripped` SHALL remove one trailing `?` or `!` from a type and report it as
 `isOptional == true`, and SHALL leave every other type unchanged with `isOptional == false`. A
-binding's and a dependency's `BindingIdentity` SHALL be built from that split, so `T?` and `T!`
-share one identity whose `displayType` is `T?`. The test is on the last character only, so a
-function type whose result is optional (`() -> Foo?`) is read as optional and a parenthesised
-optional keeps its parentheses in the base, which is tracked as a defect in
-https://github.com/swift-wire/swift-wire/issues/426.
+trailing marker SHALL NOT count as top-level when the type has a `->` outside every bracket pair,
+because it then belongs to the function's result: `() -> Foo?` is a non-optional function type. When
+a marker is removed, one pair of parentheses enclosing the whole remainder SHALL be dropped from the
+base unless it is a tuple (a comma outside any nested bracket), so `(() -> Foo)?` has base
+`() -> Foo` and `(any Logger)?` has base `any Logger`. A binding's and a dependency's
+`BindingIdentity` SHALL be built from that split before the leading `some`/`any` qualifier is split
+off, so `(any Logger)?` and `any Logger?` share one identity, and `T?` and `T!` share one identity
+whose `displayType` is `T?`.
 
 #### Scenario: the three spellings
 - **WHEN** `optionalityStripped` is applied to `Foo`, `Foo?` and `Foo!`
@@ -35,10 +38,18 @@ https://github.com/swift-wire/swift-wire/issues/426.
 - **THEN** it yields base `Foo?` with `isOptional == true`
 
 #### Scenario: a function type with an optional result
-- **WHEN** `optionalityStripped` is applied to `()->Foo?`
-- **THEN** it yields base `()->Foo` with `isOptional == true`
+- **WHEN** `optionalityStripped` is applied to `()->Foo?` or `() -> Foo?`
+- **THEN** it yields the type unchanged with `isOptional == false`
 
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`optionalityStrippedSplitsTopLevelOptional`). The doubly optional and function type scenarios are pinned by nothing yet. The shared `T?` and `T!` identity and its `T?` `displayType` are pinned by nothing yet.
+#### Scenario: an optional function type
+- **WHEN** `optionalityStripped` is applied to `(() -> Foo)?`
+- **THEN** it yields base `() -> Foo` with `isOptional == true`
+
+#### Scenario: an optional tuple
+- **WHEN** `optionalityStripped` is applied to `(Int,String)?`
+- **THEN** it yields base `(Int,String)` with `isOptional == true`
+
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`optionalityStrippedSplitsTopLevelOptional`, `aFunctionWithAnOptionalResultIsNotOptional`, `aParenthesisedOptionalDropsItsParentheses`), `Tests/WireGenCoreTests/BindingIdentityTests.swift` (`aParenthesisedOptionalExistentialPromotes`, `anOptionalFunctionTypeMatchesItsFunctionProducer`). The doubly optional scenario is pinned by nothing yet. The shared `T?` and `T!` identity and its `T?` `displayType` are pinned by nothing yet.
 
 ### Requirement: A `T` producer satisfies a `T?` or `T!` dependency
 When no producer has the dependency's exact optional identity, `matchProducer` SHALL resolve a
@@ -53,11 +64,19 @@ dependencies and to member-injection parameters alike.
 - **WHEN** `View` holds a weak member injection of `Coordinator!` and `Coordinator` is a singleton
 - **THEN** the graph validates
 
+#### Scenario: an optional function type
+- **WHEN** `App` depends on `(() -> Foo)?` and `() -> Foo` is provided
+- **THEN** the graph validates, with the `() -> Foo` producer ordered before `App`
+
+#### Scenario: a function with an optional result is not promoted
+- **WHEN** `App` depends on `() -> Foo?` and only `() -> Foo` is provided
+- **THEN** `() -> Foo?` is reported as a missing binding with no optional-mismatch note
+
 #### Scenario: end to end
 - **WHEN** `Dashboard` declares `@Inject package weak let telemetry: Telemetry?` against a `@Singleton` `Telemetry`
 - **THEN** `graph.dashboard.telemetry === graph.telemetry`
 
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`weakOptionalDepPromotesToNonOptionalProducer`, `weakIUODepPromotesToNonOptionalProducer`), `Tests/IntegrationTests/BootstrapTests.swift` (`weakLetInjectionDeliversNonOwningReferenceAtInit`, `iuoWeakVarBreaksSingletonCycle`).
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`weakOptionalDepPromotesToNonOptionalProducer`, `weakIUODepPromotesToNonOptionalProducer`, `anOptionalFunctionDependencyPromotesToTheFunctionProducer`, `aFunctionWithAnOptionalResultIsNotPromotedToTheNonOptionalResult`), `Tests/IntegrationTests/BootstrapTests.swift` (`weakLetInjectionDeliversNonOwningReferenceAtInit`, `iuoWeakVarBreaksSingletonCycle`).
 
 ### Requirement: A promoted dependency's edge points at the producer it resolved to
 When an init-time `T?` dependency resolves to a `T` producer, the graph edge SHALL point at the
@@ -121,13 +140,18 @@ Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`optionalAndNonOptionalPro
 ### Requirement: Optional and existential promotion compose
 `matchProducer` SHALL try, in order, the dependency's own identity, its non-optional form, and,
 for an `any P` dependency, the `some P` form and the non-optional `some P` form, so an `any P?`
-dependency resolves to a `some P` producer.
+dependency resolves to a `some P` producer. The parenthesised spelling Swift requires, `(any P)?`, is
+the same dependency, and the existential alias emitted for it SHALL be annotated `any P`.
 
 #### Scenario: an optional existential consumer
 - **WHEN** `matchProducer` resolves `any Logger?` against a producer set holding only `some Logger`
 - **THEN** it returns `.resolved` with the `some Logger` identity
 
-Pinned by: `Tests/WireGenCoreTests/BindingIdentityTests.swift` (`optionalAndExistentialPromotionsCompose`).
+#### Scenario: a parenthesised optional existential consumer
+- **WHEN** `Service` depends on `(any Logger)?` and only `some Logger` is provided, or only `any Logger`
+- **THEN** it resolves to that producer, and against `some Logger` the existential promotion's type is `any Logger`
+
+Pinned by: `Tests/WireGenCoreTests/BindingIdentityTests.swift` (`optionalAndExistentialPromotionsCompose`, `aParenthesisedOptionalExistentialPromotes`), `Tests/WireGenCoreTests/GraphTests.swift` (`aParenthesisedOptionalExistentialConsumerResolvesToTheSomeProducer`).
 
 ## Related specifications
 

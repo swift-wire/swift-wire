@@ -131,19 +131,84 @@ func substitutingIdentifierTokens(_ type: String, _ substitutions: [String: Stri
     return result
 }
 
-/// Split a canonical (whitespace-stripped) type into its base and whether
-/// it carried a single top-level optional layer. `T?` and `T!` (IUO) both
-/// yield `(base: "T", isOptional: true)`; `T` yields `(base: "T", false)`.
-/// Only the outermost `?`/`!` is removed — one level; nested optionals
-/// effectively never appear in a binding type (see
-/// `OptionalMatchingAndCycles.md`, "strip at most one `?`"). A trailing
-/// `?`/`!` is always the top-level optional: a generic like `Foo<Bar?>`
-/// ends in `>`, not `?`.
-func optionalityStripped(_ canonical: String) -> (base: String, isOptional: Bool) {
-    if canonical.hasSuffix("?") || canonical.hasSuffix("!") {
-        return (String(canonical.dropLast()), true)
+/// Split a type into its base and whether it carried a single top-level
+/// optional layer. `T?` and `T!` (IUO) both yield `(base: "T", isOptional:
+/// true)`; `T` yields `(base: "T", false)`. Only the outermost `?`/`!` is
+/// removed — one level; nested optionals effectively never appear in a
+/// binding type (see `OptionalMatchingAndCycles.md`, "strip at most one
+/// `?`"). Works on canonical and as-written text alike.
+///
+/// A trailing `?`/`!` is the top-level optional unless the type has a
+/// function arrow outside any brackets: in `() -> Foo?` it belongs to the
+/// result, and the type is a non-optional function. A generic like
+/// `Foo<Bar?>` ends in `>`, so it is never read as optional either. The
+/// parentheses Swift requires around an optional function or existential —
+/// `(() -> Foo)?`, `(any Logger)?` — are dropped from the base, so it names
+/// the same type a `() -> Foo` or `any Logger` producer does
+/// (swift-wire#426).
+func optionalityStripped(_ type: String) -> (base: String, isOptional: Bool) {
+    guard let marker = type.last, marker == "?" || marker == "!",
+        !hasTopLevelFunctionArrow(type)
+    else { return (type, false) }
+    return (redundantParenthesesUnwrapped(String(type.dropLast())), true)
+}
+
+/// Whether `type` has a `->` outside every bracket pair — that is, whether
+/// it is itself a function type, as opposed to containing one in a generic
+/// argument, tuple element or parenthesised optional.
+private func hasTopLevelFunctionArrow(_ type: String) -> Bool {
+    var depth = 0
+    var previous: Character?
+    for character in type {
+        switch character {
+        case "<", "(", "[":
+            depth += 1
+        case ">" where previous == "-":
+            if depth == 0 { return true }
+        case ">", ")", "]":
+            depth = max(0, depth - 1)
+        default:
+            break
+        }
+        previous = character
     }
-    return (canonical, false)
+    return false
+}
+
+/// Drop one pair of parentheses that encloses the whole of `type` and is not
+/// a tuple: `(any Logger)` → `any Logger`, `(() -> Foo)` → `() -> Foo`. A
+/// tuple (`(A, B)`, a depth-0 comma inside), the empty tuple `()`, and a type
+/// whose leading `(` closes before its end (`() -> Foo`, `(A) -> B`) are
+/// returned unchanged, as is anything after trimming surrounding whitespace.
+func redundantParenthesesUnwrapped(_ type: String) -> String {
+    let trimmed = type.trimmingWhitespace()
+    guard trimmed.first == "(", trimmed.last == ")" else { return type }
+    let inner = trimmed.dropFirst().dropLast()
+    var depth = 0
+    var previous: Character?
+    for character in inner {
+        switch character {
+        case "<", "(", "[":
+            depth += 1
+        case ">" where previous != "-", ")", "]":
+            // The enclosing pair closes early: `(A) -> (B)` is a function, not `A) -> (B`.
+            if depth == 0 { return type }
+            depth -= 1
+        case "," where depth == 0:
+            return type
+        default:
+            break
+        }
+        previous = character
+    }
+    let unwrapped = inner.trimmingWhitespace()
+    return unwrapped.isEmpty ? type : unwrapped
+}
+
+extension StringProtocol {
+    fileprivate func trimmingWhitespace() -> String {
+        String(drop { $0.isWhitespace }.reversed().drop { $0.isWhitespace }.reversed())
+    }
 }
 
 /// A type's promotable qualifier — the leading `some`/`any`, or neither.
@@ -163,9 +228,12 @@ package enum TypeQualifier: String, Hashable, Comparable, Sendable {
 /// Drop a single top-level optional layer from a type *as written*, preserving
 /// the user's spacing: `any Logger?` → `any Logger`. Used for the existential
 /// alias's annotation, where the spelling is emitted rather than compared.
+/// `(any Logger)?` → `any Logger`; `() -> Foo?` is not optional and is kept,
+/// on the rules of `optionalityStripped`.
 func optionalLayerDropped(_ raw: String) -> String {
-    if raw.hasSuffix("?") || raw.hasSuffix("!") { return String(raw.dropLast()) }
-    return raw
+    let trimmed = raw.trimmingWhitespace()
+    let split = optionalityStripped(trimmed)
+    return split.isOptional ? split.base : raw
 }
 
 /// Compound identity for a binding — `(qualifier, base, isOptional, keyIdentifier?)`.
@@ -236,9 +304,12 @@ package struct BindingIdentity: Hashable, Comparable, Sendable {
 func identityComponents(
     _ raw: String
 ) -> (qualifier: TypeQualifier, base: String, isOptional: Bool) {
-    let (qualifier, body) = splitLeadingTypeQualifier(raw)
-    let split = optionalityStripped(canonicalTypeName(String(body)))
-    return (TypeQualifier(rawValue: qualifier) ?? .none, split.base, split.isOptional)
+    // The optional layer comes off the text as written, before the qualifier: in `(any Logger)?` the
+    // `any` is inside the parentheses Swift requires, and canonicalising first would fuse it to the
+    // name (`(anyLogger)`). A non-optional `(any Logger)` is the same type, so it unwraps too.
+    let split = optionalityStripped(raw.trimmingWhitespace())
+    let (qualifier, body) = splitLeadingTypeQualifier(redundantParenthesesUnwrapped(split.base))
+    return (TypeQualifier(rawValue: qualifier) ?? .none, canonicalTypeName(String(body)), split.isOptional)
 }
 
 extension DiscoveredBinding {
