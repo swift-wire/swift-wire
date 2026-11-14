@@ -380,11 +380,14 @@ package struct MemberInjection: Sendable {
 /// `Config.dbURL` for a `static let dbURL` on `enum Config`. Nested
 /// enclosing types are joined with `.` (e.g., `Outer.Inner.foo`).
 package struct DiscoveredProvider: Sendable {
-    package let boundType: String
+    // The four fields specialisation rewrites are `private(set) var` so `specialised(as:…)` can copy
+    // `self` and change only them: a field added later is then carried onto every specialisation without
+    // anyone having to remember it, which a field-by-field rebuild did not do (swift-wire#428).
+    package private(set) var boundType: String
     package let accessPath: String
     package let form: Form
-    package let dependencies: [DependencyParameter]
-    package let genericParameterNames: [String]
+    package private(set) var dependencies: [DependencyParameter]
+    package private(set) var genericParameterNames: [String]
     /// Position of the property/function identifier — what the user
     /// would navigate to from a diagnostic.
     package let location: SourceLocation
@@ -400,7 +403,7 @@ package struct DiscoveredProvider: Sendable {
     /// `makeRepo<DynamoDBTable>()`. Empty for non-specialised
     /// providers (concrete property and function bindings); only the
     /// generic-specialisation phase populates this.
-    package let concreteGenericArguments: [String]
+    package private(set) var concreteGenericArguments: [String]
     /// `true` when the binding's source is `async` — `@Provides func
     /// makeFoo() async -> Foo`, or a computed `@Provides var x: Foo
     /// { get async }`. Drives `await ` prefixing at the call site
@@ -492,83 +495,29 @@ package struct DiscoveredProvider: Sendable {
         case property
         case function
     }
-}
 
-/// One dependency that the synthesised (or user-marked) initialiser takes
-/// — i.e. one parameter Wire must resolve from the graph at construction
-/// time.
-///
-/// `name` is the external argument label used at the call site. `nil`
-/// represents a wildcard label (the `_` form, e.g. `init(_ a: A)`),
-/// where the call site omits the label entirely. Property-based
-/// injection always produces a concrete label (the property name);
-/// only `@Inject init(_ x: Foo)` produces a `nil` name.
-package struct DependencyParameter: Sendable {
-    package let name: String?
-    package let type: String
-    package let kind: DependencyKind
-    /// Position of the parameter or property identifier in source — the
-    /// `@Inject` site (or `@Provides func` parameter) the diagnostic
-    /// should point at when this dependency can't be resolved.
-    package let location: SourceLocation
-    /// A `.rewritesInjection` annotation on this site (`@ConfigProperty(forKey:…)`), or `nil` for an
-    /// ordinary dependency. Present ⇒ the site does not resolve by its own type: `applyInjectionRewrites`
-    /// synthesises a producer from it and re-points this dependency at that.
-    package let injectionRewrite: InjectionRewriteSite?
-    /// Canonical text of the `@Inject(<expr>)` argument when the
-    /// consumer is selecting a keyed binding, or `nil` for the unkeyed
-    /// form. Unkeyed deps match only unkeyed bindings; keyed deps
-    /// match only same-key bindings (Dagger-style — keys partition the
-    /// binding space).
-    package let keyIdentifier: String?
-    /// The *non-owning* form this init-time dependency was written as
-    /// (`@Inject weak let` or `@Inject unowned …`), or `nil` for an
-    /// ordinary owning dependency. Diagnostic-only metadata: a non-owning
-    /// init edge that closes a cycle can be broken by converting it to
-    /// `weak var` (post-construct delivery), so the cyclic-dependency error
-    /// points at it. Doesn't affect resolution or codegen. See
-    /// `OptionalMatchingAndCycles.md`.
-    package let nonOwningInitForm: NonOwningInitForm?
-    /// What this `.scopeEntryThunk` dependency enters and hands back, or `nil` for every other kind.
-    /// Present ⇒ `type` is a rendering of this and nothing needs to read it back; see
-    /// ``ScopeEntryDescriptor``, which says why the contract stopped living in the type string.
-    package let scopeEntry: ScopeEntryDescriptor?
-
-    package init(
-        name: String?,
-        type: String,
-        kind: DependencyKind,
-        location: SourceLocation,
-        keyIdentifier: String? = nil,
-        nonOwningInitForm: NonOwningInitForm? = nil,
-        injectionRewrite: InjectionRewriteSite? = nil,
-        scopeEntry: ScopeEntryDescriptor? = nil
-    ) {
-        self.name = name
-        self.type = type
-        self.kind = kind
-        self.location = location
-        self.keyIdentifier = keyIdentifier
-        self.nonOwningInitForm = nonOwningInitForm
-        self.injectionRewrite = injectionRewrite
-        self.scopeEntry = scopeEntry
+    /// This generic template specialised to `concreteType`: the substituted `dependencies`, the
+    /// `concreteArguments` to splice at a function's call site, and no generic parameters left. Every
+    /// other field — effects, access level, key, scope, contributions, `@Replaces`, `allowUnused:`,
+    /// teardown, origin — is the template's, because the copy starts from `self`.
+    func specialised(
+        as concreteType: String,
+        dependencies substitutedDependencies: [DependencyParameter],
+        concreteArguments: [String]
+    ) -> DiscoveredProvider {
+        var copy = self
+        copy.boundType = concreteType
+        copy.dependencies = substitutedDependencies
+        copy.genericParameterNames = []
+        copy.concreteGenericArguments = form == .function ? concreteArguments : []
+        return copy
     }
-}
 
-/// How a non-owning, *constructor-injected* dependency was spelled. Both
-/// forms are delivered at init (not post-construct), so they participate
-/// in cycle detection — they are NOT cycle-breakers. `weak let` nils on
-/// the target's deallocation; `unowned` is non-optional and traps. The
-/// `description` is what the cyclic-dependency note calls the edge.
-package enum NonOwningInitForm: Sendable, Equatable {
-    case weakLet
-    case unowned
-
-    package var description: String {
-        switch self {
-        case .weakLet: return "weak let"
-        case .unowned: return "unowned"
-        }
+    /// A copy with its dependencies replaced and every other field kept.
+    func replacingDependencies(_ replacement: [DependencyParameter]) -> DiscoveredProvider {
+        var copy = self
+        copy.dependencies = replacement
+        return copy
     }
 }
 

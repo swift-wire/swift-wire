@@ -41,3 +41,33 @@ struct GenericConsumer {
         container.describe()
     }
 }
+
+/// The same family through an `async throws` factory. Specialisation copies the template's effects onto
+/// `Envelope<DataPoint>`, so the graph calls `try await makeEnvelope(item:after:)`; a specialisation
+/// that dropped them called it bare, and this target did not compile (swift-wire#428).
+///
+/// `after:` only orders it behind `AsyncInitConsumer`, the corpus's async binding in a scheduled graph's
+/// suffix, so it joins that suffix rather than the group. Without it the two would be independent async
+/// bindings that overlap, which pulls `AsyncInitConsumer` into the group and leaves the corpus with no
+/// async construction in a suffix.
+struct Envelope<T: Sendable>: Sendable {
+    let item: T
+
+    func describe() -> String {
+        "Envelope(\(String(describing: item)))"
+    }
+}
+
+@Provides(allowUnused: true)
+func makeEnvelope<T: Sendable>(item: T, after: AsyncInitConsumer) async throws -> Envelope<T> {
+    Envelope(item: item)
+}
+
+@Singleton(allowUnused: true)
+struct EnvelopeConsumer {
+    @Inject var envelope: Envelope<DataPoint>
+
+    func describe() -> String {
+        envelope.describe()
+    }
+}

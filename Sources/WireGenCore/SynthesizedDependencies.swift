@@ -187,28 +187,3 @@ extension MemberInjection {
         MemberInjection(shape: shape, parameters: replacement, location: location)
     }
 }
-
-extension DiscoveredProvider {
-    /// A copy with its dependencies mapped. See `DiscoveredScopeBoundType.replacingDependencies`.
-    func replacingDependencies(_ replacement: [DependencyParameter]) -> DiscoveredProvider {
-        DiscoveredProvider(
-            boundType: boundType,
-            accessPath: accessPath,
-            form: form,
-            dependencies: replacement,
-            genericParameterNames: genericParameterNames,
-            location: location,
-            keyIdentifier: keyIdentifier,
-            concreteGenericArguments: concreteGenericArguments,
-            isAsync: isAsync,
-            isThrowing: isThrowing,
-            accessLevel: accessLevel,
-            scopeKey: scopeKey,
-            contributions: contributions,
-            allowUnused: allowUnused,
-            teardown: teardown,
-            isReplacer: isReplacer,
-            originModule: originModule
-        )
-    }
-}

@@ -156,20 +156,31 @@ declares exactly n generic parameters, and its key is the dependency's key. For 
 no binding written in source already satisfies and exactly one template matches, WireGen SHALL add
 one specialised binding of that concrete type, substituting `Ai` for the template's i-th generic
 parameter, and repeat until no new specialisation arises. Consumers of the same instantiation SHALL
-share one specialised binding. Because matching counts generic parameters and substitutes by
-position, a return type that does not list the generic parameters in declaration order is never
-matched or is specialised with the wrong substitution, which is tracked as a defect in
-https://github.com/swift-wire/swift-wire/issues/432.
+share one specialised binding. The specialised binding SHALL keep every fact of the template other
+than its type, its generic parameters and its substituted dependency types: its `async` and `throws`
+effects, access level, key, scope, contributions, `@Replaces` marker, `allowUnused:` and teardown,
+and, on each dependency, its label, kind, key and annotations. Because matching counts generic
+parameters and substitutes by position, a return type that does not list the generic parameters in
+declaration order is never matched or is specialised with the wrong substitution, which is tracked
+as a defect in https://github.com/swift-wire/swift-wire/issues/432.
 
 #### Scenario: one parameter
 - **WHEN** `@Provides func makeContainer<T: Sendable>(item: T) -> Container<T>` is declared and `GenericConsumer` injects `Container<DataPoint>`
 - **THEN** the graph calls `makeContainer` with `T = DataPoint` and exposes `containerOfDataPoint`
 
+#### Scenario: an effectful template
+- **WHEN** `@Provides func make<T: Sendable>(item: T) async throws -> Box<T>` is declared and `App` injects `Box<Int>`
+- **THEN** the graph constructs `Box<Int>` with `try await make(item:)`
+
+#### Scenario: a public template
+- **WHEN** a `public` generic `@Provides func` is specialised
+- **THEN** the specialised binding is `public`
+
 #### Scenario: no consumer
 - **WHEN** a generic `@Provides func` has no consumer of any instantiation
 - **THEN** it appears among the generic templates and not in the topological order
 
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`singleParamGenericProviderSpecialisedForConcreteConsumer`, `multiParamGenericProviderSpecialisedForConcreteConsumer`, `genericProviderFunctionSpecialisedCarriesConcreteArguments`, `multipleConsumersOfSameSpecialisationShareOneBinding`, `specialisedBindingDepThatIsAlsoGenericChainsThroughFixpoint`, `specialisationHonoursWhitespaceCanonicalisation`, `genericProviderFunctionIsSkippedFromGraph`), `Tests/IntegrationTests/BootstrapTests.swift` (`genericSingletonSpecialisedForConcreteConsumer`).
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`singleParamGenericProviderSpecialisedForConcreteConsumer`, `multiParamGenericProviderSpecialisedForConcreteConsumer`, `genericProviderFunctionSpecialisedCarriesConcreteArguments`, `multipleConsumersOfSameSpecialisationShareOneBinding`, `specialisedBindingDepThatIsAlsoGenericChainsThroughFixpoint`, `specialisationHonoursWhitespaceCanonicalisation`, `genericProviderFunctionIsSkippedFromGraph`, `specialisedGenericProviderKeepsTheTemplatesEffects`, `specialisedGenericProviderKeepsTheTemplatesDeclarationFacts`, `specialisedDependencyKeepsItsInjectionRewriteSite`), `Tests/IntegrationTests/BootstrapTests.swift` (`genericSingletonSpecialisedForConcreteConsumer`, `asyncThrowingGenericProviderSpecialisedForConcreteConsumer`).
 
 ### Requirement: A generic template that competes for an instantiation is a duplicate binding
 When a binding written in source already has a dependency's identity and a generic template also
