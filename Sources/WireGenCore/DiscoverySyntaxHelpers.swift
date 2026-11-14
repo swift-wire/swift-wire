@@ -277,7 +277,9 @@ func parameterInjectionRewrite(from parameter: FunctionParameterSyntax) -> Injec
 func injectionRewriteCandidate(in attributes: AttributeListSyntax) -> InjectionRewriteSite? {
     for case let .attribute(attribute) in attributes {
         let name = attribute.attributeName.trimmedDescription
-        guard !wireOwnedInjectionAttributes.contains(name) else { continue }
+        // Matched through `wireMacroNameMatches`, so a module-qualified `@Wire::Inject` is skipped like
+        // `@Inject` rather than taken for the candidate and hiding the adapter annotation after it.
+        guard !wireOwnedInjectionAttributes.contains(where: { wireMacroNameMatches(name, $0) }) else { continue }
         guard case let .argumentList(list) = attribute.arguments else {
             return InjectionRewriteSite(annotationName: name, arguments: [])
         }
@@ -294,5 +296,6 @@ func injectionRewriteCandidate(in attributes: AttributeListSyntax) -> InjectionR
     return nil
 }
 
-/// Attributes Wire itself gives meaning to at an injection site, so they are never rewrite candidates.
+/// Attributes Wire itself gives meaning to at an injection site, so they are never rewrite candidates,
+/// whether written bare or qualified with Wire's module selector.
 private let wireOwnedInjectionAttributes: Set<String> = ["Bind", "Inject", "Provides", "Teardown"]
