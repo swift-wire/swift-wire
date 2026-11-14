@@ -119,6 +119,15 @@ struct BootstrapTests {
         #expect(graph.containerOfDataPoint.describe() == "Container(DataPoint(value: 42))")
     }
 
+    @Test func asyncThrowingGenericProviderSpecialisedForConcreteConsumer() async throws {
+        // `makeEnvelope<T>` is `async throws`. Its `Envelope<DataPoint>` specialisation keeps both
+        // effects, so the generated call is `try await makeEnvelope(item:after:)` and this target
+        // compiles at all (swift-wire#428).
+        let graph = try await Wire.bootstrap()
+        #expect(graph.envelopeConsumer.describe() == "Envelope(DataPoint(value: 42))")
+        #expect(graph.envelopeOfDataPoint.describe() == "Envelope(DataPoint(value: 42))")
+    }
+
     // MARK: - Explicit-key disambiguation
 
     @Test func keyedConsumerInjectsTheMatchingKeyedProvider() async throws {
