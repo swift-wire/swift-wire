@@ -106,6 +106,7 @@ func extractInjectDependencies(
             varDecl,
             into: &result,
             propertyDependencies: &propertyDependencies,
+            hostTypeKind: hostTypeKind,
             sourcePath: sourcePath,
             converter: converter
         )
@@ -322,6 +323,7 @@ private func applyInjectVar(
     _ varDecl: VariableDeclSyntax,
     into result: inout InjectExtractionResult,
     propertyDependencies: inout [DependencyParameter],
+    hostTypeKind: String,
     sourcePath: String,
     converter: SourceLocationConverter
 ) {
@@ -338,7 +340,11 @@ private func applyInjectVar(
             sourcePath: sourcePath,
             converter: converter
         )
-        if isWeak && !isLet {
+        if isWeak && !isLet && hostTypeKind == "struct" {
+            result.diagnostics.append(weakVarOnStructDiagnostic(at: location))
+            // As for `@Inject mutating func`: the injection is not recorded, since its assignment
+            // would not compile and the user has been told the pattern is invalid.
+        } else if isWeak && !isLet {
             appendWeakVarMemberInjection(
                 propertyName: pattern.identifier.text,
                 typeAnnotation: typeAnnotation.type,
@@ -373,6 +379,19 @@ private func applyInjectVar(
             )
         }
     }
+}
+
+/// `@Inject weak var` on a struct host has no post-construct delivery that works: the bootstrap holds
+/// the constructed struct in a `let`, so the assignment would not compile, and even through a `var`
+/// every consumer that received the struct via init before the assignment would hold a copy without
+/// it — the same divergence as `@Inject mutating func`. Worded to match that diagnostic.
+private func weakVarOnStructDiagnostic(at location: SourceLocation) -> Diagnostic {
+    Diagnostic(
+        location: location,
+        message:
+            "'@Inject weak var' on a struct produces divergent state — the property is assigned after construction, so consumers that received this binding via init see the value without it, and only the graph-stored value could reflect the assignment. Fix: (1) convert to a class so consumers share a reference, (2) use '@Inject weak let' to deliver the reference at init (it no longer breaks a cycle), or (3) deliver this dep through @Inject init instead.",
+        severity: .error
+    )
 }
 
 /// Emit the `weak var` post-construct member injection (the cycle-break

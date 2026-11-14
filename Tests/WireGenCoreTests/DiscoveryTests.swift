@@ -898,6 +898,43 @@ struct DiscoveryTests {
         #expect(scopeBound.memberInjections.isEmpty)
     }
 
+    @Test func weakInjectVarOnStructEmitsErrorDiagnostic() {
+        // swift-wire#410. A `weak var` is delivered by assignment after construction, which a struct
+        // host cannot take: the bootstrap's local is a `let`, and consumers that received the struct
+        // via init would hold a copy without the reference. Same treatment as
+        // `@Inject mutating func` — an error at the property, and no member injection recorded.
+        let source = """
+            @Singleton
+            struct View {
+                @Inject weak var coordinator: Coordinator?
+            }
+            """
+        let result = discover(in: source, sourcePath: "View.swift", module: testModule)
+        let errors = result.warnings.filter { $0.severity == .error }
+        #expect(errors.count == 1)
+        #expect(errors.first?.message.contains("'@Inject weak var' on a struct") == true)
+        #expect(errors.first?.message.contains("divergent state") == true)
+        #expect(errors.first?.location.line == 3)
+        guard case .scopeBound(let scopeBound) = result.bindings.first else {
+            Issue.record("expected a scope-bound binding")
+            return
+        }
+        #expect(scopeBound.memberInjections.isEmpty)
+        #expect(scopeBound.dependencies.isEmpty)
+    }
+
+    @Test func weakInjectLetOnStructIsNotDiagnosed() {
+        // `weak let` is delivered at init, so a struct host has no post-construct write to lose.
+        let source = """
+            @Singleton
+            struct View {
+                @Inject weak let coordinator: Coordinator?
+            }
+            """
+        let result = discover(in: source, sourcePath: "View.swift", module: testModule)
+        #expect(result.warnings.filter { $0.severity == .error }.isEmpty)
+    }
+
     @Test func mutatingInjectFuncOnClassDoesNotEmitDiagnostic() {
         // The mutating-on-struct check is structural, not just
         // about `mutating` — classes don't have the value-copy

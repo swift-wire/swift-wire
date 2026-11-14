@@ -109,8 +109,8 @@ property-assignment member injection, and the generated bootstrap SHALL assign i
 `<consumer>.<property> = <producer>` after the construction sequence. An actor host is instead
 assigned through a generated setter; see "An actor's `@Inject weak var` is assigned through a
 generated setter". On a `@Factory` template the property is never assigned, tracked as a possible
-defect in https://github.com/swift-wire/swift-wire/issues/409; on a struct host the emitted
-assignment targets a `let` local, tracked in https://github.com/swift-wire/swift-wire/issues/410.
+defect in https://github.com/swift-wire/swift-wire/issues/409. On a struct host it is an error; see
+"`@Inject weak var` on a struct is an error".
 
 #### Scenario: the synthesised init omits the weak property
 - **WHEN** `@Singleton final class View { @Inject weak var coordinator: Coordinator? }` is expanded
@@ -228,6 +228,19 @@ struct, or any `@Inject func` on a class, SHALL NOT be diagnosed.
 - **THEN** the rendered output contains an `error:` located at the name `receive`, and the fixes "convert to a class", "drop 'mutating'" and "@Inject init"
 
 Pinned by: `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`mutatingInjectFuncOnStructRendersAsErrorWithFixIts`), `Tests/WireGenCoreTests/DiscoveryTests.swift` (`mutatingInjectFuncOnStructEmitsErrorDiagnostic`, `mutatingInjectFuncOnClassDoesNotEmitDiagnostic`, `nonMutatingInjectFuncOnStructIsAllowed`).
+
+### Requirement: `@Inject weak var` on a struct is an error
+WireGen SHALL report an error beginning "'@Inject weak var' on a struct produces divergent state —
+the property is assigned after construction, so consumers that received this binding via init see
+the value without it, and only the graph-stored value could reflect the assignment." at the
+property name of an `@Inject weak var` on a `struct` host, and SHALL record no member injection for
+it. An `@Inject weak let` on a struct is delivered at init and SHALL NOT be diagnosed.
+
+#### Scenario: a weak property on a struct
+- **WHEN** `@Singleton struct View` declares `@Inject weak var coordinator: Coordinator?`
+- **THEN** discovery reports one error, located at `coordinator`, and `View` has no member injections
+
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`weakInjectVarOnStructEmitsErrorDiagnostic`, `weakInjectLetOnStructIsNotDiagnosed`).
 
 ### Requirement: Member-injection parameters are resolved but form no graph edge
 The parameters of `@Inject weak var` and `@Inject func` member injections SHALL be matched against
