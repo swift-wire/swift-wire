@@ -201,8 +201,8 @@ func appendStruct(
     let propertyBlockIndex = file.lines.count
     file.lines.append(storagePlaceholder)
     // The captured teardown, built at bootstrap where each binding's concrete type is
-    // live (see `bootstrapTeardownClosureLines`). Only emitted when something needs
-    // tearing down; the `teardown()` method below delegates to it.
+    // live (see `teardownActionAppendLines` and `accumulatedTeardownClosureLines`). Only
+    // emitted when something needs tearing down; the `teardown()` method below delegates to it.
     if !torn.isEmpty {
         file.lines.append("    let _wireTeardown: @Sendable () async -> [any Error]")
     }
