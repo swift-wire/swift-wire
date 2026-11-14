@@ -9,7 +9,8 @@ import SwiftSyntaxMacros
 ///
 /// Generates two things:
 /// 1. An initialiser Wire calls to construct the type at bootstrap time.
-/// 2. A `static let key: BindingKey<Self>` for graph identity.
+/// 2. A `static let key: BindingKey<Self>`, which does not key the binding
+///    (see "Static key" below).
 ///
 /// ## Initialiser source
 ///
@@ -34,8 +35,14 @@ import SwiftSyntaxMacros
 /// ## Static key
 ///
 /// Generated unless the user provides their own `static let key` (or
-/// `static var key`) — typically to give the binding a named identifier
-/// for disambiguation.
+/// `static var key`). The key plays no part in graph identity: a
+/// `@Singleton` or `@Scoped` binding is always unkeyed, so a dependency
+/// keyed by the type's own `key` is a missing binding, not a dependency
+/// on the type. WireGen reads source, not macro expansions, so it does not
+/// see the synthesised key at all, and `@Inject(Type.key)` against it is
+/// reported as a key that is never declared. A user-declared `key` is a
+/// declared key but does not key this binding either. Nothing in Wire
+/// reads the synthesised key today.
 ///
 /// ## Extensions
 ///

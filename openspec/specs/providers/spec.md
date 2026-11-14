@@ -104,7 +104,11 @@ synthesises SHALL NOT key it.
 - **WHEN** `@Singleton struct Database` is bound and the singleton `UserRepo` depends on `Database` keyed `Database.primary`
 - **THEN** `UserRepo`'s keyed dependency does not resolve to `Database`, and is reported as a missing binding keyed `Database.primary`
 
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`keyedDependencyDoesNotMatchUnkeyedBinding`). That the singleton's own synthesised `static key` does not key it is not yet pinned: https://github.com/swift-wire/swift-wire/issues/456.
+#### Scenario: a dependency keyed by the singleton's own key
+- **WHEN** `@Singleton struct Repo` is bound and the singleton `Consumer` declares `@Inject(Repo.key) var repo: Repo`
+- **THEN** `Consumer`'s dependency does not resolve to `Repo`, and is reported as a missing binding keyed `Repo.key`
+
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`keyedDependencyDoesNotMatchUnkeyedBinding`, `singletonsSynthesisedKeyDoesNotKeyItsBinding`).
 
 ### Requirement: `@Provides` in an unannotated extension falls through to the default graph
 A `@Provides` inside an `extension` that does not carry `@Container` SHALL be recorded in the
