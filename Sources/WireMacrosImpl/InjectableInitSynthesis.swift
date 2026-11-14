@@ -247,7 +247,7 @@ enum InjectableInitSynthesis {
 /// generic. Returns `nil` for a declaration that isn't a struct/class/actor.
 struct HostTypeInfo {
     let nameWithGenerics: String
-    let accessPrefix: String  // e.g. "public " or "" — trailing space included when present
+    let accessPrefix: String  // e.g. "public " or "" — trailing space included when present; `open` maps to "public "
     let isGeneric: Bool
 
     init?(declaration: some DeclGroupSyntax) {
@@ -291,8 +291,16 @@ struct HostTypeInfo {
             let name = modifier.name.text
             if known.contains(name) {
                 // The synthesised init's access matches the type's. We don't
-                // emit "internal" explicitly since Swift defaults to it.
-                return name == "internal" ? "" : "\(name) "
+                // emit "internal" explicitly since Swift defaults to it. An
+                // `open` host gets `public` members: Swift rejects `open init`
+                // (an initialiser is not overridable in the `open` sense) and
+                // `open static` (a static member is implicitly `final`), and
+                // `public` is the widest access either can carry.
+                switch name {
+                case "internal": return ""
+                case "open": return "public "
+                default: return "\(name) "
+                }
             }
         }
         return ""

@@ -20,8 +20,8 @@ The `@Singleton` macro SHALL add to the primary declaration the initialiser desc
 [injection-points](../injection-points/spec.md) (from `@Inject` stored properties in declaration
 order, or none when a single `@Inject init` is written) and a
 `static let key = BindingKey<<Type>>()`, both carrying the host type's access keyword with
-`internal` omitted. On an `open class` this copies `open` onto both, which Swift rejects; that is
-tracked as a defect in https://github.com/swift-wire/swift-wire/issues/407.
+`internal` omitted. On an `open class` both are declared `public`, because Swift rejects
+`open init` and `open static`.
 
 #### Scenario: an empty singleton
 - **WHEN** `@Singleton struct A {}` is expanded
@@ -31,7 +31,11 @@ tracked as a defect in https://github.com/swift-wire/swift-wire/issues/407.
 - **WHEN** `@Singleton package struct` is expanded
 - **THEN** the synthesised initialiser and key are both declared `package`
 
-Pinned by: `Tests/WireMacrosImplTests/SingletonMacroTests.swift` (`test_singletonOnEmptyStruct_generatesEmptyInitAndKey`, `test_singletonOnPublicStruct_emitsPublicInitAndKey`, `test_singletonOnPackageStruct_emitsPackageInitAndKey`, `test_singletonSkipsInitGenerationWhenInjectInitProvided`).
+#### Scenario: an open singleton
+- **WHEN** `@Singleton open class` is expanded
+- **THEN** the synthesised initialiser and key are both declared `public`
+
+Pinned by: `Tests/WireMacrosImplTests/SingletonMacroTests.swift` (`test_singletonOnEmptyStruct_generatesEmptyInitAndKey`, `test_singletonOnPublicStruct_emitsPublicInitAndKey`, `test_singletonOnPackageStruct_emitsPackageInitAndKey`, `test_singletonOnOpenClass_emitsPublicInitAndKey`, `test_singletonSkipsInitGenerationWhenInjectInitProvided`).
 
 ### Requirement: A generic type's key is a computed static property
 When the host type declares a generic parameter clause, the `@Singleton` macro SHALL emit

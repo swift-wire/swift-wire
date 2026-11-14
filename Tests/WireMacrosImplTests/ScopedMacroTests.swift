@@ -65,6 +65,31 @@ final class ScopedMacroTests: XCTestCase {
         )
     }
 
+    func test_scopedOnOpenClass_emitsPublicInitAndKey() {
+        // Swift rejects `open init` and `open static`; an `open` host's
+        // synthesised members are `public`.
+        assertMacroExpansion(
+            """
+            @Scoped(seed: RequestSeed.self)
+            open class A {
+                @Inject var b: B
+            }
+            """,
+            expandedSource: """
+                open class A {
+                    var b: B
+
+                    public init(b: B) {
+                        self.b = b
+                    }
+
+                    public static let key = BindingKey<A>()
+                }
+                """,
+            macros: macros
+        )
+    }
+
     func test_scopedInjectsSeedTypeDirectly() {
         // The seed itself is a legitimate dependency — Wire makes it
         // bindable inside the scope. From the macro's perspective this
