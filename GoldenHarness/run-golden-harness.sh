@@ -8,10 +8,11 @@
 #
 # The corpus is `Tests/IntegrationTests` — ~70 example files covering containers,
 # seed scopes, contributor proxies, graph conformances, teardown, member
-# injection, opaque lifts and testing variants — plus its Wire-aware sibling
-# `WireTestLibrary`, exactly the two module groups the build plugin passes for
-# that target. So this runs the real `WireGen` over the real corpus, not a
-# re-implementation of the plugin's argument shape.
+# injection, opaque lifts and testing variants — plus its Wire-aware
+# dependencies `WireTesting` and `WireTestLibrary`, exactly the three module
+# groups the build plugin passes for that target. So this runs the real
+# `WireGen` over the real corpus, not a re-implementation of the plugin's
+# argument shape.
 #
 # Runs OUTSIDE `swift test`: the guard is over WireGen's *output files*, and
 # WireGen is an executable target a test target cannot import.
@@ -37,7 +38,9 @@ trap 'rm -rf "$WORK"' EXIT
 
 echo "== golden: generating over Tests/IntegrationTests =="
 # Module groups mirror WireBuildPlugin's for this target: the consumer first,
-# then its Wire-aware same-package dependency. `--testing-variants` is what the
+# then each direct dependency that itself depends on `Wire`, in the manifest's
+# dependency order (`Wire`, `WireTesting`, `WireTestLibrary`; `Wire` does not
+# depend on itself, so it is not a group). `--testing-variants` is what the
 # plugin passes for a test target, and it is what puts the variant graphs in.
 # Globs (not `find`) so the file order is lexicographic and stable everywhere.
 #
@@ -52,6 +55,7 @@ cd "$ROOT"
     "$WORK/_WireKeyChecks.swift" \
     --testing-variants \
     --module IntegrationTests Tests/IntegrationTests/*.swift \
+    --module WireTesting Sources/WireTesting/*.swift \
     --module WireTestLibrary Sources/WireTestLibrary/*.swift \
     > "$WORK/discovery-report.txt"
 

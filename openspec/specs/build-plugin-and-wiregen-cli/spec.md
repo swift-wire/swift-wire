@@ -91,8 +91,8 @@ followed by
 to stderr and exit with status 1.
 
 #### Scenario: the golden invocation
-- **WHEN** `WireGen` is run as `WireGen <graph> <keychecks> --testing-variants --module IntegrationTests Tests/IntegrationTests/*.swift --module WireTestLibrary Sources/WireTestLibrary/*.swift`
-- **THEN** `IntegrationTests` is the consumer, `WireTestLibrary` is a same-package dependency, and variants are enabled
+- **WHEN** `WireGen` is run as `WireGen <graph> <keychecks> --testing-variants --module IntegrationTests Tests/IntegrationTests/*.swift --module WireTesting Sources/WireTesting/*.swift --module WireTestLibrary Sources/WireTestLibrary/*.swift`
+- **THEN** `IntegrationTests` is the consumer, `WireTesting` and `WireTestLibrary` are same-package dependencies, and variants are enabled
 
 #### Scenario: no module group
 - **WHEN** `WireGen` is run with only two output paths
@@ -287,7 +287,7 @@ compare both outputs against `GoldenHarness/Golden/*.golden`, fail on any drift 
 of the checkout's absolute path, and re-record with `--update`.
 
 #### Scenario: the corpus is unchanged
-- **WHEN** `bash GoldenHarness/run-golden-harness.sh` runs over `Tests/IntegrationTests` and `Sources/WireTestLibrary`
+- **WHEN** `bash GoldenHarness/run-golden-harness.sh` runs over `Tests/IntegrationTests`, `Sources/WireTesting` and `Sources/WireTestLibrary`
 - **THEN** both generated files are byte-identical to the recorded goldens and the gate passes
 
 #### Scenario: re-recording
