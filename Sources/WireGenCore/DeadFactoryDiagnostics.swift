@@ -9,7 +9,9 @@
 // A `package`/`public` template stays silent: a consumer may live in another module or package Wire
 // can't see from here, so its being unconsumed in *this* build doesn't make it dead. An `internal`
 // template can only be consumed in its own module, so no in-module consumer means it is genuinely dead.
-// `fileprivate`/`private` never reach here (declaration-too-private already failed the build).
+// A `fileprivate`/`private` template stays silent too, though not for that reason: WireGen runs no
+// declaration-too-private check on `@Factory` templates, so one is recorded like any other and this filter
+// skips it only because it is not `internal`.
 //
 // Consumption is judged name-agnostically — a use-site is consuming if its argument is the template's
 // key — over-approximating consumption is the safe direction for a warning: better to miss a dead
