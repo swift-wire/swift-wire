@@ -212,9 +212,11 @@ struct WireGen {
         var resolvedBindingsByContainer: [String?: [DiscoveredBinding]]
         // What reachability dropped, across every graph — the home-module migration diagnostic's input.
         var prunedBindings: [DiscoveredBinding]
-        // Everything reachability *decided*, retained and pruned alike. The dead-binding pass judges
-        // what is not in here, which is how the two fold into one diagnostic per binding.
-        var judgedByReachability: Set<BindingIdentity>
+        // Everything each container's app graph's reachability *decided*, retained and pruned alike,
+        // keyed by container. The dead-binding pass skips an app-graph binding its own container's set
+        // holds, which is how the two fold into one diagnostic per binding; seed-scope bindings are
+        // never skipped, because reachability never judged them (swift-wire#440).
+        var judgedByReachability: [String?: Set<BindingIdentity>]
     }
 
     /// Build every graph the input describes: the default graph, one
@@ -232,6 +234,7 @@ struct WireGen {
         var containerGraphs: [(name: String, result: GraphResult)] = []
         var seedScopeOrchestrations: [SeedScopeOrchestration] = []
         var resolvedBindingsByContainer: [String?: [DiscoveredBinding]] = [:]
+        var judgedByReachability: [String?: Set<BindingIdentity>] = [:]
         for containerKey in partitions.keys.sorted(by: containerKeyOrder) {
             let scopes = partitions[containerKey] ?? [:]
             var singletons = scopes[nil] ?? []
@@ -286,6 +289,7 @@ struct WireGen {
             } else {
                 defaultGraph = graph
             }
+            judgedByReachability[containerKey] = judged(graph)
             resolvedBindingsByContainer[containerKey, default: []] += graph.outcome.topologicalOrder ?? []
             for orchestration in containerOrchestrations {
                 seedScopeOrchestrations.append(orchestration)
@@ -299,7 +303,7 @@ struct WireGen {
             seedScopeOrchestrations: seedScopeOrchestrations,
             resolvedBindingsByContainer: resolvedBindingsByContainer,
             prunedBindings: defaultGraph.pruned + containerGraphs.flatMap { $0.result.pruned },
-            judgedByReachability: judged(defaultGraph).union(containerGraphs.flatMap { judged($0.result) })
+            judgedByReachability: judgedByReachability
         )
     }
 
