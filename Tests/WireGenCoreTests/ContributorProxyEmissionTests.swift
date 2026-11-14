@@ -95,49 +95,51 @@ struct ContributorProxyEmissionTests {
 
     /// Build a *bridging* proxy binding — the subject is narrower-scoped than the proxy, so the primary
     /// dependency is the labelled scope-entry thunk (`_wireEnterScope`) rather than the positional subject.
-    private func bridgeProxyBinding(
-        typeName: String = "_WireRouteContributor_SessionController",
-        params: [String] = ["Repository"],
-        constraints: [String: String] = ["Repository": "TodoRepository"],
-        thunkType: String = "@Sendable (RequestSeed) async throws -> SessionController<Repository>",
-        factoryKeys: [String] = []
-    ) -> DiscoveredScopeBoundType {
-        var dependencies: [DependencyParameter] = [
-            DependencyParameter(
-                name: contributorProxyScopeEntryFieldName,  // labelled — `_wireEnterScope`
-                type: thunkType,
-                kind: .scopeEntryThunk,
-                location: mockLocation("C.swift")
-            )
-        ]
-        for key in factoryKeys {
-            dependencies.append(
+    ///
+    /// The thunk comes from `contributorProxyBinding`, the synthesis itself, rather than from a type string
+    /// written here: a hand-written thunk type is echoed back verbatim by the emitter, so a test built on
+    /// one measures only the fixture, and would stay green whatever the synthesis made the thunk return.
+    private func bridgeProxyBinding(factoryKeys: [String] = []) -> DiscoveredScopeBoundType {
+        let subject = DiscoveredScopeBoundType(
+            typeName: "SessionController",
+            typeKind: "struct",
+            genericParameterNames: ["Repository"],
+            genericParameterConstraints: ["Repository": "TodoRepository"],
+            dependencies: [],
+            location: mockLocation("C.swift"),
+            scopeKey: ScopeKey(seed: "RequestSeed"),
+            accessLevel: .public,
+            originModule: testModule
+        )
+        let proxy = contributorProxyBinding(
+            for: subject,
+            key: "Keys.routeContributors",
+            prefix: "_WireRouteContributor_",
+            proxyScope: .singleton
+        )
+        return proxy.appendingDependencies(
+            factoryKeys.map { key in
                 DependencyParameter(
                     name: factoryDependencyName(forKey: key),
                     type: factoryTypeName(forKey: key),
                     kind: .injectInitParameter,
                     location: mockLocation("M.swift")
                 )
-            )
-        }
-        return DiscoveredScopeBoundType(
-            typeName: typeName,
-            typeKind: "struct",
-            genericParameterNames: params,
-            genericParameterConstraints: constraints,
-            dependencies: dependencies,
-            location: mockLocation("C.swift"),
-            accessLevel: .public,
-            originModule: testModule
+            }
         )
     }
 
     @Test func emitsScopeEntryThunkFieldAndNoSubject() {
         let declaration = renderContributorProxyDeclaration(bridgeProxyBinding())
         let expected = """
+            struct _WireScopeEntry_SessionController<Repository: TodoRepository>: Sendable, WireScopeEntry {
+                let _wireSubject: SessionController<Repository>
+                let _wireScopeTeardown: @Sendable () async -> [any Error]
+            }
+
             struct _WireRouteContributor_SessionController<Repository: TodoRepository>: Sendable {
-                let _wireEnterScope: @Sendable (RequestSeed) async throws -> SessionController<Repository>
-                init(_wireEnterScope: @escaping @Sendable (RequestSeed) async throws -> SessionController<Repository>) {
+                let _wireEnterScope: @Sendable (RequestSeed) async throws -> _WireScopeEntry_SessionController<Repository>
+                init(_wireEnterScope: @escaping @Sendable (RequestSeed) async throws -> _WireScopeEntry_SessionController<Repository>) {
                     self._wireEnterScope = _wireEnterScope
                 }
             }
@@ -150,10 +152,15 @@ struct ContributorProxyEmissionTests {
             bridgeProxyBinding(factoryKeys: ["Keys.backend"])
         )
         let expected = """
+            struct _WireScopeEntry_SessionController<Repository: TodoRepository>: Sendable, WireScopeEntry {
+                let _wireSubject: SessionController<Repository>
+                let _wireScopeTeardown: @Sendable () async -> [any Error]
+            }
+
             struct _WireRouteContributor_SessionController<Repository: TodoRepository>: Sendable {
-                let _wireEnterScope: @Sendable (RequestSeed) async throws -> SessionController<Repository>
+                let _wireEnterScope: @Sendable (RequestSeed) async throws -> _WireScopeEntry_SessionController<Repository>
                 let _wireFactory_Keys_backend: _WireFactory_Keys_backend
-                init(_wireEnterScope: @escaping @Sendable (RequestSeed) async throws -> SessionController<Repository>, _wireFactory_Keys_backend: _WireFactory_Keys_backend) {
+                init(_wireEnterScope: @escaping @Sendable (RequestSeed) async throws -> _WireScopeEntry_SessionController<Repository>, _wireFactory_Keys_backend: _WireFactory_Keys_backend) {
                     self._wireEnterScope = _wireEnterScope
                     self._wireFactory_Keys_backend = _wireFactory_Keys_backend
                 }
