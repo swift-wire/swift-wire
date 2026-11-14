@@ -9,8 +9,9 @@
 > is pruned. Container composition is still future work and still builds on
 > this model.
 >
-> One known gap: a *defaulted* member of a `public extension` reads as
-> `internal`, so an unconsumed key there can falsely warn — [#342](https://github.com/swift-wire/swift-wire/issues/342).
+> A member with no modifier of its own takes its extension's explicit
+> modifier as its default, as Swift does: a defaulted member of a
+> `public extension` reads as `public` ([#342](https://github.com/swift-wire/swift-wire/issues/342)).
 
 > **See also:** the "must be at least `internal`" threshold below assumes
 > the bootstrap is generated into the *same* module. Multi-module

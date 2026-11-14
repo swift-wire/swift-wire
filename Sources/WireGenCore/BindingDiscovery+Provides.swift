@@ -34,11 +34,14 @@ extension BindingDiscovery {
         // `@Provides let` bindings can't, so the flags stay `false`
         // for those.
         let propertyEffects = computedPropertyEffectFlags(binding)
-        let providerAccess = accessLevel(from: node.modifiers)
+        let providerAccess = memberAccess(node.modifiers)
+        // The too-private check blames the provider's own written modifier and its enclosing
+        // scopes separately, so it takes the written modifier: in `private extension Foo` an
+        // unmodified provider is blamed on the extension, not on a `fileprivate` it never wrote.
         if let diagnostic = declarationTooPrivateDiagnostic(
             surfaceLabel: "@Provides declaration",
             name: propertyName,
-            ownAccess: providerAccess,
+            ownAccess: accessLevel(from: node.modifiers),
             enclosing: scopes.map { ($0.typeName, $0.access) },
             location: providerLocation
         ) {
@@ -120,11 +123,14 @@ extension BindingDiscovery {
             )
         )
         let effects = functionEffectFlags(node.signature.effectSpecifiers)
-        let providerAccess = accessLevel(from: node.modifiers)
+        let providerAccess = memberAccess(node.modifiers)
+        // The too-private check blames the provider's own written modifier and its enclosing
+        // scopes separately, so it takes the written modifier: in `private extension Foo` an
+        // unmodified provider is blamed on the extension, not on a `fileprivate` it never wrote.
         if let diagnostic = declarationTooPrivateDiagnostic(
             surfaceLabel: "@Provides function",
             name: functionName,
-            ownAccess: providerAccess,
+            ownAccess: accessLevel(from: node.modifiers),
             enclosing: scopes.map { ($0.typeName, $0.access) },
             location: providerLocation
         ) {

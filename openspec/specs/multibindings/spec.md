@@ -32,8 +32,9 @@ WireGen SHALL recognise a multibinding key as a single-binding `let` at module s
 `static let` inside a type whose type annotation, or failing that whose constructor-call
 initialiser, names `CollectedKey`, `MappedKey` or `BuilderKey`. It SHALL record the flavour, the
 verbatim generic arguments, the canonical reference (the enclosing type names and the property name
-joined by `.`) and the effective access level: the declaration's own access folded with the access
-of every enclosing type body and the explicit access modifier of every enclosing extension. An
+joined by `.`) and the effective access level: the declaration's own access, or with no modifier of
+its own the access modifier of an immediately enclosing extension that carries one, folded with the
+access of every enclosing type body and the explicit access modifier of every enclosing extension. An
 extension with no access modifier SHALL NOT cap its members, and the extended type's own declared
 access SHALL NOT be consulted, so `extension App { public static let services = ... }` records a
 `public` key even when `App` is `internal`, which is tracked as a possible defect in
@@ -56,7 +57,11 @@ be a key.
 - **WHEN** `extension App { public static let services = CollectedKey<any Service>() }` is scanned
 - **THEN** the key's effective access is `public`
 
-Pinned by: `Tests/WireGenCoreTests/MultibindingKeyDiscoveryTests.swift` (`collectedKeyOnExtensionCapturesFlavourTypeAndReference`, `mappedKeyCapturesBothTypeArguments`, `builderKeyCapturesBuilderTypeArgument`, `moduleScopeKeyHasUnqualifiedReference`, `explicitTypeAnnotationFormIsCaptured`, `effectiveAccessFoldsEnclosingTypeAccess`, `nonKeyDeclarationsAreIgnored`, `instanceLevelKeyDeclarationIsIgnored`), `Tests/WireGenCoreTests/MultibindingValidationTests.swift` (`publicKeyInExtensionIsSilent`, `internalKeyInExtensionStillWarns`). That the extended type's own access is not consulted is pinned by nothing yet.
+#### Scenario: a public extension defaults its unmodified key
+- **WHEN** `public extension App { static let services = CollectedKey<any Service>() }` declares the key and nothing injects it
+- **THEN** the key's effective access is `public` and WireGen reports no "has no consumer" warning
+
+Pinned by: `Tests/WireGenCoreTests/ExtensionAccessDefaultTests.swift` (`multibindingKeyAccess`, `unconsumedDefaultedKeyOfPublicExtensionDoesNotWarn`, `unconsumedUnmodifiedKeyOfPlainExtensionStillWarns`), `Tests/WireGenCoreTests/MultibindingKeyDiscoveryTests.swift` (`collectedKeyOnExtensionCapturesFlavourTypeAndReference`, `mappedKeyCapturesBothTypeArguments`, `builderKeyCapturesBuilderTypeArgument`, `moduleScopeKeyHasUnqualifiedReference`, `explicitTypeAnnotationFormIsCaptured`, `effectiveAccessFoldsEnclosingTypeAccess`, `nonKeyDeclarationsAreIgnored`, `instanceLevelKeyDeclarationIsIgnored`), `Tests/WireGenCoreTests/MultibindingValidationTests.swift` (`publicKeyInExtensionIsSilent`, `internalKeyInExtensionStillWarns`). That the extended type's own access is not consulted is pinned by nothing yet.
 
 ### Requirement: Keys are discovered across every activated module
 WireGen SHALL pool the key declarations discovered in every module of its parse set, so a

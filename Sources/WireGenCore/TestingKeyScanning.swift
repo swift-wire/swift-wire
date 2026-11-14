@@ -77,6 +77,7 @@ func testingKey(
     from node: VariableDeclSyntax,
     enclosingTypeNames: [String],
     enclosingAccessLevels: [AccessLevel],
+    enclosingExtensionAccess: AccessLevel?,
     sourcePath: String,
     converter: SourceLocationConverter,
     module: String
@@ -93,7 +94,9 @@ func testingKey(
     let keyReference = (enclosingTypeNames + [pattern.identifier.text]).joined(separator: ".")
     let effectiveAccess =
         enclosingAccessLevels
-        .reduce(accessLevel(from: node.modifiers)) { $0.mostRestrictive(with: $1) }
+        .reduce(memberAccessLevel(from: node.modifiers, enclosingExtensionAccess: enclosingExtensionAccess)) {
+            $0.mostRestrictive(with: $1)
+        }
 
     let substitutions = node.attributes.compactMap { element -> BindTypeSubstitution? in
         guard case .attribute(let attribute) = element,

@@ -46,6 +46,13 @@ struct VisitorScope {
     /// `@Provides` in a `private enum` is flagged unreachable even when
     /// its own modifier is `internal`). See `effectiveAccess`.
     let access: AccessLevel
+    /// The access modifier written on this frame when it is an extension that carries one,
+    /// otherwise `nil`. Swift makes it the default access of the extension's members, so a
+    /// member with no modifier of its own takes it: `public extension Foo { static let x }`
+    /// declares a `public` `x`. A primary type declaration gives its members no such default
+    /// (they are `internal` whatever the type's access), so its frame records `nil`. See
+    /// `memberAccessLevel(from:enclosingExtensionAccess:)`.
+    let explicitExtensionAccess: AccessLevel?
     /// Extended-type name when this scope is an *unannotated*
     /// extension, used to record candidate `@Provides` declarations for
     /// the extension-of-foreign-type warnings. `nil` for primary type
@@ -418,41 +425,8 @@ final class BindingDiscovery: SyntaxVisitor {
     // MARK: `@Provides` on variables and functions.
 
     override func visit(_ node: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
-        if isAtRecognisedProvidesPosition(modifiers: node.modifiers),
-            let key = multibindingKey(
-                from: node,
-                enclosingTypeNames: scopes.map(\.typeName),
-                enclosingAccessLevels: scopes.map(\.access),
-                sourcePath: sourcePath,
-                converter: converter,
-                module: module
-            )
-        {
-            multibindingKeys.append(key)
-        }
-        if isAtRecognisedProvidesPosition(modifiers: node.modifiers),
-            let key = bindingKey(
-                from: node,
-                enclosingTypeNames: scopes.map(\.typeName),
-                enclosingAccessLevels: scopes.map(\.access),
-                sourcePath: sourcePath,
-                converter: converter,
-                module: module
-            )
-        {
-            bindingKeys.append(key)
-        }
-        if isAtRecognisedProvidesPosition(modifiers: node.modifiers),
-            let key = testingKey(
-                from: node,
-                enclosingTypeNames: scopes.map(\.typeName),
-                enclosingAccessLevels: scopes.map(\.access),
-                sourcePath: sourcePath,
-                converter: converter,
-                module: module
-            )
-        {
-            testingKeys.append(key)
+        if isAtRecognisedProvidesPosition(modifiers: node.modifiers) {
+            scanKeyDeclarations(node)
         }
         if isAtRecognisedProvidesPosition(modifiers: node.modifiers),
             let definition = adapterAnnotation(
@@ -575,17 +549,20 @@ extension BindingDiscovery {
         let isContainer = hasAttribute(attributes, named: "Container")
         // An extension with no explicit access modifier does not cap its members —
         // `extension Foo { public static let x }` is public — so contribute `.open`
-        // (non-capping). An explicit modifier on the extension both defaults and caps.
-        // A plain type declaration caps normally.
+        // (non-capping). An explicit modifier on the extension both defaults and caps:
+        // it is recorded as the cap here and as `explicitExtensionAccess`, the default
+        // an unmodified member takes. A plain type declaration caps normally.
+        let extensionAccess = isExtension ? explicitAccessLevel(from: modifiers) : nil
         let scopeAccess =
             isExtension
-            ? (explicitAccessLevel(from: modifiers) ?? .open)
+            ? (extensionAccess ?? .open)
             : accessLevel(from: modifiers)
         scopes.append(
             VisitorScope(
                 typeName: name,
                 containerName: isContainer ? name : scopes.last?.containerName,
                 access: scopeAccess,
+                explicitExtensionAccess: extensionAccess,
                 unannotatedExtensionTarget: unannotatedExtensionTarget,
                 seedScope: seedScopeBlock ?? scopes.last?.seedScope
             )
@@ -607,6 +584,64 @@ extension BindingDiscovery {
     private func recordDeclaredTypeName(_ name: String) {
         guard scopes.isEmpty else { return }
         declaredTypeNames.append(name)
+    }
+
+    /// Record a `CollectedKey`/`MappedKey`/`BuilderKey`, `BindingKey` or `TestingKey` declaration at a
+    /// recognised position. Each scanner folds the key's access with the enclosing scopes' caps and
+    /// defaults an unmodified key to the access of an explicitly modified enclosing extension.
+    private func scanKeyDeclarations(_ node: VariableDeclSyntax) {
+        if let key = multibindingKey(
+            from: node,
+            enclosingTypeNames: scopes.map(\.typeName),
+            enclosingAccessLevels: scopes.map(\.access),
+            enclosingExtensionAccess: scopes.last?.explicitExtensionAccess,
+            sourcePath: sourcePath,
+            converter: converter,
+            module: module
+        ) {
+            multibindingKeys.append(key)
+        }
+        if let key = bindingKey(
+            from: node,
+            enclosingTypeNames: scopes.map(\.typeName),
+            enclosingAccessLevels: scopes.map(\.access),
+            enclosingExtensionAccess: scopes.last?.explicitExtensionAccess,
+            sourcePath: sourcePath,
+            converter: converter,
+            module: module
+        ) {
+            bindingKeys.append(key)
+        }
+        if let key = testingKey(
+            from: node,
+            enclosingTypeNames: scopes.map(\.typeName),
+            enclosingAccessLevels: scopes.map(\.access),
+            enclosingExtensionAccess: scopes.last?.explicitExtensionAccess,
+            sourcePath: sourcePath,
+            converter: converter,
+            module: module
+        ) {
+            testingKeys.append(key)
+        }
+    }
+
+    /// The access of a member declared directly in the innermost enclosing scope: its own
+    /// modifier, or the default that scope gives it (an explicitly modified extension's level).
+    func memberAccess(_ modifiers: DeclModifierListSyntax) -> AccessLevel {
+        memberAccessLevel(
+            from: modifiers,
+            enclosingExtensionAccess: scopes.last?.explicitExtensionAccess
+        )
+    }
+
+    /// `memberAccess` for a type declaration whose own frame `enterTypeDecl` has already pushed:
+    /// the default comes from the frame *enclosing* it, so `public extension Outer { @Singleton
+    /// struct Inner {} }` records `Inner` as `public`.
+    private func nestedTypeAccess(_ modifiers: DeclModifierListSyntax) -> AccessLevel {
+        memberAccessLevel(
+            from: modifiers,
+            enclosingExtensionAccess: scopes.dropLast().last?.explicitExtensionAccess
+        )
     }
 
     /// Capture any adapter-annotation use-sites on a type declaration. Called
@@ -753,7 +788,7 @@ extension BindingDiscovery {
                     initIsAsync: injectResult.initIsAsync,
                     initIsThrowing: injectResult.initIsThrowing,
                     memberInjections: injectResult.memberInjections,
-                    accessLevel: accessLevel(from: modifiers),
+                    accessLevel: nestedTypeAccess(modifiers),
                     contributions: scanContributions(in: attributes),
                     allowUnused: allowUnused,
                     teardown: injectResult.teardown,
@@ -858,7 +893,7 @@ extension BindingDiscovery {
                 genericParameterConstraints: genericParameterConstraints,
                 genericWhereClause: whereClause?.requirements.trimmedDescription,
                 dependencies: injectResult.dependencies,
-                accessLevel: accessLevel(from: modifiers),
+                accessLevel: nestedTypeAccess(modifiers),
                 location: location(of: nameToken),
                 originModule: module
             )

@@ -117,6 +117,26 @@ func explicitAccessLevel(from modifiers: DeclModifierListSyntax) -> AccessLevel?
     return nil
 }
 
+/// A member declaration's access as Swift assigns it: its own explicit modifier when it has one,
+/// otherwise the default its immediately enclosing declaration gives it. An extension with an
+/// explicit modifier makes that level the default for its members — `public extension Foo {
+/// static let x }` declares a `public` `x` — except that the members of a `private extension` are
+/// `fileprivate`, because an extension's `private` is scoped to the file. Anything else (a type
+/// declaration, an unmodified extension, module scope) gives `internal`. Pass the innermost frame's
+/// `explicitExtensionAccess` as `enclosingExtensionAccess`; only the immediate parent counts, so a
+/// member of a type nested in a `public extension` is `internal` like any other type's member.
+func memberAccessLevel(
+    from modifiers: DeclModifierListSyntax,
+    enclosingExtensionAccess: AccessLevel?
+) -> AccessLevel {
+    if let explicit = explicitAccessLevel(from: modifiers) { return explicit }
+    switch enclosingExtensionAccess {
+    case .private: return .fileprivate
+    case let level?: return level
+    case nil: return .internal
+    }
+}
+
 /// Extract the explicit setter-restriction access level from a
 /// declaration's modifier list. Returns `nil` when no setter-
 /// restricting modifier (`private(set)`, `fileprivate(set)`,
