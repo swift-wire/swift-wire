@@ -212,11 +212,15 @@ its key. A seeded scope's struct lifts the parent graph's axes it uses by the sa
 - **WHEN** the app graph binds `some KeyedNamer` under `KeyedNamerKeys.alpha` and `KeyedNamerKeys.beta`, and `@Scoped(seed: TestRequestSeed.self) struct ScopedKeyedNamerPair<X: KeyedNamer, Y: KeyedNamer>` injects `KeyedNamerKeys.beta` as `first: Y` and `KeyedNamerKeys.alpha` as `second: X`
 - **THEN** the scope's `first` is the beta binding and `second` is the alpha binding
 
+#### Scenario: a scope that uses one of two keyed axes
+- **WHEN** the app graph binds `some P` under `K.a` and `K.b`, and the only scope binding is `@Scoped(seed: RequestSeed.self) struct Reader<Y: P> { @Inject(K.b) var y: Y }`
+- **THEN** the scope struct is `_RequestSeedWireScope<T0: P>` storing `Reader<T0>`, and its bootstrap takes `_WireGraph<some P, T0>`, lifting `K.b`'s axis and leaving `K.a`'s opaque
+
 #### Scenario: a controller over a lifted repository
 - **WHEN** the graph is the chain `some DBTable & Sendable` (lifted as `T0`), `some TaskRepo` (lifted as `T1`) and `Controller<Repository: TaskRepo>`, a structural lift node over the `some TaskRepo` binding
 - **THEN** the graph struct stores the controller as `Controller<T1>` and declares only the two generic parameters `T0` and `T1`
 
-Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`structuralLiftNodeReusesBridgeTargetParameterAsNestedField`, `multiParamStructuralLiftNodeSubstitutesEachParameterIndependently`), `Tests/WireGenCoreTests/GraphTests.swift` (`twoKeyedSomeProducersOfOneProtocolLiftAParameterEach`, `keyedSomeProducersFillAConsumerByKeyNotByPosition`, `aProxyOverAKeyedConsumerThreadsEachParameterThroughIt`), `Tests/IntegrationTests/BootstrapTests.swift` (`keyedOpaqueBindingsOfOneProtocolLiftAParameterEach`, `aScopedConsumerOfKeyedOpaqueBindingsBorrowsEachByKey`), `GoldenHarness/Golden/_WireGraph.swift.golden`. The constraint-text fallback is pinned by nothing yet.
+Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`structuralLiftNodeReusesBridgeTargetParameterAsNestedField`, `multiParamStructuralLiftNodeSubstitutesEachParameterIndependently`), `Tests/WireGenCoreTests/GraphTests.swift` (`twoKeyedSomeProducersOfOneProtocolLiftAParameterEach`, `keyedSomeProducersFillAConsumerByKeyNotByPosition`, `aProxyOverAKeyedConsumerThreadsEachParameterThroughIt`), `Tests/IntegrationTests/BootstrapTests.swift` (`keyedOpaqueBindingsOfOneProtocolLiftAParameterEach`, `aScopedConsumerOfKeyedOpaqueBindingsBorrowsEachByKey`), `Tests/WireGenCoreTests/KeyedOpaqueSeedScopeLiftTests.swift` (`aScopeBindingReadingOneKeyLiftsOnlyThatKeysAxis`, `aMockedOpaqueScopeBindingIsSpelledWithItsMockType`, `aParameterNoDependencyFillsFallsBackToTheFirstAxisOfItsConstraint`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
 ### Requirement: A constructed bare `some P` binding is always stored
 A binding whose type is written with a leading `some ` that the graph constructs SHALL be a stored
