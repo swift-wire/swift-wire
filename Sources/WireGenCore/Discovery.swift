@@ -720,6 +720,10 @@ package struct SourceFileDiscovery: Sendable {
     /// — an unannotated `extension Foo` whose `Foo` isn't in this set
     /// is probably extending an imported type.
     package let declaredTypeNames: [String]
+    /// Names of every type or extension in this file carrying `@Container`, bindings or not.
+    /// Aggregated across the module by `WireGen` as the container-name set the
+    /// unannotated-extension and cross-module-extension warnings check against.
+    package let declaredContainerNames: [String]
     /// `init`s found inside `extension` blocks that aren't marked
     /// `@Inject`. Resolved to a warning when the extended type is
     /// `@Singleton` somewhere in the module — those inits collide
@@ -780,6 +784,7 @@ package struct SourceFileDiscovery: Sendable {
         unannotatedExtensionProvides: [UnannotatedExtensionProvides] = [],
         typealiases: [DiscoveredTypealias] = [],
         declaredTypeNames: [String] = [],
+        declaredContainerNames: [String] = [],
         nonInjectExtensionInits: [NonInjectExtensionInit] = [],
         multibindingKeys: [DiscoveredMultibindingKey] = [],
         bindingKeys: [DiscoveredBindingKey] = [],
@@ -799,6 +804,7 @@ package struct SourceFileDiscovery: Sendable {
         self.unannotatedExtensionProvides = unannotatedExtensionProvides
         self.typealiases = typealiases
         self.declaredTypeNames = declaredTypeNames
+        self.declaredContainerNames = declaredContainerNames
         self.nonInjectExtensionInits = nonInjectExtensionInits
         self.multibindingKeys = multibindingKeys
         self.bindingKeys = bindingKeys
@@ -863,6 +869,7 @@ package func discover(
         unannotatedExtensionProvides: visitor.unannotatedExtensionProvides,
         typealiases: visitor.typealiases,
         declaredTypeNames: visitor.declaredTypeNames,
+        declaredContainerNames: visitor.declaredContainerNames,
         nonInjectExtensionInits: visitor.nonInjectExtensionInits,
         multibindingKeys: visitor.multibindingKeys,
         bindingKeys: visitor.bindingKeys,

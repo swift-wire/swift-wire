@@ -86,7 +86,6 @@ struct WireGen {
         )
         let crossFileDiagnostics = collectCrossFileDiagnostics(
             in: aggregate,
-            containerNames: Set(containerGraphs.map { $0.name }),
             graphs: graphs,
             injectionRewriteKeys: preGraph.rewriteKeys
         )
@@ -179,6 +178,7 @@ struct WireGen {
             )
             aggregate.typealiases.append(contentsOf: result.typealiases)
             aggregate.declaredTypeNames.formUnion(result.declaredTypeNames)
+            aggregate.declaredContainerNames.formUnion(result.declaredContainerNames)
             aggregate.nonInjectExtensionInits.append(
                 contentsOf: result.nonInjectExtensionInits
             )
@@ -309,7 +309,6 @@ struct WireGen {
     /// Per-file warnings come straight from `aggregate.warnings`.
     private static func collectCrossFileDiagnostics(
         in aggregate: DiscoveryAggregate,
-        containerNames: Set<String>,
         graphs: GraphBuilds,
         injectionRewriteKeys: Set<String>
     ) -> [Diagnostic] {
@@ -321,11 +320,11 @@ struct WireGen {
         )
         diagnostics += unannotatedExtensionContainerDiagnostics(
             candidates: aggregate.unannotatedExtensionProvides,
-            containerNames: containerNames
+            containerNames: aggregate.declaredContainerNames
         )
         diagnostics += crossModuleExtensionDiagnostics(
             candidates: aggregate.unannotatedExtensionProvides,
-            containerNames: containerNames,
+            containerNames: aggregate.declaredContainerNames,
             declaredTypeNames: aggregate.declaredTypeNames
         )
         diagnostics += extensionInitConflictDiagnostics(
@@ -768,6 +767,10 @@ struct DiscoveryAggregate {
     var unannotatedExtensionProvides: [UnannotatedExtensionProvides] = []
     var typealiases: [DiscoveredTypealias] = []
     var declaredTypeNames: Set<String> = []
+    /// Every `@Container` type or extension name across the module, whether or not it holds a
+    /// binding — the set the unannotated-extension warning checks against. Built graphs can't
+    /// stand in for it: a container with no bindings of its own builds none (swift-wire#430).
+    var declaredContainerNames: Set<String> = []
     var nonInjectExtensionInits: [NonInjectExtensionInit] = []
     var multibindingKeys: [DiscoveredMultibindingKey] = []
     var bindingKeys: [DiscoveredBindingKey] = []

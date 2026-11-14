@@ -111,20 +111,24 @@ A `@Provides` inside an `extension` that does not carry `@Container` SHALL be re
 enclosing partition, not the extended type's container. For each `@Provides` declared directly in
 such an extension, WireGen SHALL warn "@Provides '<name>' in an unannotated extension of '<Type>'
 falls through to the default graph — mark the extension @Container to contribute to '<Type>'s
-container instead." when the extended type is a `@Container` that has at least one binding of its
-own. A `@Container` with no bindings of its own, and a `@Provides` in a type nested inside the
-extension, get no warning, which is tracked as a defect in
-https://github.com/swift-wire/swift-wire/issues/430.
+container instead." when the extended type's name carries `@Container` on a type declaration or
+an extension anywhere in the sources WireGen scanned, whether or not that container has any binding
+of its own. A `@Provides` in a type nested inside the extension gets no warning; whether it should
+is an open question tracked in https://github.com/swift-wire/swift-wire/issues/430.
 
 #### Scenario: an extension of a container
 - **WHEN** `@Container enum TestContainer` is declared and `extension TestContainer { @Provides static let extra: Extra = Extra() }` is discovered
 - **THEN** `TestContainer.extra` is a default-graph binding and the extension site is recorded as a warning candidate
 
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesInUnannotatedExtensionFallsThroughToDefault`, `unannotatedExtensionProvidesIsRecordedAsCandidate`, `containerAnnotatedExtensionProvidesIsNotACandidate`). The warning text is pinned by nothing yet.
+#### Scenario: an extension of a container with no bindings of its own
+- **WHEN** `@Container enum C {}` is declared and `extension C { @Provides static let x: Int = 1 }` is discovered
+- **THEN** one warning beginning "@Provides 'x' in an unannotated extension of 'C'" is reported, and no cross-module-extension warning
+
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesInUnannotatedExtensionFallsThroughToDefault`, `unannotatedExtensionProvidesIsRecordedAsCandidate`, `containerAnnotatedExtensionProvidesIsNotACandidate`, `declaredContainerNamesCapturesEveryContainerDeclaration`, `unannotatedExtensionOfBindinglessContainerWarns`). The warning text after its opening clause is pinned by nothing yet, and neither is the WireGen step that hands the module-wide declared-container set to the warning.
 
 ### Requirement: `@Provides` in an extension of an undeclared type is a warning
-When the extended type is neither a `@Container` nor a type name declared in the sources WireGen
-scanned, and the extended type's recorded name contains no `.` or `<`, WireGen SHALL warn
+When the extended type is neither a `@Container` (a name carrying `@Container` on a type
+declaration or an extension) nor a type name declared in the sources WireGen scanned, and the extended type's recorded name contains no `.` or `<`, WireGen SHALL warn
 "@Provides '<name>' in an extension of '<Type>' — '<Type>' isn't declared in this module, so the
 binding falls through to the default graph and any @Container on '<Type>' elsewhere isn't visible
 to discovery. …" A generic specialisation such as `extension Array<Int>` is recorded by its base
@@ -140,7 +144,11 @@ simple name, which is tracked as a defect in https://github.com/swift-wire/swift
 - **WHEN** `extension Array<Int> { @Provides static let empty: [Int] = [] }` is discovered
 - **THEN** one warning containing "'Array' isn't declared in this module" is reported
 
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`crossModuleExtensionWarningFiresForUndeclaredType`, `crossModuleExtensionWarningSkipsLocallyDeclaredType`, `crossModuleExtensionWarningDefersToContainerWarning`, `crossModuleExtensionWarningSkipsMemberTypeTargets`, `crossModuleExtensionWarningTreatsGenericExtensionAsBaseName`).
+#### Scenario: an imported type with a container extension in this module
+- **WHEN** `@Container extension Imported {}` and `extension Imported { @Provides static let x: Int = 1 }` are discovered and no `Imported` is declared in the module
+- **THEN** no cross-module-extension warning is reported, and the unannotated-extension warning is
+
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`crossModuleExtensionWarningFiresForUndeclaredType`, `crossModuleExtensionWarningSkipsLocallyDeclaredType`, `crossModuleExtensionWarningDefersToContainerWarning`, `crossModuleExtensionWarningSkipsMemberTypeTargets`, `crossModuleExtensionWarningTreatsGenericExtensionAsBaseName`, `unannotatedExtensionOfImportedTypeWithEmptyContainerExtensionGetsContainerWarning`).
 
 ### Requirement: A generic `@Provides func` is specialised per requested instantiation
 WireGen SHALL keep a `@Provides func` with generic parameters out of the graph as a template. A
