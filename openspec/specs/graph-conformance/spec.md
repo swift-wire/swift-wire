@@ -5,8 +5,9 @@
 `WireGraphConformanceV1` is the declaration by which an adapter, or an app, has the generated graph
 conform to a protocol it owns, with each protocol member witnessed by the product of a multibinding
 key. This spec covers how WireGen recognises the declaration, what it emits, which graphs carry the
-conformance, the fallback for a member whose key has no aggregate, and the role a conformance plays
-in reachability, retention, liveness diagnostics and generated imports.
+conformance, the fallback for a member whose key has no aggregate, the error for a member whose key
+is not declared, and the role a conformance plays in reachability, retention, liveness diagnostics
+and generated imports.
 
 Rationale: [WireHummingbirdDesign](../../../Documentation/Notes/WireHummingbirdDesign.md).
 Documentation: [WritingAnAdapter](../../../Sources/Wire/Wire.docc/WritingAnAdapter.md), [WhatGetsBuilt](../../../Sources/Wire/Wire.docc/WhatGetsBuilt.md).
@@ -85,9 +86,10 @@ Pinned by: `Tests/WireGenCoreTests/GraphConformanceEmissionTests.swift` (`noConf
 When a member's key has no aggregate in the graph, WireGen SHALL emit
 `var <member>: [<Element>] { [] }` for a `CollectedKey<Element>` and
 `var <member>: [<Key>: <Value>] { [:] }` for a `MappedKey<Key, Value>`, and SHALL omit the member
-for a `BuilderKey` or a key it cannot find, without a diagnostic, so the incomplete conformance
-fails at compile time unless the protocol supplies a default implementation for that member. Both
-omissions are tracked as a defect in https://github.com/swift-wire/swift-wire/issues/446.
+for a `BuilderKey`, without a diagnostic, so the incomplete conformance fails at compile time
+unless the protocol supplies a default implementation for that member. That omission is tracked as
+a defect in https://github.com/swift-wire/swift-wire/issues/446. A key WireGen cannot find is
+reported instead, as the next requirement states.
 
 #### Scenario: two collected keys with no contributors
 - **WHEN** a conformance maps `routes` to `App.routes`, a `CollectedKey<any RouteContributor>`, and `services` to `App.services`, a `CollectedKey<any Service>`, neither with contributors
@@ -97,7 +99,22 @@ omissions are tracked as a defect in https://github.com/swift-wire/swift-wire/is
 - **WHEN** `EmptyKeys.things` is a `CollectedKey<any RouteThing<RequestCtx>>` nothing contributes to and a conformance maps `emptyThings` to it
 - **THEN** `graph.emptyThings.count` is `0` for `try await Wire.bootstrap()`
 
-Pinned by: `Tests/WireGenCoreTests/GraphConformanceEmissionTests.swift` (`memberWithNoContributorsMapsToEmptyCollection`), `Tests/IntegrationTests/GraphConformanceTests.swift` (`generatedGraphConformsWithEmptyCollectionWhenNoContributors`). The `BuilderKey` and unknown-key omission is pinned by nothing yet.
+Pinned by: `Tests/WireGenCoreTests/GraphConformanceEmissionTests.swift` (`memberWithNoContributorsMapsToEmptyCollection`), `Tests/IntegrationTests/GraphConformanceTests.swift` (`generatedGraphConformsWithEmptyCollectionWhenNoContributors`). The `BuilderKey` omission is pinned by nothing yet.
+
+### Requirement: A member whose key is not a declared multibinding key is an error
+When a member's key reference matches, by text, no `CollectedKey`, `MappedKey` or `BuilderKey`
+declared in the parse set (see [multi-module-composition](../multi-module-composition/spec.md)),
+WireGen SHALL report the error "graph conformance to '<Protocol>' maps member '<member>' to
+'<Key>', which matches no CollectedKey, MappedKey or BuilderKey declared in the parse set — Wire
+can't witness '<member>' and leaves it out of the conformance. …" at the conformance declaration,
+once per such member, and the build SHALL fail. This covers a key declared in a module WireGen does
+not scan, a single-binding `BindingKey`, and a reference spelled differently from its declaration.
+
+#### Scenario: a member mapped to a single-binding key
+- **WHEN** a conformance to `Composable` maps `routes` to the `CollectedKey` `Keys.routes` and `extras` to the `BindingKey` `Keys.primary`
+- **THEN** WireGen reports one error, at the conformance declaration, naming `Composable`, `extras` and `Keys.primary`, and nothing for `routes`
+
+Pinned by: `Tests/WireGenCoreTests/GraphConformanceEmissionTests.swift` (`memberWithAnUndeclaredKeyIsAnErrorNamingConformanceMemberAndKey`, `memberMappedToASingleBindingKeyIsReported`, `membersWithDeclaredKeysAreNotReported`). That WireGen runs the check and exits non-zero is pinned by nothing yet.
 
 ### Requirement: Conformances are emitted on the default graph and its testing variants only
 WireGen SHALL emit every conformance on `_WireGraph` and again on each testing-variant app graph

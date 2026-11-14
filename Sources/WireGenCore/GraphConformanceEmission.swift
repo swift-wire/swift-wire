@@ -83,9 +83,10 @@ func appendGraphConformances(
                 lines.append(accessor)
             }
             // A member whose key is unknown, or a `BuilderKey` (an empty fold has no
-            // defined result), can't form an empty value — it's skipped, and the
-            // incomplete conformance surfaces as a compile error rather than silently
-            // wrong output.
+            // defined result), can't form an empty value — it's skipped. An unknown
+            // key is reported once, before emission, by
+            // `graphConformanceUnknownKeyDiagnostics`; an empty `BuilderKey` member
+            // surfaces as a compile error at the conformance.
         }
         lines.append("}")
     }
@@ -108,4 +109,35 @@ private func emptyMemberAccessor(
     default:
         return nil
     }
+}
+
+/// A graph-conformance member whose `from:` key matches no multibinding key
+/// (`CollectedKey`, `MappedKey` or `BuilderKey`) declared in the parse set — a
+/// single-binding `BindingKey`, a key declared in a module WireGen doesn't scan, or
+/// a reference spelled differently from the declaration (`from:` is matched by text,
+/// as `@Contributes(to:)` is). Emission can't witness such a member (there is neither an aggregate nor a
+/// key type to spell an empty accessor from) and leaves it out, which otherwise
+/// shows up only as the compiler's generic "does not conform" error, or not at all
+/// when the protocol has a default implementation for the member. An error, like
+/// `@Contributes(to:)` or `@Inject(K)` against an undeclared key, anchored at the
+/// conformance declaration.
+package func graphConformanceUnknownKeyDiagnostics(
+    conformances: [DiscoveredGraphConformance],
+    declaredMultibindingKeyReferences: Set<String>
+) -> [Diagnostic] {
+    var diagnostics: [Diagnostic] = []
+    for conformance in conformances {
+        for member in conformance.members
+        where !declaredMultibindingKeyReferences.contains(member.keyReference) {
+            diagnostics.append(
+                Diagnostic(
+                    location: conformance.location,
+                    message:
+                        "graph conformance to '\(conformance.protocolName)' maps member '\(member.name)' to '\(member.keyReference)', which matches no CollectedKey, MappedKey or BuilderKey declared in the parse set — Wire can't witness '\(member.name)' and leaves it out of the conformance. Declare the key in a module Wire scans, or fix the reference.",
+                    severity: .error
+                )
+            )
+        }
+    }
+    return diagnostics.sorted { $0.location < $1.location }
 }
