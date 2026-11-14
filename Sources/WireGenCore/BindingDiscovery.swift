@@ -94,6 +94,11 @@ final class BindingDiscovery: SyntaxVisitor {
     /// `extension Foo` where `Foo` isn't in this set across the whole
     /// module is probably extending an imported type.
     var declaredTypeNames: [String] = []
+    /// Names of every type or extension in this file carrying `@Container`, whether or not
+    /// any binding sits inside it. Drives the unannotated-extension warning: a container
+    /// whose only `@Provides` sit in a plain `extension` builds no container graph, so the
+    /// set of built graphs can't stand in for this one (swift-wire#430).
+    var declaredContainerNames: [String] = []
     /// Candidates for the extension-init-conflict warning — `init`s
     /// found inside `extension` blocks that don't carry `@Inject`.
     /// WireGen resolves these against the module-wide
@@ -398,13 +403,12 @@ final class BindingDiscovery: SyntaxVisitor {
         // default graph at top level. Iteration 3's diagnostic gallery
         // will warn when an unannotated extension's bindings probably
         // weren't meant to leak into the default graph.
-        let isAnnotatedAsContainer = hasAttribute(node.attributes, named: "Container")
         enterTypeDecl(
             name: extendedName,
             attributes: node.attributes,
             modifiers: node.modifiers,
             isExtension: true,
-            unannotatedExtensionTarget: isAnnotatedAsContainer ? nil : extendedName
+            unannotatedExtensionTarget: hasAttribute(node.attributes, named: "Container") ? nil : extendedName
         )
         return .visitChildren
     }
@@ -570,6 +574,7 @@ extension BindingDiscovery {
             )
         )
         let isContainer = hasAttribute(attributes, named: "Container")
+        if isContainer { declaredContainerNames.append(name) }
         // An extension with no explicit access modifier does not cap its members —
         // `extension Foo { public static let x }` is public — so contribute `.open`
         // (non-capping). An explicit modifier on the extension both defaults and caps.

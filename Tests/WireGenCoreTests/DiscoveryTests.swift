@@ -2702,10 +2702,87 @@ struct DiscoveryTests {
         let discovery = discover(in: source, sourcePath: "AppConfig.swift", module: testModule)
         let warnings = crossModuleExtensionDiagnostics(
             candidates: discovery.unannotatedExtensionProvides,
-            containerNames: ["AppConfig"],
+            containerNames: Set(discovery.declaredContainerNames),
             declaredTypeNames: Set(discovery.declaredTypeNames)
         )
         #expect(warnings.isEmpty)
+    }
+
+    @Test func declaredContainerNamesCapturesEveryContainerDeclaration() {
+        // Every `@Container` type and `@Container extension` is recorded, bindings or not — the
+        // unannotated-extension warning checks against this set, not against the graphs built.
+        // Plain types and plain extensions are not containers.
+        let source = """
+            @Container enum Empty {}
+            @Container struct Holder {
+                @Provides static let value: Int = 1
+            }
+            @Container extension Imported {}
+            enum Outer {
+                @Container enum Inner {}
+            }
+            struct Plain {}
+            extension Plain {}
+            """
+        let result = discover(in: source, sourcePath: "Containers.swift", module: testModule)
+        #expect(Set(result.declaredContainerNames) == ["Empty", "Holder", "Imported", "Inner"])
+    }
+
+    @Test func unannotatedExtensionOfBindinglessContainerWarns() {
+        // swift-wire#430. `C` holds no binding of its own, so no container graph is built for it.
+        // The warning used to check against the built graphs and stayed silent; the cross-module
+        // warning stayed silent too, because `C` is declared here. The `@Provides` fell through
+        // to the default graph with no diagnostic — the exact case the warning exists for.
+        let source = """
+            @Container enum C {}
+
+            extension C {
+                @Provides static let x: Int = 1
+            }
+            """
+        let discovery = discover(in: source, sourcePath: "C.swift", module: testModule)
+        let containerNames = Set(discovery.declaredContainerNames)
+        let warnings = unannotatedExtensionContainerDiagnostics(
+            candidates: discovery.unannotatedExtensionProvides,
+            containerNames: containerNames
+        )
+        #expect(warnings.count == 1)
+        #expect(warnings.first?.message.contains("@Provides 'x' in an unannotated extension of 'C'") == true)
+        // And only the one warning: the cross-module check still defers to it.
+        let crossModule = crossModuleExtensionDiagnostics(
+            candidates: discovery.unannotatedExtensionProvides,
+            containerNames: containerNames,
+            declaredTypeNames: Set(discovery.declaredTypeNames)
+        )
+        #expect(crossModule.isEmpty)
+    }
+
+    @Test func unannotatedExtensionOfImportedTypeWithEmptyContainerExtensionGetsContainerWarning() {
+        // `Imported` isn't declared here, but an (empty) `@Container extension Imported` is, so
+        // discovery does see a container on it. The container warning is the accurate one; the
+        // cross-module warning — which says any `@Container` on the type is invisible — is not.
+        let source = """
+            @Container extension Imported {}
+
+            extension Imported {
+                @Provides static let x: Int = 1
+            }
+            """
+        let discovery = discover(in: source, sourcePath: "Imported.swift", module: testModule)
+        let containerNames = Set(discovery.declaredContainerNames)
+        #expect(
+            unannotatedExtensionContainerDiagnostics(
+                candidates: discovery.unannotatedExtensionProvides,
+                containerNames: containerNames
+            ).count == 1
+        )
+        #expect(
+            crossModuleExtensionDiagnostics(
+                candidates: discovery.unannotatedExtensionProvides,
+                containerNames: containerNames,
+                declaredTypeNames: Set(discovery.declaredTypeNames)
+            ).isEmpty
+        )
     }
 
     @Test func crossModuleExtensionWarningSkipsMemberTypeTargets() {
