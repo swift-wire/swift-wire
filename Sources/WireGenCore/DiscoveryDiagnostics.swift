@@ -2,9 +2,12 @@
 // Copyright (c) 2026 the swift-wire project authors
 
 /// Cross-reference `UnannotatedExtensionProvides` candidates collected
-/// during discovery against the module-wide `@Container`-name set.
-/// Each candidate whose extended type matches a discovered
-/// `@Container` produces a warning — the user probably meant
+/// during discovery against the module-wide `@Container`-name set —
+/// every type or extension declared `@Container`, whether or not it
+/// holds a binding of its own (a container with none builds no graph,
+/// so the built graphs are the wrong set; swift-wire#430). Each
+/// candidate whose extended type matches a declared `@Container`
+/// produces a warning — the user probably meant
 /// `@Container extension Foo` but wrote a plain `extension Foo`, and
 /// the `@Provides` inside is silently falling through to the default
 /// graph.
