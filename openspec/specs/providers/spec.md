@@ -123,14 +123,17 @@ https://github.com/swift-wire/swift-wire/issues/430.
 Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesInUnannotatedExtensionFallsThroughToDefault`, `unannotatedExtensionProvidesIsRecordedAsCandidate`, `containerAnnotatedExtensionProvidesIsNotACandidate`). The warning text is pinned by nothing yet.
 
 ### Requirement: `@Provides` in an extension of an undeclared type is a warning
-When the extended type is neither a `@Container` nor a type name declared in the sources WireGen
-scanned, and the extended type's recorded name contains no `.` or `<`, WireGen SHALL warn
+When the extended type is neither a `@Container` nor the name of a top-level type declared in the
+sources WireGen scanned, and the extended type's recorded name contains no `.` or `<`, WireGen SHALL warn
 "@Provides '<name>' in an extension of '<Type>' — '<Type>' isn't declared in this module, so the
 binding falls through to the default graph and any @Container on '<Type>' elsewhere isn't visible
 to discovery. …" A generic specialisation such as `extension Array<Int>` is recorded by its base
 name `Array` and warns; a member type such as `extension Foo.Bar` is recorded as written and does
-not. The declared names are taken from every module WireGen scanned in the run and matched by
-simple name, which is tracked as a defect in https://github.com/swift-wire/swift-wire/issues/434.
+not. A type nested in another type or extension, such as `Bar` in `enum A { struct Bar {} }`,
+does not count as declared, because a top-level `extension Bar` cannot name it. The declared names
+are taken from every module WireGen scanned in the run, including composed dependency modules, so an
+extension of a type declared in a dependency module does not warn; whether it should is tracked in
+https://github.com/swift-wire/swift-wire/issues/434.
 
 #### Scenario: an imported type
 - **WHEN** `extension Logger { @Provides static let appLogger: Logger = Logger() }` is discovered and no `Logger` is declared in the module
@@ -140,7 +143,11 @@ simple name, which is tracked as a defect in https://github.com/swift-wire/swift
 - **WHEN** `extension Array<Int> { @Provides static let empty: [Int] = [] }` is discovered
 - **THEN** one warning containing "'Array' isn't declared in this module" is reported
 
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`crossModuleExtensionWarningFiresForUndeclaredType`, `crossModuleExtensionWarningSkipsLocallyDeclaredType`, `crossModuleExtensionWarningDefersToContainerWarning`, `crossModuleExtensionWarningSkipsMemberTypeTargets`, `crossModuleExtensionWarningTreatsGenericExtensionAsBaseName`).
+#### Scenario: a nested type of the same name
+- **WHEN** `enum A { struct Bar {} }` is declared and `extension Bar { @Provides static let value: Int = 42 }` is discovered, with no top-level `Bar` in the module
+- **THEN** one warning containing "'Bar' isn't declared in this module" is reported
+
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`crossModuleExtensionWarningFiresForUndeclaredType`, `crossModuleExtensionWarningFiresDespiteANestedTypeOfTheSameName`, `declaredTypeNamesExcludesNestedDeclarations`, `crossModuleExtensionWarningSkipsLocallyDeclaredType`, `crossModuleExtensionWarningDefersToContainerWarning`, `crossModuleExtensionWarningSkipsMemberTypeTargets`, `crossModuleExtensionWarningTreatsGenericExtensionAsBaseName`).
 
 ### Requirement: A generic `@Provides func` is specialised per requested instantiation
 WireGen SHALL keep a `@Provides func` with generic parameters out of the graph as a template. A

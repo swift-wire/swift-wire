@@ -88,11 +88,14 @@ final class BindingDiscovery: SyntaxVisitor {
     /// (`enum Names { typealias UserID = UUID }`) and generic
     /// typealiases are deferred.
     var typealiases: [DiscoveredTypealias] = []
-    /// Simple names of every primary type declaration (struct, class,
-    /// actor, enum, protocol) walked in this file — not extensions.
+    /// Simple names of every top-level primary type declaration
+    /// (struct, class, actor, enum, protocol) walked in this file — not
+    /// extensions, and not types nested in another type or extension.
     /// Drives the cross-module-extension warning: a `@Provides` inside
     /// `extension Foo` where `Foo` isn't in this set across the whole
-    /// module is probably extending an imported type.
+    /// module is probably extending an imported type. A nested `A.Foo`
+    /// is left out because a top-level `extension Foo` can never name
+    /// it. See `recordDeclaredTypeName(_:)`.
     var declaredTypeNames: [String] = []
     /// Candidates for the extension-init-conflict warning — `init`s
     /// found inside `extension` blocks that don't carry `@Inject`.
@@ -184,7 +187,7 @@ final class BindingDiscovery: SyntaxVisitor {
     // `@Singleton` if applicable.
 
     override func visit(_ node: StructDeclSyntax) -> SyntaxVisitorContinueKind {
-        declaredTypeNames.append(node.name.text)
+        recordDeclaredTypeName(node.name.text)
         recordResultBuilder(
             name: node.name,
             attributes: node.attributes,
@@ -227,7 +230,7 @@ final class BindingDiscovery: SyntaxVisitor {
     }
 
     override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
-        declaredTypeNames.append(node.name.text)
+        recordDeclaredTypeName(node.name.text)
         recordResultBuilder(
             name: node.name,
             attributes: node.attributes,
@@ -269,7 +272,7 @@ final class BindingDiscovery: SyntaxVisitor {
     }
 
     override func visit(_ node: ActorDeclSyntax) -> SyntaxVisitorContinueKind {
-        declaredTypeNames.append(node.name.text)
+        recordDeclaredTypeName(node.name.text)
         recordResultBuilder(
             name: node.name,
             attributes: node.attributes,
@@ -316,7 +319,7 @@ final class BindingDiscovery: SyntaxVisitor {
         // caseless-enum-as-namespace pattern. They can also be
         // `@Container`-annotated, in which case bindings inside the
         // primary declaration are routed to that container.
-        declaredTypeNames.append(node.name.text)
+        recordDeclaredTypeName(node.name.text)
         recordResultBuilder(
             name: node.name,
             attributes: node.attributes,
@@ -357,7 +360,7 @@ final class BindingDiscovery: SyntaxVisitor {
         // Protocols can't be @Singleton/@Provides, but their names
         // belong in `declaredTypeNames` so extensions on locally
         // declared protocols don't trip the cross-module warning.
-        declaredTypeNames.append(node.name.text)
+        recordDeclaredTypeName(node.name.text)
         recordResultBuilder(
             name: node.name,
             attributes: node.attributes,
@@ -591,6 +594,19 @@ extension BindingDiscovery {
 
     private func exitTypeDecl() {
         scopes.removeLast()
+    }
+
+    /// Record a primary type declaration's simple name in
+    /// `declaredTypeNames`, but only at module scope. Called before the
+    /// type's own frame is pushed, so an empty `scopes` means the
+    /// declaration is top-level. Extensions are file-scope only, so the
+    /// unqualified `extension Bar` the cross-module warning checks always
+    /// names a top-level `Bar` and never a nested `A.Bar`; recording the
+    /// nested one would silence the warning for an imported `Bar`.
+    /// (Local types inside function bodies are never visited.)
+    private func recordDeclaredTypeName(_ name: String) {
+        guard scopes.isEmpty else { return }
+        declaredTypeNames.append(name)
     }
 
     /// Capture any adapter-annotation use-sites on a type declaration. Called
