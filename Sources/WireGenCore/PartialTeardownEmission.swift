@@ -145,8 +145,15 @@ func groupTeardownRecoveryLines(
 /// Read off the emitted construction lines rather than re-derived from binding effects, for the reason
 /// the retention scan gives: four places decide what carries `try`, and re-deriving the union would be
 /// four copies kept in step by hand. Over-firing here is not free — a `do` block that cannot throw draws
-/// `'catch' block is unreachable`, in generated code — so the scan is given the construction lines only,
-/// never the teardown closure's own body, which always contains a `try` of its own.
+/// `'catch' block is unreachable`, in generated code — so every caller hands it construction lines with
+/// the teardown left out. That is not the body it emits: each `@Teardown` binding's action is appended
+/// where the binding is built, so the emitted body interleaves `_wireTeardownActions.append({ ... })`
+/// closures with the construction, and a throwing member teardown or a producer action puts a `try`
+/// inside one. A `try` in a closure does not make the enclosing `do` throw, so scanning the emitted body
+/// would wrap a graph whose only `try` is in teardown in a `catch` nothing can reach (swift-wire#431).
+/// The bootstrap and the seeded scope-entry thunk therefore rebuild their regions with
+/// `accumulatesTeardown: false` for the scan, and the seedless reconstruction thunk keeps its
+/// construction lines beside the body; nor is the folded `_wireTeardown` closure ever included.
 func constructionCanThrow(_ lines: [String]) -> Bool {
     lines.contains { $0.contains("try ") }
 }

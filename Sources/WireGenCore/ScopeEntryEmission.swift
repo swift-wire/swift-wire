@@ -142,14 +142,20 @@ private func scopeEntryThunkLines(
     // partway can unwind them. Per *request*: the accumulator is declared inside the thunk, not beside it,
     // because two requests entering the same scope share nothing.
     let torn = constructed.contains { $0.teardown != nil }
-    body.append(
-        contentsOf: scopeConstructionLines(
+    // Whether the thunk can throw is read off its construction lines *without* the teardown appends — the
+    // up-front aliases plus the same regions built with `accumulatesTeardown: false`. A throwing teardown
+    // puts a `try` inside its append closure, and a `try` in a closure does not make the enclosing `do`
+    // throw (swift-wire#431).
+    func construction(accumulatesTeardown: Bool) -> [String] {
+        scopeConstructionLines(
             plan: plan,
             constructed: constructed,
             aliases: aliases,
-            accumulatesTeardown: torn
+            accumulatesTeardown: accumulatesTeardown
         )
-    )
+    }
+    let canThrow = constructionCanThrow(body + construction(accumulatesTeardown: false))
+    body.append(contentsOf: construction(accumulatesTeardown: torn))
     // When the scope schedules, everything after the seam — the teardown closure and the entry struct —
     // lives inside the group closure, whose value *is* the entry. So the tail indents one level further and
     // the closure is closed before the thunk's own brace.
@@ -189,7 +195,7 @@ private func scopeEntryThunkLines(
     // The accumulator is declared whenever there is anything to tear down, because the *happy* path folds
     // it too. The `do`/`catch` is the narrower question: only a thunk that can throw has an unwind path,
     // and a `do` whose body cannot throw is `'catch' block is unreachable` in generated code.
-    let unwinds = torn && constructionCanThrow(body)
+    let unwinds = torn && canThrow
     if torn {
         lines.append(
             contentsOf: teardownAccumulatorLines(indent: "        ", name: scopeTeardownAccumulator)
