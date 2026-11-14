@@ -104,7 +104,7 @@ SHALL end with ` (module '<Module>')`.
 - **WHEN** module `LibA` and module `LibB` each declare `@Provides let …: Cache = Cache()`
 - **THEN** the duplicate error names `module 'LibA'` and `module 'LibB'`
 
-Pinned by: `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`twoSingletonsForSameTypeFlagWithNoteOnSecond`, `singletonAndProviderForSameTypeIsAlsoAmbiguous`, `keyedDuplicateBindingNamesTheKeyAndOmitsFixItNote`), `Tests/WireGenCoreTests/GraphTests.swift` (`twoSingletonsForSameTypeAreFlaggedAsDuplicate`, `singletonAndProviderForSameTypeAreFlaggedAsDuplicate`, `sameTypeWithSameKeyIsDuplicate`), `Tests/WireGenCoreTests/CrossLibraryValidationTests.swift` (`crossLibraryAmbiguityNamesConflictingModules`, `sameModuleDuplicateKeepsOriginalWording`), `Tests/WireGenCoreTests/ReplacesTests.swift` (`providesReplacesSupersedesConcreteSingleton`, `replacesSupersedesSameKeyBindingFromAnotherModule`, `plainDuplicateStillErrorsWithoutReplaces`).
+Pinned by: `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`everyProducerAfterTheFirstGetsAnAlsoBoundHereNote`, `singletonAndProviderForSameTypeIsAlsoAmbiguous`, `keyedDuplicateBindingNamesTheKeyAndOmitsFixItNote`), `Tests/WireGenCoreTests/GraphTests.swift` (`singletonAndProviderForSameTypeAreFlaggedAsDuplicate`, `sameTypeWithSameKeyIsDuplicate`), `Tests/WireGenCoreTests/CrossLibraryValidationTests.swift` (`crossLibraryAmbiguityNamesConflictingModules`, `sameModuleDuplicateKeepsOriginalWording`), `Tests/WireGenCoreTests/ReplacesTests.swift` (`providesReplacesSupersedesConcreteSingleton`, `replacesSupersedesSameKeyBindingFromAnotherModule`, `plainDuplicateStillErrorsWithoutReplaces`).
 
 ### Requirement: An unkeyed duplicate carries a key fix-it note
 For an unkeyed duplicate, WireGen SHALL add the note "to disambiguate, declare named keys (e.g.
@@ -251,7 +251,7 @@ template of matching base name, argument count and key exists, SHALL be a missin
 - **WHEN** `App` injects `Repository<Model>` and no binding or generic provider produces a `Repository`
 - **THEN** the dependency is a missing binding for `Repository<Model>`
 
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`noMatchingGenericProducesMissingBindingForInstantiation`). A template whose argument count or key differs from the dependency's is pinned by nothing yet.
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`noMatchingGenericProducesMissingBindingForInstantiation`), `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`templateWithFewerGenericParametersThanTheInstantiationIsNoCandidate`, `templateWithADifferentKeyIsNoCandidate`).
 
 ### Requirement: Two bindings with one accessor name are an error
 When two bindings of distinct identities derive the same generated accessor name, WireGen SHALL

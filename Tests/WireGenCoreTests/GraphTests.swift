@@ -817,21 +817,6 @@ struct GraphTests {
 
     // MARK: - Duplicate bindings
 
-    @Test func twoSingletonsForSameTypeAreFlaggedAsDuplicate() throws {
-        // Two distinct singleton types whose typeName collides — only
-        // possible in pathological code, but the duplicate check catches
-        // it. Same model would reject `@Singleton class Logger` plus
-        // `@Provides let logger: Logger` once we get such a case.
-        let result = buildDependencyGraph(from: [
-            singleton("Logger"),
-            singleton("Logger"),
-        ])
-        let errors = try #require(result.outcome.validationErrors)
-        #expect(errors.duplicateBindings.count == 1)
-        #expect(errors.duplicateBindings[0].boundType == "Logger")
-        #expect(errors.duplicateBindings[0].bindings.count == 2)
-    }
-
     @Test func singletonAndProviderForSameTypeAreFlaggedAsDuplicate() throws {
         // The realistic shape: a @Singleton type and a @Provides for
         // that exact type. Both produce 'Logger' → ambiguous.
@@ -1062,24 +1047,6 @@ struct GraphTests {
         #expect(result.genericTemplates.count == 1)
         let order = try #require(result.outcome.topologicalOrder)
         #expect(order.map { $0.boundType } == ["App"])
-    }
-
-    @Test func dependencyOnGenericNameIsMissingNotResolvedToGeneric() throws {
-        // App depends on Repository<Model> by name "Repository". Generic
-        // bindings aren't in the resolved graph, so this is a missing
-        // binding rather than a successful match.
-        let result = buildDependencyGraph(from: [
-            providerFunction(
-                "makeRepository",
-                boundType: "Repository<Model>",
-                dependencies: [],
-                generics: ["Model"]
-            ),
-            singleton("App", dependencies: [(name: "repo", type: "Repository")]),
-        ])
-        #expect(result.genericTemplates.count == 1)
-        let errors = try #require(result.outcome.validationErrors)
-        #expect(errors.missingBindings.count == 1)
     }
 
     // MARK: - Determinism
@@ -1410,7 +1377,10 @@ struct GraphTests {
             ]
         )
         let report = renderValidationErrors(errors)
-        #expect(report.contains("note: to disambiguate, declare named keys"))
+        // Anchored at the first binding, beside the duplicate error —
+        // not at the second, which carries only `also bound here`.
+        #expect(report.contains("dbA.swift:1:1: note: to disambiguate, declare named keys"))
+        #expect(!report.contains("dbB.swift:1:1: note: to disambiguate"))
         #expect(report.contains("BindingKey<Database>()"))
         #expect(report.contains("@Provides(Database.primary)"))
         #expect(report.contains("@Inject(Database.primary)"))
