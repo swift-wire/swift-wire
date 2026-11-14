@@ -206,7 +206,9 @@ Pinned by: `Tests/WireGenCoreTests/BindingKeyDiscoveryTests.swift` (`bindingKeyO
 key is not a multibinding key (`CollectedKey`, `MappedKey`, `BuilderKey`) or a generated
 injection-rewrite key and whose written type does not begin with `some ` or `any `, so a key whose
 `BindingKey<T>` disagrees with the site's type fails to compile at the user's line. Sites whose type
-begins with `some ` or `any ` SHALL get no check. A keyed member injection (`@Inject(<key>) weak
+begins with `some ` or `any ` SHALL get no check, and so SHALL a dependency whose type names one of
+the consuming binding's own generic parameters (`@Inject(K.a) var x: X` in `Consumer<X: P>`), which
+the file-scope check function cannot spell. A keyed member injection (`@Inject(<key>) weak
 var`, or an `@Inject func` parameter keyed with `@Bind(<key>)`) gets no check, noted in
 https://github.com/swift-wire/swift-wire/issues/425. An optional
 consumer site's check names the optional type (`_check(K.primary, Database?.self)`), and its
@@ -227,7 +229,7 @@ consumer sites get only the exact overload, so a keyed provider must return its 
 - **WHEN** `KeyedOptionalConsumer` declares `@Inject(AppName.borrowedOptional) var borrowed: AppName?`, and `AppName.borrowedOptional` is declared `BindingKey<AppName>()`
 - **THEN** `_WireKeyChecks.swift` contains `_check(AppName.borrowedOptional, AppName?.self)` in a function that also declares `func _check<T>(_: BindingKey<T>, _: T?.Type) {}`, and the target compiles
 
-Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`anyProtocolBindingsAreSkipped`, `someProtocolBindingsAreSkipped`, `differentKeysProduceSeparateFunctions`, `differentTypesProduceSeparateFunctions`, `keyedOptionalDependencyAlsoAcceptsTheNonOptionalKey`, `keyedOptionalProviderGetsOnlyTheExactOverload`), `Tests/IntegrationTests/BootstrapTests.swift` (`keyedOptionalSitesInjectTheirKeyedProviders`), `GoldenHarness/Golden/_WireKeyChecks.swift.golden`. The multibinding-key, rewrite-key and member-injection cases are pinned by nothing yet.
+Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`anyProtocolBindingsAreSkipped`, `someProtocolBindingsAreSkipped`, `keyedDependencyTypedByAGenericParameterIsSkipped`, `differentKeysProduceSeparateFunctions`, `differentTypesProduceSeparateFunctions`, `keyedOptionalDependencyAlsoAcceptsTheNonOptionalKey`, `keyedOptionalProviderGetsOnlyTheExactOverload`), `Tests/IntegrationTests/BootstrapTests.swift` (`keyedOptionalSitesInjectTheirKeyedProviders`), `GoldenHarness/Golden/_WireKeyChecks.swift.golden`. The multibinding-key, rewrite-key and member-injection cases are pinned by nothing yet.
 
 ### Requirement: An instantiation with two candidate producers is a duplicate
 When a dependency's instantiation is bound both by a concrete binding the user declared and by a

@@ -274,7 +274,10 @@ extension WireGen {
         )
         // Re-point this variant's seed + proxy façades' `wireGraph:` parameter *type* to the variant app graph.
         var seedScopes = accumulation.seedScopes
-        for index in seedScopes.indices { seedScopes[index].variantAppGraphReference = appGraph.reference }
+        for index in seedScopes.indices {
+            seedScopes[index].variantAppGraphReference = appGraph.reference
+            seedScopes[index].variantAppGraphAxes = liftedOpaqueIdentities(in: appGraph.order)
+        }
 
         let folded = foldVariantEmissions(
             doublesFields: accumulation.doublesFields,

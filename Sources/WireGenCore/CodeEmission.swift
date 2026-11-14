@@ -225,6 +225,10 @@ package struct SeedScopeEmission: Sendable {
     /// `parentGraphType`'s (`_wireGraph`), so the contributor-proxy façades and production façades are
     /// untouched. `nil` → the façade takes `parentGraphType`'s production graph, as before.
     package var variantAppGraphReference: String?
+    /// The identities of the variant app graph's lifted opaque bindings, one per axis of
+    /// `variantAppGraphReference` and in the same order — what tells two `some P` axes apart when they
+    /// differ only by key. Set together with `variantAppGraphReference`; `nil` → the production graph's.
+    package var variantAppGraphAxes: [BindingIdentity]?
 
     package init(
         seedTypeExpression: String,
@@ -731,6 +735,8 @@ private func appendSeedScopeFacades(
         appendSeedScopeStruct(
             scope: scope,
             parentGraphTypeReference: parentGraphTypeReference,
+            parentGraphAxes: scope.variantAppGraphAxes
+                ?? liftedOpaqueIdentities(in: parentGraphBindings[scope.parentGraphType] ?? []),
             into: &lines,
             entries: &bootstrapEntries
         )
