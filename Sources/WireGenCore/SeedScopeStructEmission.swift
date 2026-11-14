@@ -16,6 +16,7 @@
 func appendSeedScopeStruct(
     scope: SeedScopeEmission,
     parentGraphTypeReference: String,
+    parentGraphAxes: [BindingIdentity],
     into lines: inout [String],
     entries: inout [BootstrapEntry]
 ) {
@@ -45,16 +46,16 @@ func appendSeedScopeStruct(
     // same graph as the façade's `parentGraphTypeReference`, so the lift keys off the reference's struct name.
     let wireGraphExternal = wireGraphParameterLabel(forType: scope.parentGraphType)
     let wireGraphInternal = wireGraphParameterInternalName(forType: scope.parentGraphType)
-    let parentGraphStructName = String(parentGraphTypeReference.prefix { $0 != "<" })
 
     let lift = seedScopeLift(
         structName: structName,
         storedBindings: storedBindings,
-        parentGraphType: parentGraphStructName,
-        parentGraphTypeReference: parentGraphTypeReference
+        scopeBindings: scope.topologicalOrder,
+        parentGraphTypeReference: parentGraphTypeReference,
+        parentGraphAxes: parentGraphAxes
     )
 
-    let fieldParameterForIdentity = liftedFieldParameters(lift, for: storedBindings, doubles: scope.doublesFields)
+    let fieldParameters = liftedFieldParameters(lift, for: storedBindings, doubles: scope.doublesFields)
 
     // A test-graph variant threads a `doubles` value in alongside the seed and wire graph: the scope
     // holds one or more `@BindType`d bindings whose construction reads `doubles.<field>`, so the bootstrap
@@ -93,7 +94,7 @@ func appendSeedScopeStruct(
     for binding in storedBindings {
         let property = propertyName(for: binding)
         lines.append(
-            "    let \(property): \(wireGraphFieldType(for: binding, liftedParameterForIdentity: fieldParameterForIdentity))"
+            "    let \(property): \(wireGraphFieldType(for: binding, lifted: fieldParameters))"
         )
     }
     lines.append("}")
@@ -170,17 +171,17 @@ private func liftedFieldParameters(
     _ lift: SeedScopeLift,
     for storedBindings: [DiscoveredBinding],
     doubles doublesFields: [DoublesField]
-) -> [String: String] {
+) -> LiftedParameters {
     let mockTypeForField = Dictionary(
         doublesFields.map { ($0.name, $0.mockType) },
         uniquingKeysWith: { first, _ in first }
     )
-    var merged = lift.parameterForIdentity
+    var merged = lift.lifted
     for binding in storedBindings where binding.boundType.hasPrefix("some ") {
         guard case .provider(let provider) = binding, provider.accessPath.hasPrefix("doubles.") else { continue }
         let field = String(provider.accessPath.dropFirst("doubles.".count))
         if let mockType = mockTypeForField[field] {
-            merged[canonicalTypeName(binding.boundType)] = mockType
+            merged.parameterForIdentity[binding.identity] = mockType
         }
     }
     return merged
@@ -214,36 +215,44 @@ private struct SeedScopeLift {
     let parentGraphLifted: String
     /// The façade's opaque-erased struct reference (`_<S>WireScope<some TodoRepository>`, or the bare name).
     let openStructReference: String
-    /// Maps each lifted opaque axis (canonical `some P`) to its parameter (`T0`), for field-type spelling.
-    let parameterForIdentity: [String: String]
+    /// Maps each lifted opaque axis — the identity, type and key, of the parent binding it stands for — to
+    /// its parameter (`T0`), for field-type spelling.
+    let lifted: LiftedParameters
 }
 
 /// Compute the seed scope's opaque-lift from its stored bindings and the parent graph's opaque axes.
 private func seedScopeLift(
     structName: String,
     storedBindings: [DiscoveredBinding],
-    parentGraphType: String,
-    parentGraphTypeReference: String
+    scopeBindings: [DiscoveredBinding],
+    parentGraphTypeReference: String,
+    parentGraphAxes: [BindingIdentity]
 ) -> SeedScopeLift {
+    let parentGraphType = String(parentGraphTypeReference.prefix { $0 != "<" })
     // The opaque axes a stored binding actually uses: a bare `some P` binding, or a generic binding whose
-    // determined parameters resolve to `some Constraint` (mirroring `wireGraphFieldType`'s field spelling).
-    var usedOpaque: Set<String> = []
+    // determined parameters are filled by `some P` bindings (mirroring `wireGraphFieldType`'s field
+    // spelling). Both are identities, so two axes that differ only by key are told apart.
+    let candidates = LiftedParameters(parameterForIdentity: [:], bindings: scopeBindings, liftOrder: parentGraphAxes)
+    var usedOpaque: Set<BindingIdentity> = []
     for binding in storedBindings {
         if binding.boundType.hasPrefix("some ") {
-            usedOpaque.insert(canonicalTypeName(binding.boundType))
+            usedOpaque.insert(binding.identity)
         } else if binding.allGenericParametersDetermined {
             for parameter in binding.genericParameterNames {
-                usedOpaque.insert(canonicalTypeName("some \(binding.genericParameterConstraints[parameter] ?? "")"))
+                if let identity = candidates.opaqueIdentity(filling: parameter, of: binding) {
+                    usedOpaque.insert(identity)
+                }
             }
         }
     }
-    var parameterForIdentity: [String: String] = [:]
+    var parameterForIdentity: [BindingIdentity: String] = [:]
     var liftedConstraints: [String] = []
     var parentGraphArguments: [String] = []
-    for axis in topLevelGenericArguments(of: parentGraphTypeReference) {
-        if axis.hasPrefix("some "), usedOpaque.contains(canonicalTypeName(axis)) {
+    for (index, axis) in topLevelGenericArguments(of: parentGraphTypeReference).enumerated() {
+        let identity = index < parentGraphAxes.count ? parentGraphAxes[index] : nil
+        if axis.hasPrefix("some "), let identity, usedOpaque.contains(identity) {
             let parameter = "T\(liftedConstraints.count)"
-            parameterForIdentity[canonicalTypeName(axis)] = parameter
+            parameterForIdentity[identity] = parameter
             liftedConstraints.append(String(axis.dropFirst("some ".count)))
             parentGraphArguments.append(parameter)
         } else {
@@ -266,13 +275,17 @@ private func seedScopeLift(
         genericClause: genericClause,
         parentGraphLifted: parentGraphLifted,
         openStructReference: openStructReference,
-        parameterForIdentity: parameterForIdentity
+        lifted: LiftedParameters(
+            parameterForIdentity: parameterForIdentity,
+            bindings: scopeBindings,
+            liftOrder: parentGraphAxes.filter { parameterForIdentity[$0] != nil }
+        )
     )
 }
 
 /// The top-level generic arguments of a type reference (`_WireGraph<some A, Foo<B>>` → `["some A",
 /// "Foo<B>"]`); `[]` when there are none. Depth-aware so a nested `<…>` isn't split on its commas.
-private func topLevelGenericArguments(of typeReference: String) -> [String] {
+func topLevelGenericArguments(of typeReference: String) -> [String] {
     guard let open = typeReference.firstIndex(of: "<"), typeReference.hasSuffix(">") else { return [] }
     let inner = typeReference[typeReference.index(after: open)..<typeReference.index(before: typeReference.endIndex)]
     var arguments: [String] = []

@@ -68,24 +68,23 @@ func seedScopeLookup(_ orders: [SeedScopeEmission]) -> (String) -> [String: Seed
 /// The stored-property type for a binding on the generated `_WireGraph` struct:
 /// - a bare `some P` lift node uses its own lifted parameter (`T0`);
 /// - a structural lift node reuses its dependencies' parameters, spelled
-///   `Controller<T1>` — each `some <constraint>` sub-term replaced by the lifted
-///   parameter of the matching bridge target;
+///   `Controller<T1>` — each generic parameter replaced by the lifted parameter
+///   of the opaque binding its dependency resolves to (see `LiftedParameters`);
 /// - everything else uses its concrete `boundTypeReference` (qualified for a
 ///   nested `@Singleton`).
 func wireGraphFieldType(
     for binding: DiscoveredBinding,
-    liftedParameterForIdentity: [String: String]
+    lifted: LiftedParameters
 ) -> String {
-    if let parameter = liftedParameterForIdentity[canonicalTypeName(binding.boundType)] {
+    if let parameter = lifted.parameterForIdentity[binding.identity] {
         return parameter
     }
     guard binding.allGenericParametersDetermined else {
         return binding.boundTypeReference
     }
     let arguments = binding.genericParameterNames.map { parameter -> String in
-        let constraint = binding.genericParameterConstraints[parameter] ?? ""
-        return liftedParameterForIdentity[canonicalTypeName("some \(constraint)")]
-            ?? "some \(constraint)"
+        lifted.spelling(of: parameter, in: binding)
+            ?? "some \(binding.genericParameterConstraints[parameter] ?? "")"
     }
     return "\(binding.boundTypeReference)<\(arguments.joined(separator: ", "))>"
 }
@@ -107,6 +106,13 @@ package func openGraphTypeReference(structName: String, topologicalOrder: [Disco
     return "\(structName)<" + liftedConstraints.map { "some \($0)" }.joined(separator: ", ") + ">"
 }
 
+/// The identities of the opaque bindings a graph lifts, one per axis of `openGraphTypeReference`'s
+/// `<some P0, …>` and in the same order. The reference spells each axis by its constraint alone; this is
+/// what tells two axes apart when they differ only by key.
+package func liftedOpaqueIdentities(in topologicalOrder: [DiscoveredBinding]) -> [BindingIdentity] {
+    topologicalOrder.filter { $0.boundType.hasPrefix("some ") }.map(\.identity)
+}
+
 /// The generic parameters an opaquely-bound (`@Singleton(as:)`) graph lifts onto its struct.
 ///
 /// Each `some P` binding lifts one, so a stored `some P` property refers to one concrete type rather than
@@ -116,16 +122,20 @@ package func openGraphTypeReference(structName: String, topologicalOrder: [Disco
 struct GraphLift {
     /// `<T0: Greeting, T1: TaskRepo>`, or empty when the graph lifts nothing.
     let genericClause: String
-    /// Each bare `some P` identity to its lifted parameter (`some TaskRepo` → `T1`), so a structural lift
-    /// node can reuse it and spell itself `Controller<T1>`.
-    let parameterForIdentity: [String: String]
+    /// Each bare `some P` binding's identity — type *and* key — to its lifted parameter (`some TaskRepo` →
+    /// `T1`), so a structural lift node can reuse it and spell itself `Controller<T1>`.
+    let lifted: LiftedParameters
 
     init(_ topologicalOrder: [DiscoveredBinding]) {
         let opaqueBindings = topologicalOrder.filter { $0.boundType.hasPrefix("some ") }
         let constraints = opaqueBindings.map { String($0.boundType.dropFirst("some ".count)) }
-        parameterForIdentity = Dictionary(
-            opaqueBindings.enumerated().map { (canonicalTypeName($0.element.boundType), "T\($0.offset)") },
-            uniquingKeysWith: { first, _ in first }
+        lifted = LiftedParameters(
+            parameterForIdentity: Dictionary(
+                opaqueBindings.enumerated().map { ($0.element.identity, "T\($0.offset)") },
+                uniquingKeysWith: { first, _ in first }
+            ),
+            bindings: topologicalOrder,
+            liftOrder: liftedOpaqueIdentities(in: topologicalOrder)
         )
         genericClause =
             constraints.isEmpty
@@ -334,7 +344,7 @@ private func appendConstructionBody(
             parentLocal: wireGraphParameterInternalName(forType: structName),
             topologicalOrder: topologicalOrder,
             roots: roots,
-            liftedParameterForIdentity: lift.parameterForIdentity,
+            lifted: lift.lifted,
             hasTeardown: torn,
             propertyBlockIndex: propertyBlockIndex,
             returnLineIndex: returnLineIndex,

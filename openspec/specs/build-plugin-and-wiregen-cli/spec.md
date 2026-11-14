@@ -257,8 +257,9 @@ normalised imports, and SHALL contain one `private func _wireTypeCheck_<n>()` pe
 `(key expression, declared type)` pair, each declaring
 `func _check<T>(_: BindingKey<T>, _: T.Type) {}` and, per source site,
 `#sourceLocation(file: "<file>", line: <line>)`, `_check(<key>, <Type>.self)` and
-`#sourceLocation()`. Multibinding keys, injection-rewrite keys, and sites whose declared type begins
-with `any ` or `some ` SHALL be excluded, and when there are no keyed sites the file SHALL contain
+`#sourceLocation()`. Multibinding keys, injection-rewrite keys, sites whose declared type begins
+with `any ` or `some `, and dependency sites whose declared type names a generic parameter of the
+consuming binding SHALL be excluded, and when there are no keyed sites the file SHALL contain
 only the header comment block and the normalised imports.
 
 #### Scenario: no keyed bindings
@@ -277,7 +278,7 @@ only the header comment block and the normalised imports.
 - **WHEN** `@Provides(Logger.fancy)` binds `any Logger`
 - **THEN** the site is not type-checked, and no type-check function is emitted for it
 
-Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`keyChecksEmptyInputProducesHeaderOnlyFile`, `keyChecksUnkeyedBindingsProduceNoFunctions`, `keyedProviderProducesCheckFunction`, `keyedDependencyProducesCheckFunction`, `sameKeyAndTypeAtMultipleSitesDedupesToOneFunction`, `anyProtocolBindingsAreSkipped`, `someProtocolBindingsAreSkipped`), `GoldenHarness/Golden/_WireKeyChecks.swift.golden`.
+Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`keyChecksEmptyInputProducesHeaderOnlyFile`, `keyChecksUnkeyedBindingsProduceNoFunctions`, `keyedProviderProducesCheckFunction`, `keyedDependencyProducesCheckFunction`, `sameKeyAndTypeAtMultipleSitesDedupesToOneFunction`, `anyProtocolBindingsAreSkipped`, `someProtocolBindingsAreSkipped`, `keyedDependencyTypedByAGenericParameterIsSkipped`), `GoldenHarness/Golden/_WireKeyChecks.swift.golden`.
 
 ### Requirement: Generated output is deterministic and path-relative
 For the same input files in the same order, `WireGen` SHALL produce byte-identical output. Source

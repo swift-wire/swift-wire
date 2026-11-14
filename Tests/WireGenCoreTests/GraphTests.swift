@@ -867,6 +867,95 @@ struct GraphTests {
         #expect(result.outcome.validationErrors == nil)
     }
 
+    @Test func twoKeyedSomeProducersOfOneProtocolLiftAParameterEach() throws {
+        // swift-wire#368. Two keyed `some P` bindings are two identities, so each lifts its own generic
+        // parameter, and a consumer generic over both is spelled with both. The lift map used to be keyed
+        // on the type text alone, so the second collapsed onto the first (`let somePKeyedKB: T0`,
+        // `T1` unused), and the consumer resolved each of its parameters by constraint text — `some P`
+        // for both — giving `Consumer<T0, T0>`, which does not type-check.
+        // `keysSeparateSomeAndAnyProducers` above has a keyed `some` beside a keyed `any`, which is why
+        // this shape was missed.
+        let source = """
+            @Provides(K.a) func makeA() -> some P { A() }
+            @Provides(K.b) func makeB() -> some P { Bee() }
+
+            @Singleton(allowUnused: true)
+            struct Consumer<X: P, Y: P> {
+                @Inject(K.a) var x: X
+                @Inject(K.b) var y: Y
+            }
+            """
+        let discovery = discover(in: source, sourcePath: "Keyed.swift", module: testModule)
+        let result = buildDependencyGraph(from: discovery.bindings)
+        #expect(result.outcome.validationErrors == nil)
+        let order = try #require(result.outcome.topologicalOrder)
+        let output = renderWireGraph(imports: [], topologicalOrder: order)
+        #expect(output.contains("internal struct _WireGraph<T0: P, T1: P>: Introspectable, Teardownable {"))
+        #expect(output.contains("    let somePKeyedKA: T0\n"))
+        #expect(output.contains("    let somePKeyedKB: T1\n"))
+        #expect(output.contains("    let consumerOfSomePAndSomeP: Consumer<T0, T1>\n"))
+        #expect(output.contains("Consumer(x: somePKeyedKA, y: somePKeyedKB)"))
+    }
+
+    @Test func keyedSomeProducersFillAConsumerByKeyNotByPosition() throws {
+        // The consumer's parameters are filled by the key each one's dependency carries, not by its
+        // position or by the order the producers were lifted in: `First` reads `K.b`, so it is spelled
+        // with whichever parameter `K.b`'s producer lifted, and `Second` with `K.a`'s.
+        let source = """
+            @Provides(K.a) func makeA() -> some P { A() }
+            @Provides(K.b) func makeB() -> some P { Bee() }
+            @Provides(K.c) func makeC() -> some P { A() }
+
+            @Singleton(allowUnused: true)
+            struct Consumer<First: P, Second: P> {
+                @Inject(K.b) var first: First
+                @Inject(K.a) var second: Second
+            }
+            """
+        let discovery = discover(in: source, sourcePath: "Keyed.swift", module: testModule)
+        let result = buildDependencyGraph(from: discovery.bindings)
+        let order = try #require(result.outcome.topologicalOrder)
+        let output = renderWireGraph(imports: [], topologicalOrder: order)
+        func fieldType(_ name: String) -> String? {
+            output.split(separator: "\n")
+                .first { $0.hasPrefix("    let \(name): ") }
+                .map { String($0.dropFirst("    let \(name): ".count)) }
+        }
+        let keyA = try #require(fieldType("somePKeyedKA"))
+        let keyB = try #require(fieldType("somePKeyedKB"))
+        let keyC = try #require(fieldType("somePKeyedKC"))
+        #expect(Set([keyA, keyB, keyC]) == ["T0", "T1", "T2"])
+        #expect(fieldType("consumerOfSomePAndSomeP") == "Consumer<\(keyB), \(keyA)>")
+    }
+
+    @Test func aProxyOverAKeyedConsumerThreadsEachParameterThroughIt() throws {
+        // Rule 2b — a lift node whose parameters appear only as generic arguments of another lift node
+        // (`Consumer<X, Y>`) is filled by whatever fills that node's parameter at the same position, so the
+        // keys carry through: `Wrapper<T0, T1>`, not `Wrapper<T0, T0>`.
+        let source = """
+            @Provides(K.a) func makeA() -> some P { A() }
+            @Provides(K.b) func makeB() -> some P { Bee() }
+
+            @Singleton
+            struct Consumer<X: P, Y: P> {
+                @Inject(K.a) var x: X
+                @Inject(K.b) var y: Y
+            }
+
+            @Singleton(allowUnused: true)
+            struct Wrapper<X: P, Y: P> {
+                @Inject var consumer: Consumer<X, Y>
+            }
+            """
+        let discovery = discover(in: source, sourcePath: "Keyed.swift", module: testModule)
+        let result = buildDependencyGraph(from: discovery.bindings)
+        #expect(result.outcome.validationErrors == nil)
+        let order = try #require(result.outcome.topologicalOrder)
+        let output = renderWireGraph(imports: [], topologicalOrder: order)
+        #expect(output.contains(": Wrapper<T0, T1>"))
+        #expect(output.contains(": Consumer<T0, T1>"))
+    }
+
     @Test func aConcreteBindingIsNotADuplicateOfTheExistential() throws {
         // `.none` is left out of the normalisation: Wire can't tell a bare `P`
         // protocol name from a concrete type syntactically, so it can't claim
