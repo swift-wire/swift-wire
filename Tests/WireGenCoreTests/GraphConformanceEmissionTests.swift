@@ -123,4 +123,67 @@ struct GraphConformanceEmissionTests {
         )
         #expect(!output.contains("extension _WireGraph:"))
     }
+
+    @Test func memberWithAnUndeclaredKeyIsAnErrorNamingConformanceMemberAndKey() throws {
+        // `App.missing` matches no multibinding key in the parse set, so emission has
+        // nothing to witness `extras` with. WireGen reports it rather than leaving the
+        // member out silently; the declared `App.routes` member is not reported.
+        let conformance = DiscoveredGraphConformance(
+            protocolName: "HummingbirdComposable",
+            members: [
+                .init(name: "routes", keyReference: "App.routes"),
+                .init(name: "extras", keyReference: "App.missing"),
+            ],
+            location: mockLocation("Conformance.swift", line: 4, column: 16),
+            originModule: testModule
+        )
+        let diagnostics = graphConformanceUnknownKeyDiagnostics(
+            conformances: [conformance],
+            declaredMultibindingKeyReferences: ["App.routes"]
+        )
+        #expect(diagnostics.count == 1)
+        let diagnostic = try #require(diagnostics.first)
+        #expect(diagnostic.severity == .error)
+        #expect(diagnostic.location == conformance.location)
+        #expect(
+            diagnostic.message.hasPrefix(
+                "graph conformance to 'HummingbirdComposable' maps member 'extras' to 'App.missing', which matches no CollectedKey, MappedKey or BuilderKey declared in the parse set"
+            )
+        )
+    }
+
+    @Test func memberMappedToASingleBindingKeyIsReported() {
+        // A `BindingKey` is a declared key, but not a multibinding one: there is no
+        // aggregate for it, so the member can't be witnessed either.
+        let conformance = DiscoveredGraphConformance(
+            protocolName: "Composable",
+            members: [.init(name: "database", keyReference: "Keys.primary")],
+            location: mockLocation("Conformance.swift"),
+            originModule: testModule
+        )
+        let diagnostics = graphConformanceUnknownKeyDiagnostics(
+            conformances: [conformance],
+            declaredMultibindingKeyReferences: []
+        )
+        #expect(diagnostics.map(\.severity) == [.error])
+    }
+
+    @Test func membersWithDeclaredKeysAreNotReported() {
+        // Every key declared — including one with no contributors, which emits an
+        // empty accessor — so nothing is reported.
+        let conformance = DiscoveredGraphConformance(
+            protocolName: "HummingbirdComposable",
+            members: [
+                .init(name: "routes", keyReference: "App.routes"),
+                .init(name: "services", keyReference: "App.services"),
+            ],
+            location: mockLocation("Conformance.swift"),
+            originModule: testModule
+        )
+        let diagnostics = graphConformanceUnknownKeyDiagnostics(
+            conformances: [conformance],
+            declaredMultibindingKeyReferences: ["App.routes", "App.services"]
+        )
+        #expect(diagnostics.isEmpty)
+    }
 }

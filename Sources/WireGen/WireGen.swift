@@ -366,6 +366,10 @@ struct WireGen {
                 aggregate.graphConformances.flatMap { $0.members.map(\.keyReference) }
             )
         )
+        diagnostics += graphConformanceUnknownKeyDiagnostics(
+            conformances: aggregate.graphConformances,
+            declaredMultibindingKeyReferences: Set(aggregate.multibindingKeys.map(\.keyReference))
+        )
         diagnostics += unknownBindingKeyDiagnostics(
             bindingsByPartition: aggregate.allBindings,
             declaredKeyReferences: Set(aggregate.bindingKeys.map(\.keyReference))
