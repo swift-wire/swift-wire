@@ -320,8 +320,8 @@ is **three things at once**: a linear prefix of locals, a set of resolved cells,
 locals. No single inspection reaches all three.
 
 So the constructed set is **accumulated, not inspected**. A `var _wireTeardownActions: [@Sendable () async
--> [any Error]]` is declared before a `do` that wraps the whole body, and each `@Teardown` binding appends
-its action where it is built. On a throw the `catch` walks the list in reverse and rethrows; on success the
+-> [any Error]]` is declared whenever the graph has a `@Teardown` binding, before the `do` that wraps the
+whole body when there is one, and each `@Teardown` binding appends its action where it is built. On a throw the `catch` walks the list in reverse and rethrows; on success the
 same list folds into the graph's `_wireTeardown`. One list serves both paths, so the teardown call lines
 exist once — a second list for the failure path would be the same lines emitted twice and kept in step by
 hand. The concrete-type capture that makes `@Teardown` work on an `@Singleton(as:)` binding is unaffected,
@@ -339,7 +339,11 @@ Two things the split forces, and one it removes:
 - **The wrapper is conditional.** A graph with no `@Teardown` binding has nothing to unwind, and a `do`
   whose body cannot throw draws `'catch' block is unreachable` — in generated code, where nobody can
   silence it. So the `do`/`catch` is emitted only when the graph has a torn binding *and* its construction
-  lines contain a `try`, scanned off the emitted text for the reason M7c.1's retention scan gives.
+  lines contain a `try`, scanned off the emitted text for the reason M7c.1's retention scan gives. The scan
+  reads the construction lines built *without* the teardown appends: a throwing teardown puts a `try`
+  inside its append closure, and a `try` in a closure does not make the enclosing `do` throw
+  (swift-wire#431). The accumulator itself is not conditional on the wrapper, because the success path
+  folds it too (swift-wire#366).
 - **The explicit `cancelAll()` is unnecessary, not forgotten.** This section warned that
   `withThrowingTaskGroup`'s own `cancelAll()`/`awaitAllRemainingTasks()` runs *after* a `catch` written
   inside the body, so generated code would have to cancel and drain itself before touching a resource a

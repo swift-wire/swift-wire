@@ -275,9 +275,8 @@ private func appendConstructionBody(
     // threading it through would put the parameter list past what the linter allows.
     let torn = topologicalOrder.contains { $0.teardown != nil }
 
-    // The construction lines, built before they are placed, because two decisions read them: the
-    // `try` scan that decides whether a `catch` would be reachable, and the indent, which shifts by one
-    // level if the body ends up inside a `do`.
+    // The construction lines, built before they are placed, because the indent shifts by one level if the
+    // body ends up inside a `do`.
     var body = constructionRegionLines(
         structName: structName,
         topologicalOrder: topologicalOrder,
@@ -285,7 +284,18 @@ private func appendConstructionBody(
         context: context,
         accumulatesTeardown: torn
     )
-    let canThrow = constructionCanThrow(body)
+    // Whether a `catch` would be reachable is a question about construction alone, so it is asked of the
+    // same regions built *without* the teardown appends: a throwing teardown puts a `try` inside its append
+    // closure, and a `try` in a closure does not make the enclosing `do` throw (swift-wire#431).
+    let canThrow = constructionCanThrow(
+        constructionRegionLines(
+            structName: structName,
+            topologicalOrder: topologicalOrder,
+            plan: plan,
+            context: context,
+            accumulatesTeardown: false
+        )
+    )
 
     // Post-init member injection, then the captured teardown — both after every binding is a local, in
     // both construction shapes. Injection parameters are not construction edges, so an injection reads
@@ -303,14 +313,15 @@ private func appendConstructionBody(
     body.append(storagePlaceholder)
     if plan != nil { body.append(contentsOf: schedulerBootstrapClosingLines()) }
 
-    // Partial teardown: wrap in `do`/`catch` only when there is something to tear down *and* something that can
-    // throw. A `do` block that cannot throw draws `'catch' block is unreachable`, and a graph with no
-    // `@Teardown` binding has nothing to unwind, so both keep the body they always had.
+    // The accumulator is declared whenever there is anything to tear down, because the *happy* path folds
+    // it too: every append line and the captured `_wireTeardown` read it whether or not construction can
+    // throw (swift-wire#366). The `do`/`catch` is the narrower question. Wrap only when there is something
+    // to tear down *and* something that can throw: a `do` block that cannot throw draws `'catch' block is
+    // unreachable`, and a graph with no `@Teardown` binding has nothing to unwind, so both keep the body
+    // they always had.
     let unwinds = torn && canThrow
-    if unwinds {
-        file.lines.append(contentsOf: teardownAccumulatorLines())
-        file.lines.append("    do {")
-    }
+    if torn { file.lines.append(contentsOf: teardownAccumulatorLines()) }
+    if unwinds { file.lines.append("    do {") }
     let returnLineIndex = file.lines.count + returnPlaceholderOffset
     file.lines.append(contentsOf: unwinds ? indentedForGroupBody(body) : body)
     if unwinds { file.lines.append(contentsOf: partialTeardownCatchLines(indent: "    ")) }
@@ -363,7 +374,7 @@ private func constructionRegionLines(
         contentsOf: schedulerBootstrapOpeningLines(
             structName: structName,
             regions: plan,
-            tornInGroup: tornInGroup
+            tornInGroup: accumulatesTeardown ? tornInGroup : []
         )
     )
     lines.append(contentsOf: schedulerSeamLines(regions: plan))
