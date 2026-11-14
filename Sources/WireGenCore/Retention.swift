@@ -17,7 +17,8 @@
 // The retained set is the reachability root model plus three additions the roots do not cover, each of which is a
 // place something *other than a consumer* holds the value:
 //
-//   1. **`@Teardown` bindings.** `bootstrapTeardownClosureLines` captures each one's concrete local, so
+//   1. **`@Teardown` bindings.** `teardownActionAppendLines` captures each one's concrete local in the
+//      action it appends, and `accumulatedTeardownClosureLines` folds those into `_wireTeardown`, so
 //      the closure retains it whatever this file decides — dropping the property would buy no
 //      transferability, and would take `graph.x` away from exactly the resources users most often read.
 //      Note the deliberate collision with reachability: `@Teardown` does **not** root a binding for *reachability*
