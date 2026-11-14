@@ -2647,6 +2647,45 @@ struct DiscoveryTests {
         #expect(result.declaredTypeNames.isEmpty)
     }
 
+    @Test func declaredTypeNamesExcludesNestedDeclarations() {
+        // Only module-scope declarations are recorded. A type nested in
+        // another type or in an extension can't be named by the
+        // unqualified `extension Foo` the cross-module warning checks.
+        let source = """
+            struct Outer {
+                struct Inner {}
+                enum Nested { protocol Deep {} }
+            }
+            extension SomeImportedType {
+                class InExtension {}
+            }
+            """
+        let result = discover(in: source, sourcePath: "Nested.swift", module: testModule)
+        #expect(result.declaredTypeNames == ["Outer"])
+    }
+
+    @Test func crossModuleExtensionWarningFiresDespiteANestedTypeOfTheSameName() {
+        // `A.Bar` is declared here, but `extension Bar` names the
+        // imported `Bar`, not the nested one, so the warning still fires.
+        let source = """
+            enum A {
+                struct Bar {}
+            }
+
+            extension Bar {
+                @Provides static let value: Int = 42
+            }
+            """
+        let discovery = discover(in: source, sourcePath: "Nested.swift", module: testModule)
+        let warnings = crossModuleExtensionDiagnostics(
+            candidates: discovery.unannotatedExtensionProvides,
+            containerNames: [],
+            declaredTypeNames: Set(discovery.declaredTypeNames)
+        )
+        #expect(warnings.count == 1)
+        #expect(warnings.first?.message.contains("'Bar' isn't declared in this module") == true)
+    }
+
     @Test func crossModuleExtensionWarningFiresForUndeclaredType() {
         // `Logger` isn't declared in this module — the `@Provides` in
         // its extension probably wasn't meant to silently land in the

@@ -714,8 +714,9 @@ package struct SourceFileDiscovery: Sendable {
     /// missing-binding diagnostics use to point at the underlying type
     /// when a typealias was injected but its underlying type IS bound.
     package let typealiases: [DiscoveredTypealias]
-    /// Simple names of every primary type declaration (struct, class,
-    /// actor, enum, protocol) found in this file. Aggregated across the
+    /// Simple names of every top-level primary type declaration (struct,
+    /// class, actor, enum, protocol) found in this file; types nested in
+    /// another type or extension are left out. Aggregated across the
     /// module by `WireGen` to drive the cross-module-extension warning
     /// — an unannotated `extension Foo` whose `Foo` isn't in this set
     /// is probably extending an imported type.
