@@ -173,6 +173,11 @@ package struct Contribution: Sendable, Equatable {
     /// `nil` means unranked. Valid on `CollectedKey`/`BuilderKey`
     /// contributions (the build plugin enforces flavour validity).
     package let order: Int?
+    /// `true` when a `withOrder:` was written but is not an integer literal, so its rank cannot be
+    /// read from syntax. `order` is then `nil`, but the contribution is not unranked: scanning has
+    /// already reported the argument, and the all-or-none ordering check skips it rather than
+    /// reporting a missing `withOrder:` at a site that has one.
+    package let hasUnreadableOrder: Bool
     /// `atKey:` expression rendered verbatim — the map entry's key for a
     /// `MappedKey` contribution. `nil` for collected/builder
     /// contributions.
@@ -184,11 +189,13 @@ package struct Contribution: Sendable, Equatable {
     package init(
         keyReference: String,
         order: Int? = nil,
+        hasUnreadableOrder: Bool = false,
         mapKeyExpression: String? = nil,
         location: SourceLocation
     ) {
         self.keyReference = keyReference
         self.order = order
+        self.hasUnreadableOrder = hasUnreadableOrder
         self.mapKeyExpression = mapKeyExpression
         self.location = location
     }

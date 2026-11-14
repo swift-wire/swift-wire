@@ -118,6 +118,20 @@ struct MultibindingValidationTests {
         #expect(first(source, matching: "all-or-none") == nil)
     }
 
+    @Test func nonLiteralWithOrderIsNotAlsoReportedAsMissing() {
+        // The non-literal is reported once, at scanning. It does carry a `withOrder:`, so the
+        // all-or-none check must not add "has no 'withOrder:'" at it.
+        let source = """
+            enum App { static let services = CollectedKey<any Service>() }
+            @Singleton @Contributes(to: App.services, withOrder: 1)
+            struct A {}
+            @Singleton @Contributes(to: App.services, withOrder: Rank.second)
+            struct B {}
+            """
+        #expect(first(source, matching: "all-or-none") == nil)
+        #expect(first(source, matching: "is not an integer literal") != nil)
+    }
+
     @Test func duplicateWithOrderIsError() throws {
         let source = """
             enum App { static let services = CollectedKey<any Service>() }

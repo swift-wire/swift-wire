@@ -148,15 +148,17 @@ package func unknownMultibindingKeyDiagnostics(
 
 /// Ordering is all-or-none per key: if any contributor specifies
 /// `withOrder:`, every contributor to that key must. Flags each unranked
-/// contribution in a key that otherwise has ranks.
+/// contribution in a key that otherwise has ranks. A contribution whose
+/// `withOrder:` is not an integer literal counts as ranked here: it was
+/// already reported at scanning, and it does carry a `withOrder:`.
 package func mixedContributionOrderingDiagnostics(
     contributions: [Contribution]
 ) -> [Diagnostic] {
     var diagnostics: [Diagnostic] = []
     for (keyReference, group) in groupedByKey(contributions) {
-        let hasRanked = group.contains { $0.order != nil }
+        let hasRanked = group.contains { $0.order != nil || $0.hasUnreadableOrder }
         guard hasRanked else { continue }
-        for contribution in group where contribution.order == nil {
+        for contribution in group where contribution.order == nil && !contribution.hasUnreadableOrder {
             diagnostics.append(
                 Diagnostic(
                     location: contribution.location,
