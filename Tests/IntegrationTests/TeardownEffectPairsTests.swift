@@ -91,14 +91,15 @@ struct TeardownEffectPairsTests {
 
     @Test func aSeedlessReconstructionWhoseOnlyThrowIsInTeardownTearsDown() async throws {
         let graph = try await Wire.bootstrapAppScopedFixture_bindMock()
-        let doubles = _AppScopedFixture_bindMock_SeedlessTeardownControllerDoubles(
-            appScopedRepository: MockAppScopedRepository()
-        )
+        let mock = MockAppScopedRepository()
+        let doubles = _AppScopedFixture_bindMock_SeedlessTeardownControllerDoubles(appScopedRepository: mock)
         let proxy = Wire.bootstrapAppScopedFixture_bindMock_SeedlessTeardownControllerContributor(wireGraph: graph)
-        let before = teardownEffectPairEvents(withPrefix: "seedless.").count
         let entry = try await proxy._wireEnterScope(doubles)
+        #expect(mock.recordedTags.isEmpty)
         let errors = await entry._wireScopeTeardown()
         #expect(errors.isEmpty)
-        #expect(teardownEffectPairEvents(withPrefix: "seedless.").count == before + 1)
+        // Read off this test's own mock: the shared log also hears the default graph's instance, torn down
+        // by whichever other test bootstraps that graph, concurrently with this one.
+        #expect(mock.recordedTags == ["seedless.plainThrowing.closed"])
     }
 }
