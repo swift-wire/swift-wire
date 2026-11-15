@@ -1327,6 +1327,31 @@ struct GraphTests {
         #expect(errors.missingBindings[0].dependency.keyIdentifier == "Database.primary")
     }
 
+    @Test func singletonsSynthesisedKeyDoesNotKeyItsBinding() throws {
+        // swift-wire#456. `@Singleton` synthesises `static let key = BindingKey<Repo>()`, but the binding
+        // it declares is unkeyed: a dependency keyed by that very key is a missing binding keyed
+        // `Repo.key`, not a dependency on `Repo`. `keyedDependencyDoesNotMatchUnkeyedBinding` keys its
+        // dependency with an unrelated key, which a change treating a type's own `.key` as its identity
+        // would leave passing. (The full pipeline also reports `Repo.key` as never declared, because
+        // WireGen reads source and never sees the macro's expansion; this test is about the graph.)
+        let source = """
+            @Singleton struct Repo {}
+
+            @Singleton(allowUnused: true)
+            struct Consumer {
+                @Inject(Repo.key) var repo: Repo
+            }
+            """
+        let discovery = discover(in: source, sourcePath: "Keyed.swift", module: testModule)
+        let result = buildDependencyGraph(from: discovery.bindings)
+        let errors = try #require(result.outcome.validationErrors)
+        #expect(errors.missingBindings.count == 1)
+        let missing = try #require(errors.missingBindings.first)
+        #expect(missing.consumer.boundType == "Consumer")
+        #expect(missing.dependency.type == "Repo")
+        #expect(missing.dependency.keyIdentifier == "Repo.key")
+    }
+
     @Test func unkeyedDependencyDoesNotMatchKeyedBinding() throws {
         // The mirror case: unkeyed dep matches only unkeyed binding.
         // A keyed provider doesn't fill an unkeyed slot.
