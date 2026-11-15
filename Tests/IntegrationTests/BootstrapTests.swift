@@ -203,6 +203,15 @@ struct BootstrapTests {
         #expect(graph.appName.value == "IntegrationTests")
     }
 
+    @Test func keyedWeakVarsReceiveTheirKeyedProvider() async throws {
+        // KeyedWeakVarConsumer declares `@Inject(KeyedWeakTarget.primary) weak var` twice, once `T?` and
+        // once `T!`. That the target compiled is the key-checks half (swift-wire#425): each gets a
+        // `_check` against the optional overload. The graph holds the provider strongly, so both weak
+        // references are still set when the graph is read.
+        let graph = try await Wire.bootstrap()
+        #expect(graph.keyedWeakVarConsumer.describe() == "weak consumer with primary and primary")
+    }
+
     // MARK: - Effect-aware emission
 
     @Test func asyncThrowsProviderFunctionResolvesThroughBootstrap() async throws {
