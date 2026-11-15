@@ -208,7 +208,11 @@ subject and return their own `_wireScopeTeardown`.
 - **WHEN** `@Scoped(seed: AsyncScopeSeed.self) struct AsyncScopeController`, which injects the `@Teardown`-bearing `AsyncScopeSession` from its own seed, is bridged by the proxy `_WireAggregateContributor_async`, and two entries are made, each by bootstrapping a graph and calling that graph's `_WireAggregateContributor_async._wireEnterScope`
 - **THEN** each entry's `AsyncScopeController` holds its own `AsyncScopeSession`, and calling the first entry's `_wireScopeTeardown` closes its session and leaves the second entry's open
 
-Pinned by: `Tests/WireGenCoreTests/ContributorProxySynthesisTests.swift` (`bridgesSeededControllerViaScopeEntryThunk`), `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`bridgingProxyEmitsScopeEntryThunkCapturingSingletons`, `scopeEntryThunkPrunesUnreachableBindings`, `scopeEntryThunkTearsDownScopedBindings`), `Tests/IntegrationTests/AsyncScopeEntryTests.swift` (`eachEntryGetsItsOwnScopeAndItsOwnTeardown`). Two entries through the same thunk are not yet pinned: https://github.com/swift-wire/swift-wire/issues/453.
+#### Scenario: two entries through one thunk
+- **WHEN** one graph is bootstrapped and its `_WireAggregateContributor_async._wireEnterScope` is called twice, with `AsyncScopeSeed(id: "a")` and then `AsyncScopeSeed(id: "b")`
+- **THEN** each entry's `AsyncScopeController` reads its own seed, the two hold distinct `AsyncScopeSession` instances, and calling the first entry's `_wireScopeTeardown` closes its session and leaves the second entry's open
+
+Pinned by: `Tests/WireGenCoreTests/ContributorProxySynthesisTests.swift` (`bridgesSeededControllerViaScopeEntryThunk`), `Tests/WireGenCoreTests/SeedScopeEmissionTests.swift` (`bridgingProxyEmitsScopeEntryThunkCapturingSingletons`, `scopeEntryThunkPrunesUnreachableBindings`, `scopeEntryThunkTearsDownScopedBindings`), `Tests/IntegrationTests/AsyncScopeEntryTests.swift` (`eachEntryGetsItsOwnScopeAndItsOwnTeardown`, `twoEntriesThroughOneThunkShareNothing`).
 
 ### Requirement: A bridging proxy is ordered after the singletons its thunk captures
 For every singleton a bridged subject's scope genuinely borrows, WireGen SHALL add a

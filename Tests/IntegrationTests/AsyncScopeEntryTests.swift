@@ -49,4 +49,19 @@ struct AsyncScopeEntryTests {
         #expect(first._wireSubject.session.isClosed)
         #expect(!second._wireSubject.session.isClosed)
     }
+
+    @Test func twoEntriesThroughOneThunkShareNothing() async throws {
+        // The test above enters through two separately bootstrapped graphs, so it never calls one thunk
+        // twice and would pass if a thunk cached or shared its scope across calls. This one bootstraps once
+        // and enters the same proxy's thunk with two seeds.
+        let enter = try await Wire.bootstrap()._WireAggregateContributor_async._wireEnterScope
+        let first = try await enter(AsyncScopeSeed(id: "a"))
+        let second = try await enter(AsyncScopeSeed(id: "b"))
+        #expect(first._wireSubject.describe() == "a:fast:slow")
+        #expect(second._wireSubject.describe() == "b:fast:slow")
+        #expect(first._wireSubject.session !== second._wireSubject.session)
+        _ = await first._wireScopeTeardown()
+        #expect(first._wireSubject.session.isClosed)
+        #expect(!second._wireSubject.session.isClosed)
+    }
 }
