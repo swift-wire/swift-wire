@@ -161,6 +161,10 @@ struct FactoryLifetimeDiagnosticsTests {
         #expect(errors.count == 1)
         #expect(errors.first?.message.contains("carries both @Factory and @Scoped") == true)
         #expect(errors.first?.message.contains("two lifetime macros on one declaration") == true)
+        // Refused, the scoped template is neither a factory template nor a binding in any
+        // partition, the seed-scope partitions included. `HTTPRequest` is no binding, so none remain.
+        #expect(discovery.factoryTemplates.isEmpty)
+        #expect(discovery.allBindings.values.joined().isEmpty)
     }
 
     @Test func aRefusedDeclarationIsRecordedAsNeitherRoleRatherThanBoth() {
