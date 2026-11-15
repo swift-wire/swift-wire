@@ -206,28 +206,37 @@ struct DiagnosticGalleryTests {
 
     // MARK: - Duplicate bindings
 
-    @Test func twoSingletonsForSameTypeFlagWithNoteOnSecond() throws {
-        // Two `@Singleton`s claiming the same type name `Logger`. The
-        // primary error lands on the first; subsequent declarations get
+    @Test func everyProducerAfterTheFirstGetsAnAlsoBoundHereNote() throws {
+        // Three producers of `Logger`: the type itself, a provider
+        // property and a provider function — legal side by side in one
+        // file, unlike two `@Singleton struct Logger` declarations, which
+        // Swift rejects as a redeclaration. The primary error lands on the
+        // first in source order; each of the others gets its own
         // `note: also bound here`.
         let source = """
             @Singleton
             struct Logger {
             }
 
-            @Singleton
-            struct Logger {
+            @Provides
+            let alternateLogger: Logger = Logger()
+
+            @Provides
+            func makeLogger() -> Logger {
+                Logger()
             }
             """
         let (errors, rendered) = validate(source: source, sourcePath: "Logger.swift")
         let validationErrors = try #require(errors)
         #expect(validationErrors.duplicateBindings.count == 1)
+        #expect(validationErrors.duplicateBindings[0].bindings.count == 3)
         #expect(
             rendered.contains(
                 "Logger.swift:2:8: error: type 'Logger' has multiple bindings; the dependency graph is ambiguous"
             )
         )
-        #expect(rendered.contains("Logger.swift:6:8: note: also bound here"))
+        #expect(rendered.contains("Logger.swift:6:5: note: also bound here"))
+        #expect(rendered.contains("Logger.swift:9:6: note: also bound here"))
     }
 
     @Test func singletonAndProviderForSameTypeIsAlsoAmbiguous() throws {
@@ -261,23 +270,34 @@ struct DiagnosticGalleryTests {
         // tools (Xcode, swiftc-driven pipelines) parse and surface them
         // as clickable diagnostics. A regression here that drops the
         // prefix would silently break IDE integration.
-        let source = """
+        //
+        // A duplicate stops validation before missing bindings are
+        // looked for, so the duplicate (error, `also bound here` note,
+        // fix-it note) and the missing binding are rendered from two
+        // separate graphs, and the lines of both are checked.
+        let duplicate = """
             @Singleton
             struct Logger {
             }
 
-            @Singleton
-            struct Logger {
+            @Provides
+            let alternateLogger: Logger = Logger()
+            """
+        let missing = """
+            struct Clock {
             }
 
             @Singleton
             struct Greeter {
-                @Inject var missing: Missing
+                @Inject var clock: Clock
             }
             """
-        let (_, rendered) = validate(source: source, sourcePath: "Combined.swift")
-        let lines = rendered.split(separator: "\n", omittingEmptySubsequences: true)
-        #expect(!lines.isEmpty)
+        let renderedDuplicate = validate(source: duplicate, sourcePath: "Duplicate.swift").rendered
+        let renderedMissing = validate(source: missing, sourcePath: "Missing.swift").rendered
+        #expect(renderedDuplicate.contains(": note: also bound here"))
+        #expect(renderedMissing.contains(": error: no binding produces 'Clock'"))
+        let lines = (renderedDuplicate + "\n" + renderedMissing)
+            .split(separator: "\n", omittingEmptySubsequences: true)
         for line in lines {
             // `file:line:col: severity:` — verify the first three colons
             // delimit numeric line/col and a recognised severity word.
@@ -345,27 +365,32 @@ struct DiagnosticGalleryTests {
     }
 
     @Test func unkeyedDuplicateBindingShowsFixItNote() throws {
-        // Unkeyed duplicate — the original sitting 1a case — now also
-        // gets a fix-it note pointing at the key-disambiguation pattern.
-        // Reuses the gallery's existing duplicate fixture so the note is
-        // the new piece under test.
+        // Unkeyed duplicate — two `@Provides` of `Database`, neither
+        // keyed — gets a fix-it note pointing at the key-disambiguation
+        // pattern. The note is anchored at the first binding (`dbA`,
+        // line 4 column 5), the same location as the duplicate error,
+        // and not at the second.
         let source = """
-            @Singleton
-            struct Logger {
-            }
+            struct Database {}
 
-            @Singleton
-            struct Logger {
-            }
+            @Provides
+            let dbA: Database = Database()
+
+            @Provides
+            let dbB: Database = Database()
             """
-        let (errors, rendered) = validate(source: source, sourcePath: "Logger.swift")
+        let (errors, rendered) = validate(source: source, sourcePath: "Databases.swift")
         let validationErrors = try #require(errors)
         #expect(validationErrors.duplicateBindings.count == 1)
         #expect(validationErrors.duplicateBindings[0].keyIdentifier == nil)
-        #expect(rendered.contains("note: to disambiguate, declare named keys"))
-        #expect(rendered.contains("BindingKey<Logger>()"))
-        #expect(rendered.contains("@Provides(Logger.primary)"))
-        #expect(rendered.contains("@Inject(Logger.primary)"))
+        #expect(
+            rendered.contains(
+                "Databases.swift:4:5: note: to disambiguate, declare named keys (e.g. "
+                    + "`static let primary = BindingKey<Database>()`) and tag each binding/consumer with "
+                    + "`@Provides(Database.primary)` / `@Inject(Database.primary)`"
+            )
+        )
+        #expect(!rendered.contains("Databases.swift:7:5: note: to disambiguate"))
     }
 
     @Test func keyedProviderSatisfiesKeyedConsumerCleanly() throws {
@@ -418,6 +443,67 @@ struct DiagnosticGalleryTests {
                 "error: type 'Repository<DynamoDBTable>' has multiple bindings"
             )
         )
+    }
+
+    @Test func templateWithFewerGenericParametersThanTheInstantiationIsNoCandidate() throws {
+        // `makePair<T>` has one generic parameter; the consumer asks for
+        // `Pair<Int, String>`, an instantiation with two arguments. The
+        // template has the right base name, but a different argument
+        // count, so it is not a candidate and the dependency is missing.
+        // Were it taken as one, its single `T` would be zipped against
+        // the first argument alone and it would claim to produce
+        // `Pair<Int, String>`.
+        let source = """
+            struct Pair<First, Second> {}
+
+            @Provides
+            func makePair<T>() -> Pair<T, T> {
+                Pair<T, T>()
+            }
+
+            @Singleton
+            struct App {
+                @Inject var pair: Pair<Int, String>
+            }
+            """
+        let (errors, rendered) = validate(source: source, sourcePath: "Pairs.swift")
+        let validationErrors = try #require(errors)
+        #expect(validationErrors.duplicateBindings.isEmpty)
+        #expect(validationErrors.missingBindings.map(\.dependency.type) == ["Pair<Int, String>"])
+        #expect(rendered.contains("Pairs.swift:10:17: error: no binding produces 'Pair<Int, String>'"))
+    }
+
+    @Test func templateWithADifferentKeyIsNoCandidate() throws {
+        // `makeRepository<T>` is keyed `RepositoryKeys.archive`; the
+        // consumer injects `Repository<Model>` without a key. Same base
+        // name and argument count, but a different key, so the template
+        // is not a candidate and the dependency is missing. The
+        // template's `T` dependency is the witness: had it been
+        // specialised for `Model`, its unbound `model: Model` parameter
+        // would be a second missing binding.
+        let source = """
+            struct Model {}
+            struct Repository<Element> {}
+
+            enum RepositoryKeys {
+                static let archive = BindingKey<Repository<Model>>()
+            }
+
+            @Provides(RepositoryKeys.archive)
+            func makeRepository<T>(model: T) -> Repository<T> {
+                Repository<T>()
+            }
+
+            @Singleton
+            struct App {
+                @Inject var repo: Repository<Model>
+            }
+            """
+        let (errors, rendered) = validate(source: source, sourcePath: "Repos.swift")
+        let validationErrors = try #require(errors)
+        #expect(validationErrors.duplicateBindings.isEmpty)
+        #expect(validationErrors.missingBindings.map(\.dependency.type) == ["Repository<Model>"])
+        #expect(rendered.contains("Repos.swift:15:17: error: no binding produces 'Repository<Model>'"))
     }
 
     // MARK: - Generated-identifier collision
