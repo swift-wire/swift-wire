@@ -160,6 +160,11 @@ package final class ThrowingThrowingScopeController: Sendable {
 /// The teardown is declared `throws` and never does, unlike the pairs above: the controller is an app
 /// singleton, so the default graph builds and tears it down too, and a suite asserting that graph's
 /// teardown comes back empty would read a thrown error as a regression of its own.
+///
+/// For the same reason the teardown reports through its injected repository, not the shared log. Any
+/// test that tears down the default graph closes a production instance of this controller, concurrently
+/// with the seedless test, so a count of shared-log events could move by more than the one teardown the
+/// test drove. The reconstruction's repository is that test's own mock, which nothing else holds.
 @TestScopable
 @Singleton
 @RouteController
@@ -168,6 +173,6 @@ struct SeedlessTeardownController: Sendable {
 
     @Teardown
     func close() async throws {
-        recordTeardownEffectPair("seedless.plainThrowing.closed")
+        _ = repository.tag("seedless.plainThrowing.closed")
     }
 }
