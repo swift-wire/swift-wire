@@ -202,16 +202,16 @@ Pinned by: `Tests/WireGenCoreTests/BindingKeyDiscoveryTests.swift` (`bindingKeyO
 
 ### Requirement: Key checks skip `some` and `any` sites
 `_WireKeyChecks.swift` SHALL emit a `_check(<key>, <Type>.self)` call, wrapped in
-`#sourceLocation` for the site, for each keyed provider and each keyed init-time dependency whose
-key is not a multibinding key (`CollectedKey`, `MappedKey`, `BuilderKey`) or a generated
+`#sourceLocation` for the site, for each keyed provider, each keyed init-time dependency and each
+keyed member injection (an `@Inject(<key>) weak var`, or an `@Inject func` parameter keyed with
+`@Bind(<key>)`) whose key is not a multibinding key (`CollectedKey`, `MappedKey`, `BuilderKey`) or a generated
 injection-rewrite key and whose written type does not begin with `some ` or `any `, so a key whose
 `BindingKey<T>` disagrees with the site's type fails to compile at the user's line. Sites whose type
 begins with `some ` or `any ` SHALL get no check, and so SHALL a dependency whose type names one of
 the consuming binding's own generic parameters (`@Inject(K.a) var x: X` in `Consumer<X: P>`), which
-the file-scope check function cannot spell. A keyed member injection (`@Inject(<key>) weak
-var`, or an `@Inject func` parameter keyed with `@Bind(<key>)`) gets no check, noted in
-https://github.com/swift-wire/swift-wire/issues/425. An optional
-consumer site's check names the optional type (`_check(K.primary, Database?.self)`), and its
+the file-scope check function cannot spell. An optional
+consumer site's check names the optional type (`_check(K.primary, Database?.self)`), spelling an
+implicitly unwrapped `Database!` as `Database?` because `Database!.self` does not compile, and its
 function SHALL also declare `_check<T>(_: BindingKey<T>, _: T?.Type)`, so a `BindingKey<Database>`
 key (a `T?` consumer borrowing a `T` producer) and a `BindingKey<Database?>` key both compile while
 a `BindingKey<Database?>` key at a `Database` site still fails. Provider sites and non-optional
@@ -229,7 +229,11 @@ consumer sites get only the exact overload, so a keyed provider must return its 
 - **WHEN** `KeyedOptionalConsumer` declares `@Inject(AppName.borrowedOptional) var borrowed: AppName?`, and `AppName.borrowedOptional` is declared `BindingKey<AppName>()`
 - **THEN** `_WireKeyChecks.swift` contains `_check(AppName.borrowedOptional, AppName?.self)` in a function that also declares `func _check<T>(_: BindingKey<T>, _: T?.Type) {}`, and the target compiles
 
-Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`anyProtocolBindingsAreSkipped`, `someProtocolBindingsAreSkipped`, `keyedDependencyTypedByAGenericParameterIsSkipped`, `differentKeysProduceSeparateFunctions`, `differentTypesProduceSeparateFunctions`, `keyedOptionalDependencyAlsoAcceptsTheNonOptionalKey`, `keyedOptionalProviderGetsOnlyTheExactOverload`), `Tests/IntegrationTests/BootstrapTests.swift` (`keyedOptionalSitesInjectTheirKeyedProviders`), `GoldenHarness/Golden/_WireKeyChecks.swift.golden`. The multibinding-key, rewrite-key and member-injection cases are pinned by nothing yet.
+#### Scenario: a keyed weak var
+- **WHEN** `KeyedWeakVarConsumer` declares `@Inject(KeyedWeakTarget.primary) weak var optional: KeyedWeakTarget?` and `@Inject(KeyedWeakTarget.primary) weak var unwrapped: KeyedWeakTarget!`, and `KeyedWeakTarget.primary` is declared `BindingKey<KeyedWeakTarget>()`
+- **THEN** `_WireKeyChecks.swift` contains `_check(KeyedWeakTarget.primary, KeyedWeakTarget?.self)` at each property's line, in a function that also declares `func _check<T>(_: BindingKey<T>, _: T?.Type) {}`, and the target compiles
+
+Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`anyProtocolBindingsAreSkipped`, `someProtocolBindingsAreSkipped`, `keyedDependencyTypedByAGenericParameterIsSkipped`, `differentKeysProduceSeparateFunctions`, `differentTypesProduceSeparateFunctions`, `keyedOptionalDependencyAlsoAcceptsTheNonOptionalKey`, `keyedOptionalProviderGetsOnlyTheExactOverload`, `keyedWeakVarGetsACheckWithTheOptionalOverload`, `keyedImplicitlyUnwrappedWeakVarIsCheckedAsOptional`, `injectFuncParameterKeyedWithBindGetsACheck`), `Tests/IntegrationTests/BootstrapTests.swift` (`keyedOptionalSitesInjectTheirKeyedProviders`, `keyedWeakVarsReceiveTheirKeyedProvider`), `GoldenHarness/Golden/_WireKeyChecks.swift.golden`. The multibinding-key and rewrite-key cases are pinned by nothing yet.
 
 ### Requirement: An instantiation with two candidate producers is a duplicate
 When a dependency's instantiation is bound both by a concrete binding the user declared and by a

@@ -165,8 +165,12 @@ private func collectKeyCheckSites(
         // `Consumer<X: P>`) names a type that exists only inside the consumer; the file-scope check
         // function cannot spell it, and `X` is filled by an opaque `some P` binding the helper can't
         // unify with anyway — the same reason `some`/`any` types are skipped.
+        //
+        // Member injections are consumer sites too: a keyed `@Inject weak var` and an `@Inject func`
+        // parameter keyed with `@Bind` resolve by their key exactly as an init-time dependency does.
         let genericParameters = Set(binding.genericParameterNames)
-        for dependency in binding.dependencies {
+        let consumerSites = binding.dependencies + binding.memberInjections.flatMap(\.parameters)
+        for dependency in consumerSites {
             guard let key = dependency.keyIdentifier else { continue }
             guard !multibindingKeyReferences.contains(key) else { continue }
             guard shouldEmitCheck(forType: dependency.type) else { continue }
@@ -174,7 +178,7 @@ private func collectKeyCheckSites(
             sites.append(
                 KeyCheckSite(
                     keyExpression: key,
-                    declaredType: dependency.type,
+                    declaredType: checkedConsumerType(dependency.type),
                     location: dependency.location,
                     isConsumer: true
                 )
@@ -182,6 +186,15 @@ private func collectKeyCheckSites(
         }
     }
     return sites
+}
+
+/// A consumer's type as the check spells it. An implicitly unwrapped `T!` (the usual spelling of a
+/// weak var that is always set) cannot be written as a metatype — `Database!.self` is "using '!' is
+/// not allowed here" — so it is checked as `T?`, which is the type it is stored as, and which the
+/// optional overload accepts.
+private func checkedConsumerType(_ type: String) -> String {
+    guard type.hasSuffix("!"), optionalityStripped(type).isOptional else { return type }
+    return String(type.dropLast()) + "?"
 }
 
 /// `any P` / `some P` existential types break the generic helper's

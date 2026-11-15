@@ -42,6 +42,10 @@ private func _wireTypeCheck_3() {
     #sourceLocation(file: "Tests/IntegrationTests/KeyedInitParameterExample.swift", line: 24)
     _check(AppName.boundViaInit, AppName.self)
     #sourceLocation()
+
+    #sourceLocation(file: "Tests/IntegrationTests/KeyedInjectFuncParameterExample.swift", line: 20)
+    _check(AppName.boundViaInit, AppName.self)
+    #sourceLocation()
 }
 
 private func _wireTypeCheck_4() {
@@ -67,5 +71,26 @@ private func _wireTypeCheck_6() {
 
     #sourceLocation(file: "Tests/IntegrationTests/KeyedOptionalExample.swift", line: 26)
     _check(AppName.exactOptional, AppName?.self)
+    #sourceLocation()
+}
+
+private func _wireTypeCheck_7() {
+    func _check<T>(_: BindingKey<T>, _: T.Type) {}
+
+    #sourceLocation(file: "Tests/IntegrationTests/KeyedWeakVarExample.swift", line: 25)
+    _check(KeyedWeakTarget.primary, KeyedWeakTarget.self)
+    #sourceLocation()
+}
+
+private func _wireTypeCheck_8() {
+    func _check<T>(_: BindingKey<T>, _: T.Type) {}
+    func _check<T>(_: BindingKey<T>, _: T?.Type) {}
+
+    #sourceLocation(file: "Tests/IntegrationTests/KeyedWeakVarExample.swift", line: 31)
+    _check(KeyedWeakTarget.primary, KeyedWeakTarget?.self)
+    #sourceLocation()
+
+    #sourceLocation(file: "Tests/IntegrationTests/KeyedWeakVarExample.swift", line: 32)
+    _check(KeyedWeakTarget.primary, KeyedWeakTarget?.self)
     #sourceLocation()
 }

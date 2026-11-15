@@ -1883,6 +1883,77 @@ struct CodeEmissionTests {
         #expect(promoting?.contains("\"maybeDB.swift\"") == false)
     }
 
+    @Test func keyedWeakVarGetsACheckWithTheOptionalOverload() {
+        // swift-wire#425. A keyed `@Inject weak var` is a member injection, not an init-time dependency,
+        // and contributed no site. It now gets one. A weak var is always optional, so its function also
+        // declares the `T?.Type` overload, and a `BindingKey<Database>` key type-checks against it.
+        let source = """
+            final class Database {}
+            enum K { static let primary = BindingKey<Database>() }
+            @Provides(K.primary)
+            func primaryDB() -> Database { Database() }
+            @Singleton(allowUnused: true)
+            final class Repo {
+                @Inject(K.primary) weak var db: Database?
+            }
+            """
+        let discovery = discover(in: source, sourcePath: "S.swift", module: testModule)
+        let output = renderWireKeyChecks(imports: [], allBindings: discovery.bindings)
+        #expect(output.contains("_check(K.primary, Database.self)"))
+        #expect(
+            output.contains(
+                """
+                    func _check<T>(_: BindingKey<T>, _: T?.Type) {}
+
+                    #sourceLocation(file: "S.swift", line: 7)
+                    _check(K.primary, Database?.self)
+                """
+            )
+        )
+    }
+
+    @Test func keyedImplicitlyUnwrappedWeakVarIsCheckedAsOptional() {
+        // `Database!.self` does not compile ("using '!' is not allowed here"), so an implicitly
+        // unwrapped site is checked under its `?` spelling, which the optional overload accepts.
+        let source = """
+            final class Database {}
+            enum K { static let primary = BindingKey<Database>() }
+            @Singleton(allowUnused: true)
+            final class Repo {
+                @Inject(K.primary) weak var db: Database!
+            }
+            """
+        let discovery = discover(in: source, sourcePath: "S.swift", module: testModule)
+        let output = renderWireKeyChecks(imports: [], allBindings: discovery.bindings)
+        #expect(output.contains("func _check<T>(_: BindingKey<T>, _: T?.Type) {}"))
+        #expect(output.contains("_check(K.primary, Database?.self)"))
+        #expect(!output.contains("Database!"))
+    }
+
+    @Test func injectFuncParameterKeyedWithBindGetsACheck() {
+        // The other member injection: an `@Inject func` parameter keyed with `@Bind(<key>)`.
+        let source = """
+            final class Database {}
+            enum K { static let primary = BindingKey<Database>() }
+            @Singleton(allowUnused: true)
+            final class Repo {
+                @Inject
+                func configure(@Bind(K.primary) db: Database) {}
+            }
+            """
+        let discovery = discover(in: source, sourcePath: "S.swift", module: testModule)
+        let output = renderWireKeyChecks(imports: [], allBindings: discovery.bindings)
+        #expect(
+            output.contains(
+                """
+                    #sourceLocation(file: "S.swift", line: 6)
+                    _check(K.primary, Database.self)
+                """
+            )
+        )
+        #expect(!output.contains("T?.Type"))
+    }
+
     @Test func keyedDependencyTypedByAGenericParameterIsSkipped() {
         // `@Inject(K.a) var x: X` in `Consumer<X: P>` — `X` exists only inside `Consumer`, so a
         // file-scope `_check(K.a, X.self)` cannot compile (`cannot find 'X' in scope`). Found by the
