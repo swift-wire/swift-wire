@@ -16,10 +16,12 @@ struct AsyncScopeEntryTests {
     }
 
     @Test func bothIndependentAsyncBindingsAreInFlightAtOnce() async throws {
-        // Each half records that it started and then waits for the other to do the same. Serial
-        // construction cannot make both true whichever order the sort produces — the first to run waits out
-        // its bound with the second not yet begun.
+        // Each half records that it started and then waits, up to a second, for the other to do the same.
+        // Serial construction cannot make both true whichever order the sort produces — the first to run
+        // waits out its bound with the second not yet begun — so both answers are asserted: either one alone
+        // also holds under serial construction, for whichever half happens to run second.
         let entry = try await enterScope(id: "overlap")
+        #expect(entry._wireSubject.dependent.fastSawPartner)
         #expect(entry._wireSubject.slow.sawPartner)
         #expect(entry._wireSubject.dependent.observed == "fast")
         let timeline = entry._wireSubject.timeline()

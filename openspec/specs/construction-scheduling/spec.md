@@ -247,7 +247,7 @@ from inside `withThrowingTaskGroup(of: _WireScopeWireTaskResult.self)`. It SHALL
 - **WHEN** `AsyncScopeController`, a `@Scoped(seed: AsyncScopeSeed.self)` subject that the `@AggregateController` proxy `_WireAggregateContributor_async` bridges, has a scope that reaches `AsyncScopeFast` and `AsyncScopeSlow`, neither reading the other, each with an `async throws` initialiser, and `AsyncScopeDependent`, which reads only `AsyncScopeFast`
 - **THEN** a single call to `_WireAggregateContributor_async`'s `_wireEnterScope` starts both initialisers before it constructs `AsyncScopeDependent`, with both in flight at once
 
-Pinned by: `Tests/IntegrationTests/AsyncScopeEntryTests.swift` (`bothIndependentAsyncBindingsAreInFlightAtOnce`, `theScopeStillBuildsEveryBindingAndSeedsThem`, `eachEntryGetsItsOwnScopeAndItsOwnTeardown`), `GoldenHarness/Golden/_WireGraph.swift.golden`. That both initialisers are in flight at once is not yet pinned on its own, since the test would also pass under serial construction: https://github.com/swift-wire/swift-wire/issues/451.
+Pinned by: `Tests/IntegrationTests/AsyncScopeEntryTests.swift` (`bothIndependentAsyncBindingsAreInFlightAtOnce`, `theScopeStillBuildsEveryBindingAndSeedsThem`, `eachEntryGetsItsOwnScopeAndItsOwnTeardown`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
 ### Requirement: A scope whose group reads a closure local keeps the chain
 WireGen SHALL keep a scope-entry thunk on the linear chain when any binding in its group region reads a

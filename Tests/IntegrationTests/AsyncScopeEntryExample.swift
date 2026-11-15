@@ -24,7 +24,8 @@ import WireTestLibrary
 /// does not, and that assertion would pass under serial construction too — so instead **each half waits for
 /// the other to have started**. Serial construction cannot satisfy that at all: whichever runs first waits
 /// out its bound and reports that it never saw its partner. Concurrent construction settles it in one poll
-/// interval, whatever order the sort happens to produce.
+/// interval, whatever order the sort happens to produce. Only *both* answers together say that: under serial
+/// construction the second to run finds its partner already started, so its own answer is `true` either way.
 
 package struct AsyncScopeSeed: Sendable {
     package let id: String
@@ -82,13 +83,16 @@ package struct AsyncScopeSlow: Sendable {
 }
 
 /// Waits on the fast binding only — a proper subset of the scope's Overlap — so it is built during the
-/// drain, while the slow one is still suspended.
+/// drain, while the slow one is still suspended. It carries the fast half's answer out to the subject,
+/// which does not hold `AsyncScopeFast` itself, so a test can read both halves' `sawPartner`.
 @Scoped(seed: AsyncScopeSeed.self, allowUnused: true)
 package struct AsyncScopeDependent: Sendable {
     package let observed: String
+    package let fastSawPartner: Bool
 
     @Inject package init(fast: AsyncScopeFast, clock: AsyncScopeClock) {
         self.observed = fast.label
+        self.fastSawPartner = fast.sawPartner
         clock.record("dependent.built")
     }
 }
