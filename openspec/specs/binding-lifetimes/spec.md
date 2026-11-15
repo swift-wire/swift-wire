@@ -147,9 +147,9 @@ on one declaration, and a declaration has one lifetime. …" at a type carrying 
 
 #### Scenario: a scoped template
 - **WHEN** `ScreenAccess<Ctx>` is declared `@Factory(…) @Scoped(seed: …)`
-- **THEN** discovery reports one error, and only one, saying the type "carries both @Factory and @Scoped", which are "two lifetime macros on one declaration"
+- **THEN** discovery reports one error, and only one, saying the type "carries both @Factory and @Scoped", which are "two lifetime macros on one declaration", and records `ScreenAccess` as neither a factory template nor a binding in any partition
 
-Pinned by: `Tests/WireGenCoreTests/FactoryLifetimeDiagnosticsTests.swift` (`aScopeMacroOnAFactoryTemplateIsRefused`, `aRefusedDeclarationIsRecordedAsNeitherRoleRatherThanBoth`, `aTemplateWithNoScopeMacroIsUnaffected`). Recording a refused type as neither role is pinned only for `@Singleton @Factory`; the `@Scoped` case is not yet pinned: https://github.com/swift-wire/swift-wire/issues/455.
+Pinned by: `Tests/WireGenCoreTests/FactoryLifetimeDiagnosticsTests.swift` (`aScopeMacroOnAFactoryTemplateIsRefused`, `aRefusedDeclarationIsRecordedAsNeitherRoleRatherThanBoth`, `aTemplateWithNoScopeMacroIsUnaffected`). Recording a refused type as neither role is pinned for `@Factory @Scoped` by `aScopeMacroOnAFactoryTemplateIsRefused` and for `@Singleton @Factory` by `aRefusedDeclarationIsRecordedAsNeitherRoleRatherThanBoth`.
 
 ### Requirement: WireGen records a scope-bound type with its dependencies
 WireGen SHALL record each struct, class or actor carrying `@Singleton` or `@Scoped(seed:)` as a
