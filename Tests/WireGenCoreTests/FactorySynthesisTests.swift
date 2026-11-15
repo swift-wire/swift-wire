@@ -496,3 +496,112 @@ struct FactoryInjectedAxisTests {
         #expect(factoryField?.type == "_WireFactory_Keys_audit<Repository>")
     }
 }
+
+/// The variant factory's box roles. Under a testing key, a lifted factory that consumes a mocked slot is
+/// re-emitted as `_<Variant>_WireFactory_<key>` with `doubles:` prepended to `create`. For a box-role
+/// factory — a `@MiddlewareFactory`-shaped template generic over the request context, reader and sender —
+/// the production factory's role generics, `_: Role.Type` metatypes, `where` clause and role-spelled
+/// return type have to pass through unchanged behind `doubles:`. The integration fixture
+/// (`AppScopedAudit`) has no box roles, so these pin that passthrough here.
+@Suite("Variant factory box roles")
+struct VariantFactoryBoxRoleTests {
+    private let doublesType = "_NoteFixture_bindMock_NoteControllerDoubles"
+
+    /// `SummaryAudit<Ctx, Reader, Sender>`, role-mapped onto the canonical `RequestContext, Reader,
+    /// ResponseSender` roles, injecting a `repository` the key mocks and a `log` it does not.
+    private func summaryAuditFactory() -> SynthesizedFactory {
+        SynthesizedFactory(
+            keyReference: "SummaryKeys.audit",
+            factoryTypeName: "_WireFactory_SummaryKeys_audit",
+            producedTypeName: "SummaryAudit",
+            parameterNames: ["Ctx", "Reader", "Sender"],
+            parameterConstraints: [
+                "Ctx": "HTTPServerCapability.RequestContext & ~Copyable",
+                "Reader": "AsyncReader & ~Copyable", "Sender": "HTTPResponseSender & ~Copyable",
+            ],
+            whereClause: "Reader.ReadElement == UInt8, Sender.Writer: ~Copyable",
+            dependencies: [
+                DependencyParameter(
+                    name: "repository",
+                    type: "any SummaryRepository",
+                    kind: .injectProperty,
+                    location: mockLocation("M.swift")
+                ),
+                DependencyParameter(
+                    name: "log",
+                    type: "AuditLog",
+                    kind: .injectProperty,
+                    location: mockLocation("M.swift")
+                ),
+            ],
+            producedTypeModule: testModule,
+            location: mockLocation("M.swift"),
+            roleMapping: FactoryRoleMapping(
+                canonicalRoles: ["RequestContext", "Reader", "ResponseSender"],
+                parameterRoles: ["Ctx": "RequestContext", "Reader": "Reader", "Sender": "ResponseSender"]
+            )
+        )
+    }
+
+    @Test func roleMappedVariantFactoryKeepsTheRolesBehindDoubles() {
+        let expected = """
+            struct _NoteFixture_bindMock_WireFactory_SummaryKeys_audit: Sendable {
+                let log: AuditLog
+                init(log: AuditLog) {
+                    self.log = log
+                }
+                func create<RequestContext, Reader, ResponseSender>(doubles: _NoteFixture_bindMock_NoteControllerDoubles, _: RequestContext.Type, _: Reader.Type, _: ResponseSender.Type) -> SummaryAudit<RequestContext, Reader, ResponseSender> where RequestContext: HTTPServerCapability.RequestContext & ~Copyable, Reader: AsyncReader & ~Copyable, ResponseSender: HTTPResponseSender & ~Copyable, Reader.ReadElement == UInt8, ResponseSender.Writer: ~Copyable {
+                    SummaryAudit(repository: doubles.summaryRepository, log: log)
+                }
+            }
+            """
+        let rendered = renderVariantFactoryDeclaration(
+            summaryAuditFactory(),
+            typeName: "_NoteFixture_bindMock_WireFactory_SummaryKeys_audit",
+            doublesType: doublesType,
+            mockedDoublesFields: ["repository": "summaryRepository"]
+        )
+        #expect(rendered == expected)
+    }
+
+    @Test func concretizedInjectedAxisLeavesTheAssistedRolesGeneric() {
+        // `AuditGate<Ctx, Repository>` with no role mapping: `Ctx` is an assisted (positional) box role,
+        // `Repository` an injected axis the key mocks. The mocked axis is concretized to the mock and
+        // dropped from the struct's generics; the box role stays generic on `create`, behind `doubles:`.
+        let gate = SynthesizedFactory(
+            keyReference: "Keys.audit",
+            factoryTypeName: "_WireFactory_Keys_audit",
+            producedTypeName: "AuditGate",
+            parameterNames: ["Ctx", "Repository"],
+            parameterConstraints: ["Ctx": "RequestContext", "Repository": "TodoRepository"],
+            injectedParameterNames: ["Repository"],
+            dependencies: [
+                DependencyParameter(
+                    name: "repository",
+                    type: "Repository",
+                    kind: .injectProperty,
+                    location: mockLocation("M.swift")
+                )
+            ],
+            producedTypeModule: testModule,
+            location: mockLocation("M.swift")
+        )
+        let expected = """
+            struct _GenFixture_bindMock_WireFactory_Keys_audit: Sendable {
+                init() {
+                }
+                func create<Ctx>(doubles: _GenFixture_bindMock_GenControllerDoubles, _: Ctx.Type) -> AuditGate<Ctx, MockTodoRepository> where Ctx: RequestContext {
+                    AuditGate(repository: doubles.todoRepository)
+                }
+            }
+            """
+        let rendered = renderVariantFactoryDeclaration(
+            gate,
+            typeName: "_GenFixture_bindMock_WireFactory_Keys_audit",
+            doublesType: "_GenFixture_bindMock_GenControllerDoubles",
+            mockedDoublesFields: ["repository": "todoRepository"],
+            concretizedGenerics: ["Repository": "MockTodoRepository"]
+        )
+        #expect(rendered == expected)
+    }
+}
