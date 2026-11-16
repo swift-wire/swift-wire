@@ -79,7 +79,8 @@ extension BindingDiscovery {
             contentsOf: unannotatedExtensionProvidesCandidates(
                 providerName: propertyName,
                 location: providerLocation,
-                extendedType: scopes.last?.unannotatedExtensionTarget
+                extendedType: scopes.last?.unannotatedExtensionTarget,
+                module: module
             )
         )
     }
@@ -119,7 +120,8 @@ extension BindingDiscovery {
             contentsOf: unannotatedExtensionProvidesCandidates(
                 providerName: functionName,
                 location: providerLocation,
-                extendedType: scopes.last?.unannotatedExtensionTarget
+                extendedType: scopes.last?.unannotatedExtensionTarget,
+                module: module
             )
         )
         let effects = functionEffectFlags(node.signature.effectSpecifiers)

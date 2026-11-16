@@ -2787,7 +2787,7 @@ struct DiscoveryTests {
         let warnings = crossModuleExtensionDiagnostics(
             candidates: discovery.unannotatedExtensionProvides,
             containerNames: [],
-            declaredTypeNames: Set(discovery.declaredTypeNames)
+            declaredTypeNames: [testModule: Set(discovery.declaredTypeNames)]
         )
         #expect(warnings.count == 1)
         #expect(warnings.first?.message.contains("'Bar' isn't declared in this module") == true)
@@ -2806,7 +2806,7 @@ struct DiscoveryTests {
         let warnings = crossModuleExtensionDiagnostics(
             candidates: discovery.unannotatedExtensionProvides,
             containerNames: [],
-            declaredTypeNames: Set(discovery.declaredTypeNames)
+            declaredTypeNames: [testModule: Set(discovery.declaredTypeNames)]
         )
         #expect(warnings.count == 1)
         #expect(warnings[0].message.contains("'Logger' isn't declared in this module"))
@@ -2828,7 +2828,7 @@ struct DiscoveryTests {
         let warnings = crossModuleExtensionDiagnostics(
             candidates: discovery.unannotatedExtensionProvides,
             containerNames: [],
-            declaredTypeNames: Set(discovery.declaredTypeNames)
+            declaredTypeNames: [testModule: Set(discovery.declaredTypeNames)]
         )
         #expect(warnings.isEmpty)
     }
@@ -2849,7 +2849,7 @@ struct DiscoveryTests {
         let warnings = crossModuleExtensionDiagnostics(
             candidates: discovery.unannotatedExtensionProvides,
             containerNames: Set(discovery.declaredContainerNames),
-            declaredTypeNames: Set(discovery.declaredTypeNames)
+            declaredTypeNames: [testModule: Set(discovery.declaredTypeNames)]
         )
         #expect(warnings.isEmpty)
     }
@@ -2898,7 +2898,7 @@ struct DiscoveryTests {
         let crossModule = crossModuleExtensionDiagnostics(
             candidates: discovery.unannotatedExtensionProvides,
             containerNames: containerNames,
-            declaredTypeNames: Set(discovery.declaredTypeNames)
+            declaredTypeNames: [testModule: Set(discovery.declaredTypeNames)]
         )
         #expect(crossModule.isEmpty)
     }
@@ -2926,7 +2926,7 @@ struct DiscoveryTests {
             crossModuleExtensionDiagnostics(
                 candidates: discovery.unannotatedExtensionProvides,
                 containerNames: containerNames,
-                declaredTypeNames: Set(discovery.declaredTypeNames)
+                declaredTypeNames: [testModule: Set(discovery.declaredTypeNames)]
             ).isEmpty
         )
     }
@@ -2945,7 +2945,7 @@ struct DiscoveryTests {
         let warnings = crossModuleExtensionDiagnostics(
             candidates: discovery.unannotatedExtensionProvides,
             containerNames: [],
-            declaredTypeNames: Set(discovery.declaredTypeNames)
+            declaredTypeNames: [testModule: Set(discovery.declaredTypeNames)]
         )
         #expect(warnings.isEmpty)
     }
@@ -3025,7 +3025,7 @@ struct DiscoveryTests {
         let warnings = crossModuleExtensionDiagnostics(
             candidates: discovery.unannotatedExtensionProvides,
             containerNames: [],
-            declaredTypeNames: Set(discovery.declaredTypeNames)
+            declaredTypeNames: [testModule: Set(discovery.declaredTypeNames)]
         )
         #expect(warnings.count == 1)
         #expect(warnings[0].message.contains("'Array' isn't declared in this module"))

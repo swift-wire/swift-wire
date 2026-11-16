@@ -46,7 +46,7 @@ package func extensionInitConflictDiagnostics(
     }
 }
 
-/// Candidates whose extended type isn't declared anywhere in this
+/// Candidates whose extended type isn't declared in the extension's own
 /// module (and isn't a `@Container` either — those are handled by
 /// `unannotatedExtensionContainerDiagnostics`) almost certainly extend
 /// an imported type. The binding still works (the generated code can
@@ -54,6 +54,11 @@ package func extensionInitConflictDiagnostics(
 /// pattern worth surfacing: if `ImportedType` is a `@Container`
 /// declared in another module, discovery can't see that and the
 /// binding falls into the default graph silently.
+///
+/// `declaredTypeNames` maps each module WireGen scanned to the top-level
+/// type names declared in it, and only the candidate's own module counts:
+/// a `Foo` declared in a composed dependency module is still imported
+/// into the module that extends it (swift-wire#434).
 ///
 /// Complex extension targets (`Foo.Bar`, `Array<Int>`, anything
 /// containing `.` or `<`) are skipped — we can't reliably tell
@@ -63,12 +68,12 @@ package func extensionInitConflictDiagnostics(
 package func crossModuleExtensionDiagnostics(
     candidates: [UnannotatedExtensionProvides],
     containerNames: Set<String>,
-    declaredTypeNames: Set<String>
+    declaredTypeNames: [String: Set<String>]
 ) -> [Diagnostic] {
     candidates.compactMap { candidate -> Diagnostic? in
         let extendedType = candidate.extendedType
         if containerNames.contains(extendedType) { return nil }
-        if declaredTypeNames.contains(extendedType) { return nil }
+        if declaredTypeNames[candidate.module]?.contains(extendedType) == true { return nil }
         if extendedType.contains(".") || extendedType.contains("<") { return nil }
         return Diagnostic(
             location: candidate.location,

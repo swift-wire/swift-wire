@@ -177,7 +177,7 @@ struct WireGen {
                 contentsOf: result.unannotatedExtensionProvides
             )
             aggregate.typealiases.append(contentsOf: result.typealiases)
-            aggregate.declaredTypeNames.formUnion(result.declaredTypeNames)
+            aggregate.declaredTypeNames[module, default: []].formUnion(result.declaredTypeNames)
             aggregate.declaredContainerNames.formUnion(result.declaredContainerNames)
             aggregate.nonInjectExtensionInits.append(
                 contentsOf: result.nonInjectExtensionInits
@@ -776,7 +776,10 @@ struct DiscoveryAggregate {
     var warnings: [Diagnostic] = []
     var unannotatedExtensionProvides: [UnannotatedExtensionProvides] = []
     var typealiases: [DiscoveredTypealias] = []
-    var declaredTypeNames: Set<String> = []
+    /// Top-level type names declared in each scanned module, keyed by module. Kept
+    /// per module so the cross-module-extension warning checks an extension only against its own
+    /// module's declarations, not a composed dependency's (swift-wire#434).
+    var declaredTypeNames: [String: Set<String>] = [:]
     /// Every `@Container` type or extension name across the module, whether or not it holds a
     /// binding — the set the unannotated-extension warning checks against. Built graphs can't
     /// stand in for it: a container with no bindings of its own builds none (swift-wire#430).
