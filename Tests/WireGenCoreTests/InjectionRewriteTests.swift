@@ -214,13 +214,21 @@ struct InjectionRewriteTests {
         #expect(try #require(result.synthesized.first).providerKey == nil)
     }
 
+    /// The spellings of the selector's declared default, `nil`, that name no wrapped type. `.none` and
+    /// `Optional.none` are the same value as `nil`, so they must not read differently.
+    private static let absentSelectorSpellings = ["nil", ".none", "Optional.none"]
+
     /// `reader: nil` is the selector's declared default written out, so it is the omitted spelling: the
     /// provider resolves by type and `nil` is not passed along. Read as text, it would key the provider
-    /// dependency by a binding named `nil` and fail the build as an undeclared key.
-    @Test func anExplicitNilSelectorIsTheOmittedSelector() throws {
+    /// dependency by a binding named `nil` and fail the build as an undeclared key. `.none` and
+    /// `Optional.none` spell the same value.
+    @Test(arguments: absentSelectorSpellings)
+    func anExplicitNilSelectorIsTheOmittedSelector(spelling: String) throws {
         let result = applyInjectionRewrites(
             to: [
-                .default: [provider("one", parameters: [("String", site(#"reader: nil, forKey: "a", default: "x""#))])]
+                .default: [
+                    provider("one", parameters: [("String", site(#"reader: \#(spelling), forKey: "a", default: "x""#))])
+                ]
             ],
             annotations: [annotation(selectorLabel: "reader")],
             consumerModule: testModule
@@ -241,14 +249,15 @@ struct InjectionRewriteTests {
 
     /// Being the same call, `reader: nil` and the omitted selector are the same binding, not two producers
     /// reading one value.
-    @Test func anExplicitNilSelectorSharesTheOmittedSitesProducer() {
+    @Test(arguments: absentSelectorSpellings)
+    func anExplicitNilSelectorSharesTheOmittedSitesProducer(spelling: String) {
         let result = applyInjectionRewrites(
             to: [
                 .default: [
                     provider(
                         "one",
                         parameters: [
-                            ("String", site(#"reader: nil, forKey: "a", default: "x""#)),
+                            ("String", site(#"reader: \#(spelling), forKey: "a", default: "x""#)),
                             ("String", site(#"forKey: "a", default: "x""#)),
                         ]
                     )
