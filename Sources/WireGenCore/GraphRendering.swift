@@ -219,6 +219,12 @@ private func collisionLines(_ collision: IdentifierCollision) -> [String] {
 /// on the line that asked for the missing thing; the consumer's identity
 /// is implied by position (Swift compiler convention).
 private func missingBindingLines(_ missing: MissingBinding) -> [String] {
+    if let fold = missing.emptyBuilderFold {
+        let consumer = displayName(missing.consumer)
+        return [
+            "\(missing.dependency.location.formattedPrefix): error: '\(consumer)' injects '\(fold.keyReference)', \(fold.reasonAndFix)"
+        ]
+    }
     var lines: [String] = []
     let slot = describeTypeSlot(
         boundType: missing.dependency.type,

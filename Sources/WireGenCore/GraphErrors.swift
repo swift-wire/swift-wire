@@ -42,19 +42,46 @@ package struct MissingBinding: Sendable {
     /// an optional producer (the asymmetry), or a missing optional that
     /// still needs an explicit producer. Renders as a `note:` line.
     package let optionalMismatchHint: OptionalMismatchHint?
+    /// Set when the dependency is a `BuilderKey` with no contributors in this
+    /// partition whose builder can't fold an empty body. Replaces the generic
+    /// "no binding produces" line with one naming the builder and the fix.
+    package let emptyBuilderFold: UnfoldableEmptyBuilderKey?
 
     package init(
         consumer: DiscoveredBinding,
         dependency: DependencyParameter,
         typealiasHint: TypealiasHint? = nil,
         crossScopeHint: CrossScopeHint? = nil,
-        optionalMismatchHint: OptionalMismatchHint? = nil
+        optionalMismatchHint: OptionalMismatchHint? = nil,
+        emptyBuilderFold: UnfoldableEmptyBuilderKey? = nil
     ) {
         self.consumer = consumer
         self.dependency = dependency
         self.typealiasHint = typealiasHint
         self.crossScopeHint = crossScopeHint
         self.optionalMismatchHint = optionalMismatchHint
+        self.emptyBuilderFold = emptyBuilderFold
+    }
+}
+
+/// A `BuilderKey` with no contributors whose builder declares no zero-argument
+/// `buildBlock`, so an empty `@<Builder>` fold wouldn't compile. Carries what the
+/// diagnostic names: the builder and its result type (for the suggested
+/// `buildBlock()` signature).
+package struct UnfoldableEmptyBuilderKey: Sendable, Equatable {
+    package let keyReference: String
+    package let builderTypeName: String
+    package let resultType: String
+
+    package init(keyReference: String, builderTypeName: String, resultType: String) {
+        self.keyReference = keyReference
+        self.builderTypeName = builderTypeName
+        self.resultType = resultType
+    }
+
+    /// The shared tail of both diagnostics: why the fold can't be formed and the two fixes.
+    var reasonAndFix: String {
+        "a BuilderKey with no @Contributes contributors in this graph, and its builder '\(builderTypeName)' declares no zero-argument buildBlock, so an empty '@\(builderTypeName)' fold can't be formed. Declare 'static func buildBlock() -> \(resultType)' in '\(builderTypeName)', or contribute to '\(keyReference)'."
     }
 }
 

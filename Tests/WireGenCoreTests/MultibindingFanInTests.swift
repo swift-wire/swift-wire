@@ -104,10 +104,15 @@ struct MultibindingFanInTests {
         )
     }
 
-    private func resultBuilder(_ name: String, resultType: String) -> DiscoveredResultBuilder {
+    private func resultBuilder(
+        _ name: String,
+        resultType: String,
+        acceptsEmptyBlock: Bool = false
+    ) -> DiscoveredResultBuilder {
         DiscoveredResultBuilder(
             typeName: name,
             resultType: resultType,
+            acceptsEmptyBlock: acceptsEmptyBlock,
             location: mockLocation("\(name).swift")
         )
     }
@@ -223,14 +228,29 @@ struct MultibindingFanInTests {
         #expect(result.outcome.topologicalOrder?.contains { $0.keyIdentifier == "App.pipeline" } != true)
     }
 
-    @Test func emptyBuilderProducesNoAggregate() {
-        // A zero-component fold has no well-defined result, so an empty
-        // builder key synthesises no aggregate.
+    @Test func emptyConsumedBuilderKeyFoldsWhenTheBuilderAcceptsAnEmptyBlock() throws {
+        // A builder with a zero-argument `buildBlock` folds an empty body, so a consumed
+        // builder key with no contributors still synthesises its aggregate, typed by the
+        // builder's result type, as an empty collected key does.
         let result = buildDependencyGraph(
-            from: [],
+            from: [consumer("Host", injecting: "Pipeline", key: "App.pipeline")],
+            multibindingKeys: [builderKey("App.pipeline", builder: "PipelineBuilder")],
+            resultBuilders: [resultBuilder("PipelineBuilder", resultType: "Pipeline", acceptsEmptyBlock: true)]
+        )
+        let order = try #require(result.outcome.topologicalOrder)
+        let aggregate = try #require(order.first { $0.keyIdentifier == "App.pipeline" })
+        #expect(aggregate.boundType == "Pipeline")
+    }
+
+    @Test func emptyConsumedBuilderKeyHasNoAggregateWhenTheBuilderCannotFoldAnEmptyBlock() {
+        // Without a zero-argument `buildBlock` the empty fold wouldn't compile, so no
+        // aggregate is synthesised and the consumer is reported instead.
+        let result = buildDependencyGraph(
+            from: [consumer("Host", injecting: "Pipeline", key: "App.pipeline")],
             multibindingKeys: [builderKey("App.pipeline", builder: "PipelineBuilder")],
             resultBuilders: [resultBuilder("PipelineBuilder", resultType: "Pipeline")]
         )
-        #expect(result.outcome.topologicalOrder?.contains { $0.keyIdentifier == "App.pipeline" } != true)
+        let missing = result.outcome.validationErrors?.missingBindings ?? []
+        #expect(missing.map(\.emptyBuilderFold?.builderTypeName) == ["PipelineBuilder"])
     }
 }

@@ -198,7 +198,8 @@ For each partition (the default graph, each container, each seed scope) WireGen 
 an aggregate binding for every declared key that is contributed to or consumed by an `@Inject` in
 that partition, from that partition's contributors only, and SHALL synthesise none for a key used
 in neither way there. The exceptions are a `BuilderKey` that the builder requirements below exclude
-(no discovered result type, or no contributors in the partition) and a collected or mapped key with
+(no discovered result type, or no contributors in the partition and a builder that can't fold an
+empty body) and a collected or mapped key with
 the wrong number of generic arguments, which only arises in source the compiler rejects. The aggregate SHALL sort after all of its contributors and before its
 consumers.
 
@@ -246,8 +247,11 @@ Pinned by: `Tests/WireGenCoreTests/MultibindingFanInTests.swift` (`emptyAggregat
 ### Requirement: The builder result type is read from the `@resultBuilder` declaration
 WireGen SHALL discover each `@resultBuilder` type and record, under the type's simple name, as its
 result type the return type of the first `buildFinalResult` with a return clause declared in the
-type's own body, otherwise of the first such `buildBlock`. Methods declared in an extension of the
-builder SHALL NOT be read. A `BuilderKey<Builder>` aggregate SHALL have the result type recorded
+type's own body, otherwise of the first such `buildBlock`. It SHALL also record whether the builder can fold an empty body: whether the type's own
+body declares a `buildBlock` callable with no arguments, that is, one with no parameters or whose
+every parameter is variadic or has a default. A builder whose only block methods are
+`buildPartialBlock`s, or whose every `buildBlock` has a required parameter, cannot. Methods declared in an extension of the
+builder SHALL NOT be read, for either. A `BuilderKey<Builder>` aggregate SHALL have the result type recorded
 under the `Builder` generic argument's text, which must spell the builder's simple name exactly. A
 `BuilderKey` whose builder has no discovered result type SHALL produce no aggregate, which is how a
 builder with its `buildBlock` in an extension, or a key naming its builder qualified, behaves today;
@@ -261,18 +265,33 @@ this is tracked as a possible defect in https://github.com/swift-wire/swift-wire
 - **WHEN** `AuthMW` contributes to `App.pipeline = BuilderKey<PipelineBuilder>()` and no `@resultBuilder` named `PipelineBuilder` is discovered
 - **THEN** no aggregate is synthesised for `App.pipeline`
 
-Pinned by: `Tests/WireGenCoreTests/ResultBuilderDiscoveryTests.swift` (`buildBlockResultTypeIsCaptured`, `buildFinalResultIsPreferredOverBuildBlock`, `nonResultBuilderTypeIsIgnored`), `Tests/WireGenCoreTests/MultibindingFanInTests.swift` (`builderAggregateUsesResultBuilderResultType`, `builderWithoutDiscoveredResultBuilderIsSkipped`). The extension and qualified-name cases are pinned by nothing yet.
+#### Scenario: which builders can fold an empty body
+- **WHEN** a `@resultBuilder` declares `buildBlock(_: any Hook...)`, `buildBlock()` or `buildBlock(_: (any Hook)? = nil)`
+- **THEN** it can fold an empty body, and one that declares only `buildBlock(_: any Hook)`, or only `buildPartialBlock`s, cannot
 
-### Requirement: A consumed builder key with no contributors has no aggregate
-When a `BuilderKey` is consumed in a partition with no contributors there, WireGen SHALL synthesise
-no aggregate for it, so the consumer is reported as a missing binding. This is tracked as a defect
-in https://github.com/swift-wire/swift-wire/issues/370.
+Pinned by: `Tests/WireGenCoreTests/ResultBuilderDiscoveryTests.swift` (`buildBlockResultTypeIsCaptured`, `buildFinalResultIsPreferredOverBuildBlock`, `nonResultBuilderTypeIsIgnored`, `buildBlockCallableWithNoArgumentsAcceptsAnEmptyBlock`, `buildBlockNeedingAnArgumentOrPartialBlockOnlyDoesNotAcceptAnEmptyBlock`, `buildBlockInAnExtensionIsNotRead`), `Tests/WireGenCoreTests/MultibindingFanInTests.swift` (`builderAggregateUsesResultBuilderResultType`, `builderWithoutDiscoveredResultBuilderIsSkipped`). The extension and qualified-name cases of the result type are pinned by nothing yet.
 
-#### Scenario: an empty consumed builder key
-- **WHEN** `Host` injects `App.pipeline = BuilderKey<PipelineBuilder>()` and nothing contributes to it
-- **THEN** no aggregate is synthesised for `App.pipeline`
+### Requirement: A consumed builder key with no contributors folds an empty body if its builder can
+When a `BuilderKey` is consumed in a partition with no contributors there and its builder can fold
+an empty body, WireGen SHALL still synthesise its aggregate, emitted as the fold the next
+requirement describes with an empty body, so the consumer receives whatever the builder's
+zero-argument `buildBlock` (and `buildFinalResult`, if any) returns. When the builder cannot fold an
+empty body, WireGen SHALL synthesise no aggregate and SHALL report, at the consumer's injection
+site and in place of the missing-binding error, the error
+`'<Consumer>' injects '<Key>', a BuilderKey with no @Contributes contributors in this graph, and its builder '<Builder>' declares no zero-argument buildBlock, so an empty '@<Builder>' fold can't be formed. Declare 'static func buildBlock() -> <ResultType>' in '<Builder>', or contribute to '<Key>'.`
+and the build SHALL fail. A builder with no discovered result type, such as one declaring only
+`buildPartialBlock`s and no `buildFinalResult`, has no aggregate under the previous requirement, and
+its consumer is reported as an ordinary missing binding.
 
-Pinned by: nothing yet.
+#### Scenario: an empty pipeline
+- **WHEN** `EmptyMiddlewareHost` injects `EmptyMiddlewareRegistry.pipeline = BuilderKey<PipelineBuilder>(allowUnused: true)`, nothing contributes to it, and `PipelineBuilder` declares `buildBlock(_ parts: any Middleware...) -> Pipeline`
+- **THEN** the graph contains a `@PipelineBuilder` `func _wireFoldEmptyMiddlewareRegistryPipeline() -> Pipeline` with an empty body, and the host's `pipeline.steps` is empty
+
+#### Scenario: a builder that needs a component
+- **WHEN** `Runner` injects `Keys.hooks = BuilderKey<HookBuilder>()`, nothing contributes to it, and `HookBuilder` declares only `buildBlock(_ hook: any Hook) -> [any Hook]`
+- **THEN** WireGen reports the error above at `Runner`'s injected property, naming `Keys.hooks`, `HookBuilder` and `static func buildBlock() -> [any Hook]`
+
+Pinned by: `Tests/WireGenCoreTests/EmptyBuilderKeyTests.swift` (`variadicBuildBlockFoldsAnEmptyBody`, `buildFinalResultWithVariadicBuildBlockFoldsToTheFinalResultType`, `zeroParameterBuildBlockFoldsAnEmptyBody`, `partialBlockOnlyBuilderIsAnErrorAtTheInjectionSite`, `fixedArityBuildBlockIsAnErrorAtTheInjectionSite`, `aContributedKeyOverAnUnfoldableBuilderStillFolds`, `unconsumedEmptyBuilderKeyHasNoAggregate`), `Tests/WireGenCoreTests/MultibindingFanInTests.swift` (`emptyConsumedBuilderKeyFoldsWhenTheBuilderAcceptsAnEmptyBlock`, `emptyConsumedBuilderKeyHasNoAggregateWhenTheBuilderCannotFoldAnEmptyBlock`), `Tests/IntegrationTests/BootstrapTests.swift` (`emptyBuilderMultibindingFoldsAnEmptyBody`), `GoldenHarness/Golden/_WireGraph.swift.golden`. That WireGen exits non-zero on the error is pinned by nothing yet.
 
 ### Requirement: A builder aggregate is a `@<Builder>` fold function
 The generated graph SHALL construct a `BuilderKey` aggregate as a local function annotated
@@ -314,7 +333,11 @@ Pinned by: `Tests/WireGenCoreTests/MultibindingValidationTests.swift` (`deadKeyW
 ### Requirement: A consumed key with no contributors warns
 WireGen SHALL warn at the declaration of an `internal` or `package` key without `allowUnused: true`
 that is consumed in some partition with no contributors to it there, reading
-`multibinding key '<reference>' is consumed but has no @Contributes contributors — the consumer receives an empty collection. Add a contributor, or declare the key 'allowUnused: true'.`
+`multibinding key '<reference>' is consumed but has no @Contributes contributors — the consumer receives <empty value>. Add a contributor, or declare the key 'allowUnused: true'.`
+where `<empty value>` is `an empty collection` for a `CollectedKey` or `MappedKey` and
+`the empty '@<Builder>' fold` for a `BuilderKey` whose builder can fold an empty body. A `BuilderKey`
+whose builder cannot, or has no discovered result type, SHALL NOT warn, because its consumer gets no
+aggregate and is reported as an error instead.
 
 #### Scenario: an empty consumed key
 - **WHEN** a consumer injects an internal `App.services` and nothing contributes to it
@@ -324,7 +347,7 @@ that is consumed in some partition with no contributors to it there, reading
 - **WHEN** a key is consumed in two containers and each container contributes to it
 - **THEN** no warning is reported
 
-Pinned by: `Tests/WireGenCoreTests/MultibindingValidationTests.swift` (`emptyMultibindingWarns`, `publicEmptyKeyIsSilent`, `keyConsumedInTwoContainersEachContributedIsLive`, `allowUnusedKeyIsSilent`).
+Pinned by: `Tests/WireGenCoreTests/MultibindingValidationTests.swift` (`emptyMultibindingWarns`, `publicEmptyKeyIsSilent`, `keyConsumedInTwoContainersEachContributedIsLive`, `allowUnusedKeyIsSilent`, `emptyBuilderKeyWarnsThatTheConsumerReceivesTheEmptyFold`, `emptyBuilderKeyWhoseBuilderCannotFoldAnEmptyBodyDoesNotWarn`).
 
 ## Related specifications
 

@@ -324,11 +324,15 @@ attribute are now non-questions:
 - **Injection-type derivation rules.** Covered by the priority
   list above (builder signature, consumer annotation, explicit
   declaration).
-- **Empty contributor handling.** Falls out naturally: Wire emits
-  a function whose body is empty if no contributors exist. If the
-  builder defines `buildBlock()` (zero-arg), it works. If not, the
-  compile error fires at the user's builder source, which is the
-  right place.
+- **Empty contributor handling.** Wire emits a fold whose body is
+  empty when no contributors exist, which compiles when the builder
+  declares a `buildBlock` callable with no arguments (no parameters,
+  or each one variadic or defaulted). Left alone, any other builder
+  would fail on the generated fold, not at the user's builder
+  source, so WireGen reads that capability off the builder's own
+  body and, when it is missing, emits no fold and reports an error at
+  the consumer's injection site (or the graph-conformance member)
+  naming the builder and the `buildBlock()` to add.
 - **Contributor type uniformity.** The user's `buildExpression`
   overloads handle coercion. Wire doesn't need to type-check
   contributor uniformity; Swift does.

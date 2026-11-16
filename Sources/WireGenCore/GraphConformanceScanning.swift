@@ -19,10 +19,14 @@ package struct DiscoveredGraphConformance: Sendable, Equatable {
     package struct Member: Sendable, Equatable {
         package let name: String
         package let keyReference: String
+        /// The member's `.init(…)` element, where a member-level diagnostic points. `nil` for a
+        /// member built in a test; such a diagnostic falls back to the conformance declaration.
+        package let location: SourceLocation?
 
-        package init(name: String, keyReference: String) {
+        package init(name: String, keyReference: String, location: SourceLocation? = nil) {
             self.name = name
             self.keyReference = keyReference
+            self.location = location
         }
     }
 
@@ -69,7 +73,11 @@ func graphConformance(
         case "conformsTo":
             protocolName = conformedProtocolName(from: argument.expression)
         case "members":
-            members = conformanceMembers(from: argument.expression)
+            members = conformanceMembers(
+                from: argument.expression,
+                sourcePath: sourcePath,
+                converter: converter
+            )
         default:
             break
         }
@@ -103,7 +111,11 @@ private func conformedProtocolName(from expression: ExprSyntax) -> String? {
 /// The `(name, keyReference)` pairs from a `members:` array literal — each element
 /// is a `.init("name", from: KeyRef)` (the callee spelling is ignored; any call
 /// with an unlabelled string first argument and a `from:` argument is read).
-private func conformanceMembers(from expression: ExprSyntax) -> [DiscoveredGraphConformance.Member] {
+private func conformanceMembers(
+    from expression: ExprSyntax,
+    sourcePath: String,
+    converter: SourceLocationConverter
+) -> [DiscoveredGraphConformance.Member] {
     guard let array = expression.as(ArrayExprSyntax.self) else { return [] }
     var result: [DiscoveredGraphConformance.Member] = []
     for element in array.elements {
@@ -118,7 +130,13 @@ private func conformanceMembers(from expression: ExprSyntax) -> [DiscoveredGraph
             }
         }
         if let name, let keyReference {
-            result.append(.init(name: name, keyReference: keyReference))
+            result.append(
+                .init(
+                    name: name,
+                    keyReference: keyReference,
+                    location: makeSourceLocation(of: call, sourcePath: sourcePath, converter: converter)
+                )
+            )
         }
     }
     return result

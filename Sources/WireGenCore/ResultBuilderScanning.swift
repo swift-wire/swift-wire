@@ -10,8 +10,8 @@ import SwiftSyntax
 // return type. See
 // `Documentation/Notes/MultibindingsImplementationPlan.md` (Step 5b).
 
-/// Recognise a `@resultBuilder` type and capture its result type, or
-/// `nil` when the declaration isn't a result builder or has neither
+/// Recognise a `@resultBuilder` type and capture its result type and whether
+/// it can fold an empty body, or `nil` when the declaration isn't a result builder or has neither
 /// `buildFinalResult` nor `buildBlock` with a return clause.
 func resultBuilder(
     named nameToken: TokenSyntax,
@@ -25,6 +25,7 @@ func resultBuilder(
     return DiscoveredResultBuilder(
         typeName: nameToken.text,
         resultType: resultType,
+        acceptsEmptyBlock: declaresZeroArgumentBuildBlock(members),
         location: makeSourceLocation(of: nameToken, sourcePath: sourcePath, converter: converter)
     )
 }
@@ -34,6 +35,22 @@ func resultBuilder(
 private func resultBuilderResultType(_ members: MemberBlockItemListSyntax) -> String? {
     returnType(ofMethodNamed: "buildFinalResult", in: members)
         ?? returnType(ofMethodNamed: "buildBlock", in: members)
+}
+
+/// Whether the builder's own body declares a `buildBlock` callable with no
+/// arguments — no parameters, or every parameter variadic or defaulted — which is
+/// what an empty `@Builder` body needs to compile. A `buildPartialBlock`-only
+/// builder, or one whose every `buildBlock` has a required parameter, can't fold
+/// an empty body. Like the result type, only the type's own body is read.
+private func declaresZeroArgumentBuildBlock(_ members: MemberBlockItemListSyntax) -> Bool {
+    members.contains { member in
+        guard let function = member.decl.as(FunctionDeclSyntax.self),
+            function.name.text == "buildBlock"
+        else { return false }
+        return function.signature.parameterClause.parameters.allSatisfy {
+            $0.ellipsis != nil || $0.defaultValue != nil
+        }
+    }
 }
 
 private func returnType(

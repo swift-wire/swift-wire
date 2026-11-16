@@ -68,7 +68,10 @@ package func multibindingContributionDiagnostics(
 /// Dead-/empty-multibinding warnings, gated by the *key's* visibility and
 /// `allowUnused:`. A key consumed by nothing is **dead**; a key consumed
 /// in a partition that has no contributors there is **empty** (its
-/// consumer receives an empty collection). `public`/`open` keys stay
+/// consumer receives an empty collection, or a `BuilderKey`'s consumer the
+/// builder's empty fold). An empty `BuilderKey` whose builder can't fold an
+/// empty body doesn't warn: its consumer is an error instead (see
+/// `attachingEmptyBuilderFolds`). `public`/`open` keys stay
 /// silent — downstream may contribute or consume. A key mapped by a graph
 /// conformance is consumed by the generated conformance member (which reads
 /// its aggregate), so `conformanceConsumedKeys` counts as consumers regardless
@@ -76,8 +79,10 @@ package func multibindingContributionDiagnostics(
 package func multibindingLivenessDiagnostics(
     multibindingKeys: [DiscoveredMultibindingKey],
     bindingsByPartition: [Partition: [DiscoveredBinding]],
-    conformanceConsumedKeys: Set<String> = []
+    conformanceConsumedKeys: Set<String> = [],
+    resultBuilders: [DiscoveredResultBuilder] = []
 ) -> [Diagnostic] {
+    let buildersByName = resultBuildersByName(resultBuilders)
     var diagnostics: [Diagnostic] = []
     for key in multibindingKeys where keyWarrantsLivenessWarning(key) {
         // A graph conformance that maps a member to this key generates a member
@@ -104,18 +109,31 @@ package func multibindingLivenessDiagnostics(
                     severity: .warning
                 )
             )
-        } else if emptyWhereConsumed {
+        } else if emptyWhereConsumed, let emptyValue = emptyValueDescription(of: key, buildersByName) {
             diagnostics.append(
                 Diagnostic(
                     location: key.location,
                     message:
-                        "multibinding key '\(key.keyReference)' is consumed but has no @Contributes contributors — the consumer receives an empty collection. Add a contributor, or declare the key 'allowUnused: true'.",
+                        "multibinding key '\(key.keyReference)' is consumed but has no @Contributes contributors — the consumer receives \(emptyValue). Add a contributor, or declare the key 'allowUnused: true'.",
                     severity: .warning
                 )
             )
         }
     }
     return diagnostics.sorted { $0.location < $1.location }
+}
+
+/// What a consumer of an empty key receives, for the empty-key warning: an empty collection for a
+/// collected or mapped key, the builder's empty fold for a `BuilderKey` whose builder can fold one.
+/// `nil` for any other `BuilderKey`, whose consumer gets no aggregate and is reported as an error.
+private func emptyValueDescription(
+    of key: DiscoveredMultibindingKey,
+    _ buildersByName: [String: DiscoveredResultBuilder]
+) -> String? {
+    guard key.flavour == .builder else { return "an empty collection" }
+    guard let builder = key.typeArguments.first.flatMap({ buildersByName[$0] }), builder.acceptsEmptyBlock
+    else { return nil }
+    return "the empty '@\(builder.typeName)' fold"
 }
 
 /// Whether a multibinding key's dead/empty state should warn: `internal`/

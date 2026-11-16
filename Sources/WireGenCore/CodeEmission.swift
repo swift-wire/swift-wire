@@ -50,6 +50,8 @@ package func renderWireGraph(
     seedScopeOrders: [SeedScopeEmission] = [],
     graphConformances: [DiscoveredGraphConformance] = [],
     multibindingKeys: [DiscoveredMultibindingKey] = [],
+    // What an empty `BuilderKey` conformance member folds with — see `emptyMemberAccessor`.
+    resultBuilders: [DiscoveredResultBuilder] = [],
     syntheticTypeDeclarations: [String] = [],
     existentialPromotions: [ExistentialPromotion] = [],
     // The `@GraphInputs` type, when the module declares one — `Wire.bootstrap(inputs:)`'s parameter type.
@@ -160,6 +162,7 @@ package func renderWireGraph(
         defaultOrder: topologicalOrder,
         variantAppOrders: variantAppOrders,
         multibindingKeys: multibindingKeys,
+        resultBuilders: resultBuilders,
         into: &file.lines
     )
 

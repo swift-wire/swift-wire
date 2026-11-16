@@ -607,7 +607,17 @@ package func buildDependencyGraph(
     )
 
     return GraphResult(
-        outcome: postResolutionOutcome(sortResult: sortResult, missingBindings: graph.missing),
+        outcome: postResolutionOutcome(
+            sortResult: sortResult,
+            // A consumer of an empty `BuilderKey` whose builder can't fold an empty body is missing
+            // because fan-in formed no aggregate; say so, rather than "no binding produces".
+            missingBindings: attachingEmptyBuilderFolds(
+                to: graph.missing,
+                keys: multibindingKeys,
+                bindings: bindings,
+                resultBuilders: resultBuilders
+            )
+        ),
         genericTemplates: genericTemplates,
         edges: graph.edges,
         existentialPromotions: graph.promotions,
