@@ -66,6 +66,11 @@ package struct InjectionRewriteSite: Sendable, Equatable {
     ///
     /// Returns the selector's own text separately: it keys the synthesised producer's dependency on the
     /// provider instead of being passed along, since by resolution time the provider is already resolved.
+    ///
+    /// A selector written as the literal `nil` is the one spelling whose text is not a key. The adapter
+    /// declares the argument optional and defaulted `nil`, so `reader: nil` and an omitted `reader:` are
+    /// the same call; it is lifted out like any selector and leaves the provider unkeyed, exactly as if
+    /// it had not been written, rather than keying it by a binding named `nil`.
     func splittingSelector(labelled selectorLabel: String?) -> (providerKey: String?, rendered: String) {
         guard let selectorLabel else { return (nil, render(arguments)) }
         guard let index = arguments.firstIndex(where: { $0.label == selectorLabel }) else {
@@ -73,7 +78,7 @@ package struct InjectionRewriteSite: Sendable, Equatable {
         }
         var remaining = arguments
         let selector = remaining.remove(at: index)
-        return (selector.text, render(remaining))
+        return (selector.text == "nil" ? nil : selector.text, render(remaining))
     }
 
     private func render(_ arguments: [Argument]) -> String {

@@ -214,6 +214,52 @@ struct InjectionRewriteTests {
         #expect(try #require(result.synthesized.first).providerKey == nil)
     }
 
+    /// `reader: nil` is the selector's declared default written out, so it is the omitted spelling: the
+    /// provider resolves by type and `nil` is not passed along. Read as text, it would key the provider
+    /// dependency by a binding named `nil` and fail the build as an undeclared key.
+    @Test func anExplicitNilSelectorIsTheOmittedSelector() throws {
+        let result = applyInjectionRewrites(
+            to: [
+                .default: [provider("one", parameters: [("String", site(#"reader: nil, forKey: "a", default: "x""#))])]
+            ],
+            annotations: [annotation(selectorLabel: "reader")],
+            consumerModule: testModule
+        )
+        let synthesized = try #require(result.synthesized.first)
+        #expect(synthesized.providerKey == nil)
+        #expect(synthesized.declaration.contains(#"wireValue(from: _wireProvider, forKey: "a", default: "x")"#))
+        // The dependency WireGen checks against declared keys is the one the producer binding carries.
+        let producer = try #require(
+            result.bindings[.default]?.compactMap { binding -> DiscoveredProvider? in
+                guard case .provider(let provider) = binding, provider.accessPath == synthesized.functionName
+                else { return nil }
+                return provider
+            }.first
+        )
+        #expect(producer.dependencies.map(\.keyIdentifier) == [nil])
+    }
+
+    /// Being the same call, `reader: nil` and the omitted selector are the same binding, not two producers
+    /// reading one value.
+    @Test func anExplicitNilSelectorSharesTheOmittedSitesProducer() {
+        let result = applyInjectionRewrites(
+            to: [
+                .default: [
+                    provider(
+                        "one",
+                        parameters: [
+                            ("String", site(#"reader: nil, forKey: "a", default: "x""#)),
+                            ("String", site(#"forKey: "a", default: "x""#)),
+                        ]
+                    )
+                ]
+            ],
+            annotations: [annotation(selectorLabel: "reader")],
+            consumerModule: testModule
+        )
+        #expect(result.synthesized.count == 1)
+    }
+
     /// The failure this change could most easily introduce, and the quietest: the selector leaves the
     /// argument list, so if it also left the dedup identity these two sites would collapse into one
     /// binding and both would read from whichever provider won.

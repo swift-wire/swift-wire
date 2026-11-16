@@ -339,7 +339,10 @@ Pinned by: `Tests/WireGenCoreTests/InjectionRewriteTests.swift` (`identicalSites
 When an annotation declares `selector: .labelled(L)`, WireGen SHALL remove the site argument
 labelled `L` from the spliced argument list and use its text as the key of the producer's
 `_wireProvider` dependency. Without a declared selector, or at a site that does not write the
-label, the provider dependency SHALL be unkeyed and every argument SHALL be spliced.
+label, the provider dependency SHALL be unkeyed and every argument SHALL be spliced. A selector
+argument whose text is the literal `nil` SHALL be treated as not written: it is removed from the
+spliced list and the provider dependency is unkeyed, so the site shares the producer of the same
+site with the selector omitted.
 
 #### Scenario: a selected reader
 - **WHEN** `@ConfigProperty(reader: ConfigKeys.testReader, forKey: "PORT")` is written under `selector: .labelled("reader")`
@@ -349,7 +352,11 @@ label, the provider dependency SHALL be unkeyed and every argument SHALL be spli
 - **WHEN** no selector is declared and a site writes `reader: ConfigKeys.testReader`
 - **THEN** `reader: ConfigKeys.testReader` is spliced into the call like any other argument
 
-Pinned by: `Tests/WireGenCoreTests/InjectionRewriteTests.swift` (`aDeclaredSelectorKeysTheProviderAndLeavesTheArgumentList`, `anUndeclaredSelectorLabelIsJustAnArgument`, `omittingTheSelectorLeavesTheProviderUnkeyed`), `InjectionRewriteHarness/run-injection-rewrite-harness.sh`.
+#### Scenario: a selector written as `nil`
+- **WHEN** `@ConfigProperty(reader: nil, forKey: "PORT")` is written under `selector: .labelled("reader")`
+- **THEN** the producer depends on the provider unkeyed, the call is `wireValue(from: _wireProvider, forKey: "PORT")`, and the site shares one producer with `@ConfigProperty(forKey: "PORT")` at the same type
+
+Pinned by: `Tests/WireGenCoreTests/InjectionRewriteTests.swift` (`aDeclaredSelectorKeysTheProviderAndLeavesTheArgumentList`, `anUndeclaredSelectorLabelIsJustAnArgument`, `omittingTheSelectorLeavesTheProviderUnkeyed`, `anExplicitNilSelectorIsTheOmittedSelector`, `anExplicitNilSelectorSharesTheOmittedSitesProducer`), `InjectionRewriteHarness/run-injection-rewrite-harness.sh`.
 
 ### Requirement: Scope yields are inferred from a bridged subject's parameter attributes
 For a bridged subject, WireGen SHALL yield through its scope entry every binding in the subject's
