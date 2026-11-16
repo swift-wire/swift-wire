@@ -25,10 +25,12 @@
 /// - **`suffix` is upward-closed.** If a binding waits on *all* of Overlap then so does everything
 ///   downstream of it, so nothing in the group can depend on a suffix binding.
 ///
-/// Both hold under *construction* edges. Member-injection parameters are deliberately not construction
-/// edges (`Graph.swift`: "post-init delivery, so excluded from graph edges. Cycle through these is
-/// legal"), which is the whole point of `@Inject weak var` — so an injection reads across regions in
-/// either direction, and the injection block stays where it already is, after everything is constructed.
+/// Both hold under *construction* edges — a binding's arguments, and for a bridging proxy the locals its
+/// scope-entry thunk captures, since the thunk is emitted on the proxy's line and names them there.
+/// Member-injection parameters are deliberately not construction edges (`Graph.swift`: "post-init
+/// delivery, so excluded from graph edges. Cycle through these is legal"), which is the whole point of
+/// `@Inject weak var` — so an injection reads across regions in either direction, and the injection block
+/// stays where it already is, after everything is constructed.
 struct ConstructionRegions {
     /// Built serially, before the group opens. May contain **async** bindings: a source everything else
     /// waits on is serial by definition, and putting it in the group would buy a child task the parent
@@ -118,7 +120,9 @@ func constructionRegions(for topologicalOrder: [DiscoveredBinding]) -> Construct
 }
 
 /// The graph's construction edges in both directions, keyed by property name — the same local names the
-/// construction expressions reference, so nothing here can disagree with what the emitter renders.
+/// construction expressions reference, so nothing here can disagree with what the emitter renders. A
+/// thunk's captures count: leaving them out put a proxy whose only scheduled dependency was a capture in
+/// the prefix, where its thunk named a local the seam had not bound yet.
 private struct ConstructionEdges {
     let names: Set<String>
     /// Consumer → the bindings it reads.
@@ -133,7 +137,7 @@ private func constructionEdges(in topologicalOrder: [DiscoveredBinding]) -> Cons
     var consumers: [String: [String]] = [:]
     for binding in topologicalOrder {
         let consumer = propertyName(for: binding)
-        for local in Set(constructionDependencyLocals(of: binding)) where names.contains(local) {
+        for local in Set(constructionOrderingLocals(of: binding)) where names.contains(local) {
             producers[consumer, default: []].append(local)
             consumers[local, default: []].append(consumer)
         }
