@@ -11,19 +11,26 @@
 /// the key expression — e.g. `Database.primary` — so what the user
 /// writes IS the key.
 ///
-/// Every `@Singleton`/`@Scoped(seed:)` macro auto-generates
-/// a `static let key: BindingKey<Self>` on the type. Users add named
-/// keys via additional static members:
+/// Declare a named key for each binding that shares a slot, as a
+/// static member on a type you own:
 ///
 ///     extension Database {
 ///         static let primary = BindingKey<Database>()
 ///         static let replica = BindingKey<Database>()
 ///     }
 ///
-/// And reference them at injection sites:
+/// And tag both the producer and the consumer with it:
 ///
+///     @Provides(Database.primary) let primaryDB: Database = ...
 ///     @Inject(Database.primary) var db: Database
-///     @Provides(Database.primary) static let primaryDB: Database = ...
+///
+/// For a protocol-typed slot, declare the keys on a named type such as
+/// a caseless enum (`enum Repositories { static let primary =
+/// BindingKey<any TodoRepository>() }`), not on the protocol: a protocol
+/// extension can't hold a stored `static let`.
+///
+/// The `key` member `@Singleton`/`@Scoped(seed:)` synthesise does not
+/// key the binding; those types are always bound unkeyed.
 ///
 /// The generic parameter `Value` documents which type the key is
 /// intended for. Swift's type system uses it at the call site to

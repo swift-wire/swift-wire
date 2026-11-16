@@ -56,17 +56,10 @@ one annotation at the place the ambiguity actually exists.
 
 ## Keys
 
-Every [`@Singleton`](doc:Singleton(allowUnused:)) and
-[`@Scoped`](doc:Scoped(seed:allowUnused:)) generates a `static let key: BindingKey<Self>`, so
-the disambiguating key usually already exists and you only have to name it:
-
-```swift
-@Inject(CouchDBTodoRepository.key) var repository: any TodoRepository
-```
-
-Auto-generated keys are tied to the producing type, which does not help when two values of the
-*same* type are configured differently — a primary and a replica, two clients with different
-timeouts. Declare a ``BindingKey`` and reference it on both sides:
+When more than one binding fills the same slot — a primary and a replica, two clients with
+different timeouts — declare a named ``BindingKey`` for each binding, as a `static let` on a
+type you own, and tag both sides with it: the producer with `@Provides(key)`, the consumer with
+`@Inject(key)`.
 
 ```swift
 extension Database {
@@ -74,14 +67,40 @@ extension Database {
     static let replica = BindingKey<Database>()
 }
 
-@Provides(Database.primary) static let primaryDB: Database = …
-@Provides(Database.replica) static let replicaDB: Database = …
+@Provides(Database.primary) let primaryDB: Database = …
+@Provides(Database.replica) let replicaDB: Database = …
 
 @Singleton
 struct UserService {
     @Inject(Database.primary) var db: Database
 }
 ```
+
+For a protocol-typed slot, declare the keys on a named type, such as a caseless enum, not
+on the protocol. A protocol extension cannot hold a stored `static let`, and Swift reads
+`any TodoRepository.primary` as a type, not as a key reference.
+
+```swift
+enum Repositories {
+    static let primary = BindingKey<any TodoRepository>()
+    static let fallback = BindingKey<any TodoRepository>()
+}
+
+@Provides(Repositories.primary)
+let primaryRepository: any TodoRepository = CouchDBTodoRepository(…)
+
+@Provides(Repositories.fallback)
+let fallbackRepository: any TodoRepository = InMemoryTodoRepository()
+
+@Singleton
+struct TodoService {
+    @Inject(Repositories.primary) var repository: any TodoRepository
+}
+```
+
+A [`@Singleton`](doc:Singleton(allowUnused:)) or [`@Scoped`](doc:Scoped(seed:allowUnused:))
+type is always bound unkeyed, and the `key` member those macros synthesise does not key it. To
+put such a type behind a key, bind it with a keyed `@Provides` instead.
 
 `BindingKey` is phantom-typed and carries no runtime state. Its identity in the graph is the
 canonical text of the declaring reference — `Database.primary` — which is why the key needs no
