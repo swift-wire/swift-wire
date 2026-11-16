@@ -71,12 +71,23 @@ private func replacingGraphSuffix(_ structName: String, with suffix: String) -> 
 /// arguments the construction actually passes. `.scopeCapture` dependencies pass no argument and are
 /// excluded there, so they are excluded here.
 func constructionDependencyLocals(of binding: DiscoveredBinding) -> [String] {
-    binding.dependencies
-        .filter { $0.kind != .scopeCapture }
-        .map { dependency in
-            let identity = bridgedDependencyIdentity(dependency, in: binding)
-            return identifierName(forType: identity.displayType, key: identity.key)
-        }
+    dependencyLocals(of: binding.dependencies.filter { $0.kind != .scopeCapture }, in: binding)
+}
+
+/// The property names a binding has to be built *after* — its construction locals plus the locals a
+/// bridging proxy's scope-entry thunk captures. A capture passes no argument, but the thunk is emitted on
+/// the proxy's construction line and names the captured local there, so for ordering it is as much an
+/// edge as an argument is. This is the set the region split runs on; the readiness guards, which only
+/// cover arguments, stay on ``constructionDependencyLocals(of:)``.
+func constructionOrderingLocals(of binding: DiscoveredBinding) -> [String] {
+    dependencyLocals(of: binding.dependencies, in: binding)
+}
+
+private func dependencyLocals(of dependencies: [DependencyParameter], in binding: DiscoveredBinding) -> [String] {
+    dependencies.map { dependency in
+        let identity = bridgedDependencyIdentity(dependency, in: binding)
+        return identifierName(forType: identity.displayType, key: identity.key)
+    }
 }
 
 /// The construction plan for one graph, or `nil` when it keeps today's linear `let` chain end to end.
@@ -98,7 +109,9 @@ func constructionDependencyLocals(of binding: DiscoveredBinding) -> [String] {
 ///   single expression and has always worked, including one folding async contributors.)
 /// - **scope-entry thunks**, whose *escaping* closure captures the bootstrap's singleton locals — and
 ///   whose capture set is `.scopeCapture` dependencies, which `constructionDependencyLocals` excludes, so
-///   the readiness guard would not cover them;
+///   the readiness guard would not cover them. The regions *do* count captures as edges, so a proxy whose
+///   thunk captures a group binding lands in the group and trips this, and one capturing a suffix binding
+///   lands in the suffix, where every capture is already a local;
 /// - **existential-promotion aliases**, which bind one `any P` local *after* a construction for consumers
 ///   to share, a second definition site per binding. Tested on **either** endpoint: a promotion whose
 ///   producer is scheduled would need its alias emitted after the seam rather than after the construction.

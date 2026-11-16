@@ -85,7 +85,10 @@ WireGen SHALL partition a scheduled graph's topological order into three regions
 every async binding with an independent async partner. A binding in the overlap set SHALL be in the
 group; a binding with no overlap ancestor SHALL be in the prefix; a binding that waits on every member
 of the overlap set SHALL be in the suffix; every other binding SHALL be in the group. The prefix SHALL
-be built on the linear chain before the group opens and the suffix after the group drains.
+be built on the linear chain before the group opens and the suffix after the group drains. Ancestry is
+over construction edges: a binding's construction arguments and, for a bridging proxy, every app
+singleton its scope-entry thunk captures. A proxy whose only path to an overlap binding is its thunk's
+capture SHALL therefore be in the group or the suffix, never in the prefix.
 
 #### Scenario: an upstream binding stays on the chain
 - **WHEN** sync `Config` is read by async `Pool`, async `Cache` is independent of `Pool`, sync `Service` reads only `Pool`, and sync `Host` injects `service: Service` and `cache: Cache`
@@ -99,7 +102,12 @@ be built on the linear chain before the group opens and the suffix after the gro
 - **WHEN** sync `Config` is read by async `Pool`, async `Cache` is independent of `Pool`, sync `Service` reads only `Pool`, and sync `Host` injects `service: Service` and `cache: Cache`
 - **THEN** `Host` is in the suffix: it is constructed on the chain after the seam, from the locals the seam binds, and it has no cell
 
-Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aBindingUpstreamOfEveryAsyncOneStaysOnTheChain`, `aBindingWaitingOnOnlySomeAsyncBindingsIsScheduled`, `aBindingWaitingOnEveryAsyncOneReturnsToTheChain`).
+#### Scenario: a proxy linked to an async binding only by its thunk's capture
+- **WHEN** async `Pool` and async `Cache` are independent, sync `Host` injects `pool: Pool` and `cache: Cache`, and a bridging proxy's scope-entry thunk captures `Pool` and the proxy has no other dependency
+- **THEN** the proxy is in the group, not the prefix
+- **AND** when the thunk captures `Host` instead, the proxy is in the suffix and its thunk is emitted after the seam binds `Host`
+
+Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aBindingUpstreamOfEveryAsyncOneStaysOnTheChain`, `aBindingWaitingOnOnlySomeAsyncBindingsIsScheduled`, `aBindingWaitingOnEveryAsyncOneReturnsToTheChain`), `Tests/WireGenCoreTests/ConstructionRegionsCaptureTests.swift` (`aCaptureOfAnOverlapBindingPutsTheProxyInTheGroup`, `aCaptureOfASuffixBindingPutsTheProxyInTheSuffix`, `aCaptureOfAPrefixBindingLeavesTheProxyInThePrefix`, `aProxyCapturingASuffixBindingIsEmittedAfterTheSeam`), `Tests/IntegrationTests/ScheduledCaptureProxyTests.swift` (`theProxyEntersTheScopeAndReadsTheCapturedSuffixBinding`).
 
 ### Requirement: The building struct holds one cell and one `add` per group binding
 For a scheduled graph WireGen SHALL emit a `~Copyable` struct named from the graph struct with the
@@ -205,19 +213,20 @@ Pinned by: `Tests/WireGenCoreTests/ConstructionSchedulingTests.swift` (`aBuilder
 
 ### Requirement: A scope-entry thunk in the group keeps the graph on the chain
 WireGen SHALL NOT schedule an app graph whose group region contains a bridging proxy that carries a
-scope-entry thunk. Regions are computed over construction edges only, and a proxy's link to the app
-singletons its thunk borrows is a `.scopeCapture` dependency, which is not one. So a proxy whose only
-path to a scheduled binding is its thunk's borrow lands in the prefix, this rule does not apply, and the
-thunk is emitted before the group opens, ahead of the seam that binds the captured local. That
-placement is tracked as a possible defect in https://github.com/swift-wire/swift-wire/issues/408.
-The exclusion itself is a translation not yet written, not a limit of the scheduled form, and is
+scope-entry thunk. The regions count the thunk's captures as construction edges, so this covers a proxy
+that reaches a group binding only through its thunk's capture, as well as one that reaches it through a
+construction argument. The exclusion itself is a translation not yet written, not a limit of the scheduled form, and is
 tracked with the others in https://github.com/swift-wire/swift-wire/issues/458.
 
 #### Scenario: a proxy whose construction arguments reach an async binding
 - **WHEN** a bridging proxy with a scope-entry thunk reaches a scheduled async binding through an ordinary construction argument, so it lands in the group region of an otherwise scheduled graph
 - **THEN** the graph is not scheduled, and the bootstrap is the linear chain
 
-Pinned by: nothing yet.
+#### Scenario: a proxy whose thunk captures an async binding
+- **WHEN** a bridging proxy's only link to a scheduled async binding is its scope-entry thunk's capture of it, so it lands in the group region of an otherwise scheduled graph
+- **THEN** the graph is not scheduled, and the thunk is emitted on the linear chain after the binding it captures
+
+Pinned by: `Tests/WireGenCoreTests/ConstructionRegionsCaptureTests.swift` (`aProxyCapturingAGroupBindingKeepsTheGraphOnTheChainAfterTheCapture`). The construction-argument scenario is pinned by nothing yet.
 
 ### Requirement: Bindings crossing the task boundary are asserted `Sendable` at their declaration
 For a scheduled app graph WireGen SHALL emit `private func _wireSendableChecks<GraphStruct>()`

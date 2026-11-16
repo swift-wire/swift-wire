@@ -393,6 +393,10 @@ which is the set `hasIndependentAsyncPair` already walks for the trigger.
   ancestor of a prefix binding is a prefix binding), so it is a valid topological head and stays today's
   linear `let` chain. **It may contain async bindings**: a source everything else waits on is serial by
   definition, and putting it in a group would buy a child task the parent immediately blocks on.
+  "Ancestor" is over construction edges, and a bridging proxy's scope-entry thunk captures count as
+  edges: the thunk is emitted on the proxy's line and names each captured local there. Leaving them out
+  put a proxy whose only link to Overlap was a capture in the prefix, ahead of the seam that binds what
+  it captures, and the bootstrap did not compile (#408).
 - **Suffix** — every binding that transitively depends on *all* of Overlap. Upward-closed, and strictly
   serial: nothing is still outstanding by the time one of these can start. Also today's linear chain, run
   after the drain.
