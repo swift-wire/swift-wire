@@ -258,8 +258,9 @@ looks like a root from the outside:
   annotation aliases `@Contributes(to: key)`, so a contributor is reached from its aggregate and lives iff
   the aggregate does. That is the whole reason (3) and (4) carry the weight they do.
 - **Contributor proxies**: synthesised beside their subject and contributed to the key in its place, so also
-  reached from the aggregate. The subject is reached from the proxy — by an ordinary field edge in the hold
-  form, through the scope-entry thunk in the bridge form (see the edge set below).
+  reached from the aggregate. In the hold form the subject is reached from the proxy by an ordinary field
+  edge. In the bridge form it is not reached through this graph at all: the subject stays in its seed-scope
+  graph, which is not pruned, and the thunk constructs it there (see the edge set below).
 - **Borrowed app singletons**: `linkingScopeEntryCaptures` gives a bridging proxy one `.scopeCapture`
   dependency per singleton its seed scope genuinely borrows, and those are ordinary resolved edges. A
   singleton used only inside a request scope is therefore reachable from the proxy and needs no root of its
@@ -270,9 +271,9 @@ looks like a root from the outside:
 
 ### The walk's edge set is not the sort's edge set
 
-`dependencyEdges` is built for the topological sort, and it deliberately omits two things a reachability
-walk must include. This is where a wrong prune is most likely to come from, and it is the same trap
-`DeadBindingDiagnostics` already hit and worked around:
+`dependencyEdges` is built for the topological sort, and it deliberately omits two things
+`DeadBindingDiagnostics` already hit and worked around. A reachability walk must include the first, and
+this is where a wrong prune is most likely to come from:
 
 - **Member injections form no edge.** `@Inject weak var` / `@Inject func` parameters are post-init delivery,
   excluded from the sort precisely so cycles through them stay legal (`Graph.swift:747`) — that is the
@@ -282,8 +283,15 @@ walk must include. This is where a wrong prune is most likely to come from, and 
   matches no producer, so `resolveDependencies` skips it outright. Its subject — and every
   `.yieldsFromScope` binding it hands back — is constructed by the thunk.
   `scopeEntryConstructedIdentities` already derives exactly that set for the dead-binding analysis.
+  **The walk does not need it, though, and no longer carries it** (#401). The dead-binding analysis draws its
+  consumers from every partition, so the app-partition proxy marks its seed-scope subject live; the walk runs over one pruned app or container graph, and a bridge's
+  subject and yields are `@Scoped` bindings of the seed-scope partition, never of that graph. An
+  app-graph producer of the same type would collide with the scope's borrow of it as a duplicate binding,
+  so those edges could resolve only in a build that already fails. The seed-scope graph is not pruned,
+  the thunk narrows it per routed root, and what the bridge needs from the app graph — its borrows — is
+  reached through `.scopeCapture` edges and rooted by the borrow set.
 
-So the walk covers `dependencyEdges` ∪ member-injection edges ∪ thunk-constructed identities, while the sort
+So the walk covers `dependencyEdges` ∪ member-injection edges, while the sort
 keeps walking `dependencyEdges` alone: **two edge sets over one node set, named apart** — widening the
 sort's edges instead would turn a legal member-injection cycle into a build failure. The traversal itself is
 not new code; `reachable(from:over:)` (`TestingGraph.swift:254`) already walks this map shape for the

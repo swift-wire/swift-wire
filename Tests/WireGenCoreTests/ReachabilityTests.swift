@@ -84,35 +84,6 @@ struct ReachabilityTests {
         )
     }
 
-    /// A bridging contributor proxy: it depends on a scope-entry *thunk*, whose identity is a function
-    /// type matching no producer, so the subject and yields hang off no ordinary edge.
-    private func bridgeProxy(
-        _ name: String,
-        seed: String,
-        subject: String,
-        yields: [String] = []
-    ) -> DiscoveredBinding {
-        .scopeBound(
-            DiscoveredScopeBoundType(
-                typeName: name,
-                typeKind: "struct",
-                genericParameterNames: [],
-                dependencies: [
-                    DependencyParameter(
-                        name: "_wireEnterScope_\(subject)",
-                        type: "@Sendable (\(seed)) async throws -> \(subject)",
-                        kind: .scopeEntryThunk,
-                        location: mockLocation("\(name).swift"),
-                        scopeEntry: scopeEntryDescriptor(seed: seed, subject: subject, yields: yields)
-                    )
-                ],
-                location: mockLocation("\(name).swift"),
-                allowUnused: true,
-                originModule: testModule
-            )
-        )
-    }
-
     /// A generic `@Provides func makeRepository<T>(table: T) -> Repository<T>` — the specialisation
     /// route, since a generic `@Singleton` that is not a lift node is an error rather than a template.
     private func genericRepositoryProvider(module: String = libraryModule) -> DiscoveredBinding {
@@ -302,19 +273,6 @@ struct ReachabilityTests {
             result.outcome.topologicalOrder?.map(\.boundType) == ["B", "A"],
             "a member-injection cycle failed the build"
         )
-    }
-
-    @Test("A bridging proxy's subject and yields are reachable through its scope-entry thunk")
-    func scopeEntryThunkConstructed() {
-        // The thunk's own identity is a function type that matches no producer, so `resolveDependencies`
-        // forms no edge for it at all — without the widening, both subject and yield look dead.
-        let names = reachableNames([
-            bridgeProxy("MeControllerProxy", seed: "RequestSeed", subject: "MeController", yields: ["Session"]),
-            library("MeController"),
-            library("Session"),
-            library("Unreached"),
-        ])
-        #expect(names == ["MeControllerProxy", "MeController", "Session"])
     }
 
     // MARK: - The roots

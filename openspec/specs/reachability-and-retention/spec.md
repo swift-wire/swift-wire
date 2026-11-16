@@ -134,32 +134,28 @@ Pinned by: `Tests/WireGenCoreTests/ReachabilityTests.swift` (`teardownDoesNotRoo
 
 ### Requirement: A binding consumed after construction is reachable but does not order construction
 WireGen SHALL treat a binding as reachable when a reachable binding consumes it through a member
-injection (`@Inject weak var`, `@Inject func`), or when it has a producer in the same graph and is the
-subject or a yield of a reachable bridging proxy's scope-entry thunk. Such a binding SHALL be matched to
-its producer as an ordinary dependency is, optional promotion included. These consumptions SHALL NOT
-constrain construction order, so a cycle that passes through a member injection SHALL build in a pruned
-graph as it does in an unpruned one.
+injection (`@Inject weak var`, `@Inject func`). Such a binding SHALL be matched to its producer as an
+ordinary dependency is, optional promotion included. These consumptions SHALL NOT constrain construction
+order, so a cycle that passes through a member injection SHALL build in a pruned graph as it does in an
+unpruned one.
 
 #### Scenario: a binding consumed only by member injection
 - **WHEN** a rooted `Root` receives `Late` only through a member injection
 - **THEN** `Root` and `Late` are reachable and `Unreached` is not
 
-#### Scenario: a thunk whose subject and yield have producers in the same graph
-- **WHEN** a graph holds a bridging proxy whose thunk constructs `MeController` and yields `Session`, and producers for `MeController` and `Session` in that same graph
-- **THEN** the proxy, `MeController` and `Session` are reachable
-
 #### Scenario: a member-injection cycle in a pruned graph
 - **WHEN** a rooted `A` takes `B` in its initialiser and `B` receives `A` through `@Inject weak var`
 - **THEN** `A` and `B` are reachable and the graph builds without a cycle diagnostic
 
-Pinned by: `Tests/WireGenCoreTests/ReachabilityTests.swift` (`memberInjectionOnly`, `memberInjectionCycleBuilds`, `scopeEntryThunkConstructed`, `reachedAfterSpecialisation`, `diamond`, `reachableCycle`, `unreachableCycle`).
+Pinned by: `Tests/WireGenCoreTests/ReachabilityTests.swift` (`memberInjectionOnly`, `memberInjectionCycleBuilds`, `reachedAfterSpecialisation`, `diamond`, `reachableCycle`, `unreachableCycle`).
 
 ### Requirement: A bridge's subject and yields are not reached through the app graph
 WireGen SHALL place a bridging contributor proxy in its container's app graph and leave its `@Scoped`
-subject and yields in the seed-scope graph, so the thunk's reachability edges resolve to no binding of
-the pruned app graph; the thunk constructs the subject and yields from the unpruned seed-scope graph,
-pruned per routed root. That the app graph's edges never resolve is tracked as a defect in
-https://github.com/swift-wire/swift-wire/issues/401.
+subject and yields in the seed-scope graph. The subject and yields are therefore never bindings of the
+pruned app graph, and its walk takes no edge from the proxy's scope-entry thunk. The thunk constructs
+them from the unpruned seed-scope graph, pruned per routed root. What it needs from the app graph is its
+borrowed singletons, which are retained as specified under "What a seed scope borrows is a root of its
+app graph".
 
 #### Scenario: a request-scoped controller behind a singleton proxy
 - **WHEN** a `.singleton` contributor proxy with prefix `_WireRouteContributor_` bridges `SessionController`, declared `@Scoped(seed: RequestSeed)`
