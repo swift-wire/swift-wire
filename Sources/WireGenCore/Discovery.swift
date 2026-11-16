@@ -192,8 +192,9 @@ package struct DiscoveredScopeBoundType: Sendable {
     package let accessLevel: AccessLevel
     /// `@Contributes(to:)` annotations on this type — empty for a plain
     /// `@Singleton`/`@Scoped`. Captured but unused until the Step 4
-    /// fan-in pass.
-    package let contributions: [Contribution]
+    /// fan-in pass. `private(set) var` so `appendingContributions(_:)` can copy `self` and change only
+    /// this; see that method.
+    package private(set) var contributions: [Contribution]
     /// `allowUnused: true` on the scope macro — silences the dead-binding
     /// warning for an intentionally-unconsumed binding (e.g. a graph root).
     /// `var` for one reason: `ContributorProxySynthesis` marks a `.liftsPeersToProxy` subject a root
@@ -271,6 +272,16 @@ package struct DiscoveredScopeBoundType: Sendable {
         self.isReplacer = isReplacer
         self.originModule = originModule
         self.factoryTemplateName = factoryTemplateName
+    }
+
+    /// A copy with `extra` contributions appended and every other field kept. Copying `self` rather
+    /// than calling the initialiser means a field added to this struct later is carried too; the
+    /// field-by-field rebuild this replaced dropped `isReplacer` and `factoryTemplateName`
+    /// (swift-wire#480).
+    func appendingContributions(_ extra: [Contribution]) -> DiscoveredScopeBoundType {
+        var copy = self
+        copy.contributions += extra
+        return copy
     }
 }
 
@@ -429,8 +440,8 @@ package struct DiscoveredProvider: Sendable {
     package let scopeKey: ScopeKey?
     /// `@Contributes(to:)` annotations on this provider — empty for a
     /// plain `@Provides`. Captured but unused until the Step 4 fan-in
-    /// pass.
-    package let contributions: [Contribution]
+    /// pass. `private(set) var` so `appendingContributions(_:)` can copy `self` and change only this.
+    package private(set) var contributions: [Contribution]
     /// `allowUnused: true` on `@Provides` — silences the dead-binding
     /// warning for an intentionally-unconsumed binding.
     package let allowUnused: Bool
@@ -517,6 +528,14 @@ package struct DiscoveredProvider: Sendable {
     func replacingDependencies(_ replacement: [DependencyParameter]) -> DiscoveredProvider {
         var copy = self
         copy.dependencies = replacement
+        return copy
+    }
+
+    /// A copy with `extra` contributions appended and every other field kept, `@Replaces` among them
+    /// (swift-wire#480).
+    func appendingContributions(_ extra: [Contribution]) -> DiscoveredProvider {
+        var copy = self
+        copy.contributions += extra
         return copy
     }
 }

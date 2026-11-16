@@ -91,7 +91,8 @@ Pinned by: `Tests/WireGenCoreTests/ContributionAliasTests.swift` (`capturesAlias
 ### Requirement: `.contributes(to:)` aliases `@Contributes(to:)`
 For each use-site of a `.contributes(to: key)` annotation, WireGen SHALL append a synthetic
 contribution to `key` on the matched binding, so the binding flows through the ordinary
-multibinding fan-in. No emission specific to the annotation SHALL exist.
+multibinding fan-in, and SHALL leave every other fact of that binding as it was. No emission specific
+to the annotation SHALL exist.
 
 #### Scenario: an aliased type
 - **WHEN** `@HummingbirdRoute` is declared `.contributes(to: HummingbirdKeys.routes)` and sits on a `@Singleton` type
@@ -101,7 +102,11 @@ multibinding fan-in. No emission specific to the annotation SHALL exist.
 - **WHEN** the same attribute sits on a `@Provides` function
 - **THEN** the provider binding carries the contribution
 
-Pinned by: `Tests/WireGenCoreTests/ContributionAliasTests.swift` (`injectsContributionForAliasedBinding`, `injectsContributionForAliasedProvider`), `AdapterHarness/run-adapter-harness.sh`.
+#### Scenario: an aliased replacer
+- **WHEN** a `@Replaces` binding in the app's own module, either a type or a `@Provides` function, also carries `@BackgroundService`, declared `.contributes(to: WireMVCKeys.services)`, and a dependency module binds the same slot
+- **THEN** the binding carries the contribution and is still a replacer, so the graph keeps it and drops the dependency's binding rather than reporting a validation error
+
+Pinned by: `Tests/WireGenCoreTests/ContributionAliasTests.swift` (`injectsContributionForAliasedBinding`, `injectsContributionForAliasedProvider`, `anAliasedReplacerTypeStillSupersedesTheBindingItReplaces`, `anAliasedReplacerProviderStillSupersedesTheBindingItReplaces`), `AdapterHarness/run-adapter-harness.sh`.
 
 ### Requirement: `.injectsFromGraph` dispatches on the argument's kind
 For a use-site `@X(argument)` of an `.injectsFromGraph` annotation on a scope-bound binding,
