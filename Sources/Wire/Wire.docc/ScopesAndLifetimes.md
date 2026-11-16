@@ -88,6 +88,10 @@ not because the template is in the wrong scope, but because it has none. For the
 `@Factory` is mutually exclusive with `@Singleton` and `@Scoped(seed:)`: a declaration has one
 lifetime, and Wire refuses the combination rather than emitting two colliding initialisers.
 
+Nor does the graph tear a product down. Each `create` call hands its product to the caller and
+the graph keeps no reference to it, so `@Teardown` on a template's method is an error. Whoever
+receives the product owns its shutdown.
+
 ## Crossing a boundary
 
 A scoped binding sees singletons. A singleton does not see scoped bindings, and asking for one
