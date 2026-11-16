@@ -206,7 +206,7 @@ private func specialiseGenericBindings(
             {
                 ambiguities.append(
                     DuplicateBinding(
-                        boundType: dep.identity.displayType,
+                        boundType: dep.type,
                         keyIdentifier: dep.identity.key,
                         bindings: [concrete] + genericCandidates
                     )
@@ -224,7 +224,7 @@ private func specialiseGenericBindings(
             if !ambiguitiesReported.contains(dep.identity) {
                 ambiguities.append(
                     DuplicateBinding(
-                        boundType: dep.identity.displayType,
+                        boundType: dep.type,
                         keyIdentifier: dep.identity.key,
                         bindings: genericCandidates
                     )
@@ -685,7 +685,7 @@ package func splitUniqueFromDuplicates(
         } else {
             duplicates.append(
                 DuplicateBinding(
-                    boundType: identity.displayType,
+                    boundType: group[0].boundType,
                     keyIdentifier: identity.key,
                     bindings: group
                 )
@@ -701,11 +701,13 @@ package func splitUniqueFromDuplicates(
     let byQualifierVariant = Dictionary(grouping: unique.keys.sorted(), by: \.qualifierNormalised)
     for variant in byQualifierVariant.keys.sorted() {
         guard let identities = byQualifierVariant[variant], identities.count > 1 else { continue }
+        // Sorted, the `any` producer comes first: its spelling names the slot.
+        let bindings = identities.compactMap { unique[$0] }
         duplicates.append(
             DuplicateBinding(
-                boundType: variant.displayType,
+                boundType: bindings[0].boundType,
                 keyIdentifier: variant.key,
-                bindings: identities.compactMap { unique[$0] }
+                bindings: bindings
             )
         )
         for identity in identities { unique[identity] = nil }

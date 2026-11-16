@@ -839,7 +839,7 @@ struct GraphTests {
         ])
         let errors = try #require(result.outcome.validationErrors)
         #expect(errors.duplicateBindings.count == 1)
-        #expect(errors.duplicateBindings[0].boundType == "anyLogger")
+        #expect(errors.duplicateBindings[0].boundType == "any Logger")
         #expect(errors.duplicateBindings[0].bindings.count == 2)
     }
 

@@ -144,18 +144,18 @@ Pinned by: `Tests/WireGenCoreTests/CodeEmissionTests.swift` (`existentialPromoti
 
 ### Requirement: `some P` and `any P` producers of one slot are a duplicate
 When unkeyed, or same-keyed, producers of `some P` and `any P` are both bound, WireGen SHALL report
-one duplicate binding for the slot, displayed as `any<P>`, listing both. Producers under different
+one duplicate binding for the slot, displayed as the `any P` producer spells its type, listing both. Producers under different
 keys SHALL coexist.
 
 #### Scenario: both spellings bound
 - **WHEN** `opaqueLogger: some Logger` and `boxedLogger: any Logger` are both bound unkeyed
-- **THEN** the graph fails with a single duplicate binding for the slot, displayed as `anyLogger`, that lists both `opaqueLogger` and `boxedLogger`
+- **THEN** the graph fails with a single duplicate binding for the slot, displayed as `any Logger`, that lists both `opaqueLogger` and `boxedLogger`
 
 #### Scenario: keyed apart
 - **WHEN** they are keyed `Log.opaque` and `Log.boxed`
 - **THEN** the graph validates
 
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`someAndAnyProducersForOneProtocolAreDuplicates`, `keysSeparateSomeAndAnyProducers`).
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`someAndAnyProducersForOneProtocolAreDuplicates`, `keysSeparateSomeAndAnyProducers`), `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`someAndAnyDuplicateNamesTheExistentialSlotAsWritten`).
 
 ### Requirement: A bare `P` producer is not folded into the `any P` slot
 WireGen SHALL treat a producer whose type is written `P`, with no qualifier, as a slot separate from
