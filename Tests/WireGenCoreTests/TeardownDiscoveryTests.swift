@@ -274,6 +274,41 @@ struct TeardownDiscoveryTests {
         #expect(singletons(in: source).first?.teardown == nil)
     }
 
+    /// swift-wire#449 — the graph hands a factory's products to their callers and keeps none, so a
+    /// teardown on a template would be recorded and never called.
+    @Test func teardownOnAFactoryTemplateIsAnErrorAtTheAttribute() {
+        let source = """
+            @Factory(Keys.access)
+            struct Access {
+                @Inject var x: Int
+                @Teardown func close() async {}
+            }
+            """
+        let discovery = discover(in: source, sourcePath: "Access.swift", module: testModule)
+        #expect(
+            renderDiagnostics(discovery.warnings)
+                == "Access.swift:4:6: error: @Teardown method 'close' on a @Factory template has no effect — the graph does not own a factory's products (each 'create' call hands a new one to its caller), so it never tears them down. Remove @Teardown and have the caller call 'close()' when it is done with the product."
+        )
+        #expect(discovery.factoryTemplates.count == 1)
+    }
+
+    /// A malformed teardown on a template has already drawn its shape error and recorded nothing, so the
+    /// factory error does not pile on.
+    @Test func aMalformedTeardownOnAFactoryTemplateDrawsOnlyItsShapeError() {
+        let source = """
+            @Factory(Keys.access)
+            struct Access {
+                @Inject var x: Int
+                @Teardown static func close() {}
+            }
+            """
+        #expect(
+            errors(in: source).map(\.message) == [
+                "@Teardown method 'close' is 'static' — teardown runs on the constructed instance, so the method must be an instance method."
+            ]
+        )
+    }
+
     // MARK: - Emission (the teardown walk emits the reverse-order teardown walk)
 
     @Test func teardownActionsEmitReverseOrderCalls() throws {

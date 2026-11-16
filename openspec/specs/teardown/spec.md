@@ -33,9 +33,11 @@ Pinned by: `Tests/WireMacrosImplTests/TeardownMacroTests.swift` (`test_bareTeard
 ### Requirement: Each form of `@Teardown` has one place it takes effect
 WireGen SHALL record a teardown from exactly two placements: the bare form on an instance method
 of a `@Singleton` or `@Scoped` type, declared in its body or in an extension of it, and the action form
-on a `@Provides` function or property. It SHALL report an error for the action form on such a method, the bare form on a
-`@Provides`, and either form on the `@Singleton` or `@Scoped` type declaration, as the requirements
-below state. Every other placement is ignored without a diagnostic, because the macro expands to
+on a `@Provides` function or property. It SHALL report an error for the action form on such a method, the
+bare form on a `@Provides`, either form on the `@Singleton` or `@Scoped` type declaration, and the bare
+form on a method of a `@Factory` template, as the requirements below and this one state. The graph hands
+each product of a factory to the caller of `create` and keeps no reference to it, so it has no product
+to tear down. Every other placement is ignored without a diagnostic, because the macro expands to
 nothing and WireGen does not look there:
 
 | Placement | Form | Result |
@@ -45,22 +47,22 @@ nothing and WireGen does not look there:
 | Method of a `@Singleton`/`@Scoped` type, in its body or an extension | `@Teardown(<action>)` | error |
 | `@Provides` | bare | error |
 | `@Singleton`/`@Scoped` type declaration | either | error |
-| Method of a `@Factory` template | bare | malformed shapes are errors; a well-formed one is ignored (https://github.com/swift-wire/swift-wire/issues/449) |
+| Method in the body of a `@Factory` template | bare | error; a malformed one draws only its shape error |
 | Any other type, function or property, or an extension of one | either | ignored |
 
 #### Scenario: a `@Factory` template
 - **WHEN** `@Factory(Keys.access) struct Access` declares `@Inject var x: Int` and `@Teardown func close() async {}`
-- **THEN** one factory template is discovered, no teardown is recorded for it, and no diagnostic is reported
+- **THEN** one factory template is discovered and the error, at the `@Teardown` attribute, is `@Teardown method 'close' on a @Factory template has no effect — the graph does not own a factory's products (each 'create' call hands a new one to its caller), so it never tears them down. Remove @Teardown and have the caller call 'close()' when it is done with the product.`
 
 #### Scenario: a malformed method on a `@Factory` template
 - **WHEN** the same template declares `@Teardown static func close() {}` instead
-- **THEN** the error is `@Teardown method 'close' is 'static' — teardown runs on the constructed instance, so the method must be an instance method.`
+- **THEN** the only error is `@Teardown method 'close' is 'static' — teardown runs on the constructed instance, so the method must be an instance method.`
 
 #### Scenario: a type and functions Wire does not bind
 - **WHEN** a plain `struct Plain` declares `@Teardown func close() {}`, and the free functions `@Teardown func make() -> Int` and `@Teardown({ (i: Int) in }) func make2() -> Int` are declared without `@Provides`
 - **THEN** no binding is discovered and no diagnostic is reported
 
-Pinned by: the recorded and error placements by the requirements below. The `@Factory` and unbound placements are pinned by nothing yet.
+Pinned by: the recorded and error placements by the requirements below; the `@Factory` placement by `Tests/WireGenCoreTests/TeardownDiscoveryTests.swift` (`teardownOnAFactoryTemplateIsAnErrorAtTheAttribute`, `aMalformedTeardownOnAFactoryTemplateDrawsOnlyItsShapeError`). The unbound placements are pinned by nothing yet.
 
 ### Requirement: The member form records the method name and its effects
 WireGen SHALL record a bare `@Teardown` on an instance method of a `@Singleton` or `@Scoped` type as

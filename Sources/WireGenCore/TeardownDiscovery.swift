@@ -302,3 +302,31 @@ func scopeBoundTypeTeardownMisuse(
         )
     }
 }
+
+/// Diagnose a well-formed member `@Teardown` on a `@Factory` template (swift-wire#449). The graph
+/// hands each product of a factory to whoever called `create` and keeps no reference to it, so it
+/// has nothing to tear down: the method would be recorded and never called. A malformed one has
+/// already drawn its shape error and recorded nothing, so `teardown` is `nil` and this adds none.
+/// Anchored at the attribute, as the type-level misuse is.
+func factoryTemplateTeardownMisuse(
+    _ teardown: TeardownAction?,
+    in members: MemberBlockItemListSyntax,
+    sourcePath: String,
+    converter: SourceLocationConverter
+) -> [Diagnostic] {
+    guard let teardown, case .member(let methodName, _, _) = teardown.kind else { return [] }
+    let attribute = members.lazy
+        .compactMap { $0.decl.as(FunctionDeclSyntax.self) }
+        .first { makeSourceLocation(of: $0.name, sourcePath: sourcePath, converter: converter) == teardown.location }
+        .flatMap { teardownAttributes(in: $0.attributes).first }
+    return [
+        Diagnostic(
+            location: attribute.map {
+                makeSourceLocation(of: $0.attributeName, sourcePath: sourcePath, converter: converter)
+            } ?? teardown.location,
+            message:
+                "@Teardown method '\(methodName)' on a @Factory template has no effect — the graph does not own a factory's products (each 'create' call hands a new one to its caller), so it never tears them down. Remove @Teardown and have the caller call '\(methodName)()' when it is done with the product.",
+            severity: .error
+        )
+    ]
+}

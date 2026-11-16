@@ -897,6 +897,14 @@ extension BindingDiscovery {
             converter: converter
         )
         warnings.append(contentsOf: injectResult.diagnostics)
+        warnings.append(
+            contentsOf: factoryTemplateTeardownMisuse(
+                injectResult.teardown,
+                in: members,
+                sourcePath: sourcePath,
+                converter: converter
+            )
+        )
         // `scopes` already includes this type's own frame (pushed by
         // `enterTypeDecl`), so the joined names are the full qualified path.
         let qualified = scopes.map(\.typeName).joined(separator: ".")
