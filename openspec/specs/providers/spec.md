@@ -118,7 +118,7 @@ falls through to the default graph — mark the extension @Container to contribu
 container instead." when the extended type's name carries `@Container` on a type declaration or
 an extension anywhere in the sources WireGen scanned, whether or not that container has any binding
 of its own. A `@Provides` in a type nested inside the extension gets no warning; whether it should
-is an open question tracked in https://github.com/swift-wire/swift-wire/issues/430.
+is an open question tracked in https://github.com/swift-wire/swift-wire/issues/508.
 
 #### Scenario: an extension of a container
 - **WHEN** `@Container enum TestContainer` is declared and `extension TestContainer { @Provides static let extra: Extra = Extra() }` is discovered
