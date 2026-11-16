@@ -60,6 +60,9 @@ struct WireGen {
 
         appendGraphInputBindings(to: &aggregate, consumerModule: consumerModule)
 
+        // A `@Teardown` method in an extension joins the type it extends, now that every file is read.
+        aggregate.warnings += attachExtensionTeardowns(aggregate.extensionTeardowns, to: &aggregate.allBindings)
+
         // Pre-graph binding rewrites — injection rewrites (`@X(...)` on an injection site), contribution
         // aliases (`@X` → `@Contributes`), adapter dependencies (`@X(T.self)`), and factory synthesis
         // (`@X(key)`) — mutate the bindings before graphs build; synthesis also yields what to emit.
@@ -179,9 +182,8 @@ struct WireGen {
             aggregate.typealiases.append(contentsOf: result.typealiases)
             aggregate.declaredTypeNames[module, default: []].formUnion(result.declaredTypeNames)
             aggregate.declaredContainerNames.formUnion(result.declaredContainerNames)
-            aggregate.nonInjectExtensionInits.append(
-                contentsOf: result.nonInjectExtensionInits
-            )
+            aggregate.nonInjectExtensionInits.append(contentsOf: result.nonInjectExtensionInits)
+            aggregate.extensionTeardowns.append(contentsOf: result.extensionTeardowns)
             aggregate.multibindingKeys.append(contentsOf: result.multibindingKeys)
             aggregate.bindingKeys.append(contentsOf: result.bindingKeys)
             aggregate.adapterAnnotations.append(contentsOf: result.adapterAnnotations)
@@ -785,6 +787,7 @@ struct DiscoveryAggregate {
     /// stand in for it: a container with no bindings of its own builds none (swift-wire#430).
     var declaredContainerNames: Set<String> = []
     var nonInjectExtensionInits: [NonInjectExtensionInit] = []
+    var extensionTeardowns: [ExtensionTeardownCandidate] = []
     var multibindingKeys: [DiscoveredMultibindingKey] = []
     var bindingKeys: [DiscoveredBindingKey] = []
     var adapterAnnotations: [DiscoveredAdapterAnnotation] = []

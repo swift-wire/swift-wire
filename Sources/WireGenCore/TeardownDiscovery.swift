@@ -6,7 +6,8 @@ import SwiftSyntax
 // Discovery for `@Teardown` — the explicit teardown annotation. Two forms:
 //
 // - **Owned-type member form** — bare `@Teardown` on a method of a
-//   `@Singleton`/`@Scoped` type (`teardownMethodAction`). The method is
+//   `@Singleton`/`@Scoped` type (`teardownMethodAction`), in its body or in
+//   an extension of it (`attachExtensionTeardowns`). The method is
 //   called on the constructed instance at scope teardown; its effect
 //   specifiers carry the call colour.
 // - **Producer form** — `@Teardown(<action>)` on a `@Provides` declaration
@@ -122,15 +123,7 @@ private func blockingMemberTeardownMisuse(
     location: SourceLocation
 ) -> Diagnostic? {
     if let existing {
-        return Diagnostic(
-            location: location,
-            message:
-                "more than one @Teardown on this type — a binding may declare at most one teardown method.",
-            notes: [
-                Diagnostic.Note(location: existing.location, message: "first @Teardown declared here")
-            ],
-            severity: .error
-        )
+        return duplicateMemberTeardownDiagnostic(at: location, first: existing)
     }
     // The action-carrying overload (`@Teardown({ ... })`) belongs on a
     // `@Provides`; on an owned type's method the marker takes no argument.
@@ -159,6 +152,88 @@ private func blockingMemberTeardownMisuse(
         )
     }
     return nil
+}
+
+/// The error for a second member `@Teardown` on one type, wherever the two are declared: both in
+/// the type's body, or one or both in an extension of it.
+private func duplicateMemberTeardownDiagnostic(at location: SourceLocation, first: TeardownAction) -> Diagnostic {
+    Diagnostic(
+        location: location,
+        message:
+            "more than one @Teardown on this type — a binding may declare at most one teardown method.",
+        notes: [
+            Diagnostic.Note(location: first.location, message: "first @Teardown declared here")
+        ],
+        severity: .error
+    )
+}
+
+/// Shape-check every `@Teardown` method declared directly in an extension, recording each as a
+/// candidate for the type it extends. Whether that type is a `@Singleton`/`@Scoped` binding is not
+/// known yet — it may be declared in another file — so nothing is reported here; see
+/// `attachExtensionTeardowns` (swift-wire#429).
+func extensionTeardownCandidates(
+    extension extensionNode: ExtensionDeclSyntax,
+    extendedName: String,
+    module: String,
+    sourcePath: String,
+    converter: SourceLocationConverter
+) -> [ExtensionTeardownCandidate] {
+    extensionNode.memberBlock.members.compactMap { member in
+        guard let funcDecl = member.decl.as(FunctionDeclSyntax.self),
+            let teardownAttribute = teardownAttributes(in: funcDecl.attributes).first
+        else { return nil }
+        // `existing: nil`: the duplicate check needs every candidate for the type, so the join makes it.
+        let (action, diagnostics) = teardownMethodAction(
+            from: funcDecl,
+            attribute: teardownAttribute,
+            existing: nil,
+            sourcePath: sourcePath,
+            converter: converter
+        )
+        return ExtensionTeardownCandidate(
+            extendedType: extendedName,
+            module: module,
+            location: makeSourceLocation(of: funcDecl.name, sourcePath: sourcePath, converter: converter),
+            action: action,
+            diagnostics: diagnostics
+        )
+    }
+}
+
+/// Join the module's extension `@Teardown` candidates to the `@Singleton`/`@Scoped` types they
+/// extend, as if each method were declared in the type's body (swift-wire#429). A candidate joins
+/// the scope-bound binding whose qualified type name it names in the same module; the type's own
+/// teardown counts first, then the candidates in discovery order. A candidate on a type that
+/// already has one is the duplicate error, whatever its own shape, as a second method in the body
+/// is; otherwise its shape diagnostics are reported, and its action, when well-formed, recorded.
+/// A candidate naming no such binding — a plain type, a `@Factory` template, an imported type — is
+/// dropped without a diagnostic, as a `@Teardown` on any other unbound type is. Returns the
+/// diagnostics of the candidates that joined.
+package func attachExtensionTeardowns(
+    _ candidates: [ExtensionTeardownCandidate],
+    to allBindings: inout [Partition: [DiscoveredBinding]]
+) -> [Diagnostic] {
+    var diagnostics: [Diagnostic] = []
+    for candidate in candidates {
+        for (partition, bindings) in allBindings {
+            for (index, binding) in bindings.enumerated() {
+                guard case .scopeBound(let type) = binding,
+                    type.qualifiedTypeName == candidate.extendedType,
+                    type.originModule == candidate.module
+                else { continue }
+                if let existing = type.teardown {
+                    diagnostics.append(duplicateMemberTeardownDiagnostic(at: candidate.location, first: existing))
+                    continue
+                }
+                diagnostics += candidate.diagnostics
+                if let action = candidate.action {
+                    allBindings[partition]?[index] = .scopeBound(type.withTeardown(action))
+                }
+            }
+        }
+    }
+    return diagnostics
 }
 
 /// Build the producer-form teardown action from a `@Provides`

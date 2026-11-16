@@ -32,22 +32,21 @@ Pinned by: `Tests/WireMacrosImplTests/TeardownMacroTests.swift` (`test_bareTeard
 
 ### Requirement: Each form of `@Teardown` has one place it takes effect
 WireGen SHALL record a teardown from exactly two placements: the bare form on an instance method
-declared in the body of a `@Singleton` or `@Scoped` type, and the action form on a `@Provides` function
-or property. It SHALL report an error for the action form on such a method, the bare form on a
+of a `@Singleton` or `@Scoped` type, declared in its body or in an extension of it, and the action form
+on a `@Provides` function or property. It SHALL report an error for the action form on such a method, the bare form on a
 `@Provides`, and either form on the `@Singleton` or `@Scoped` type declaration, as the requirements
 below state. Every other placement is ignored without a diagnostic, because the macro expands to
 nothing and WireGen does not look there:
 
 | Placement | Form | Result |
 |---|---|---|
-| Instance method in the body of a `@Singleton`/`@Scoped` type | bare | recorded |
+| Instance method of a `@Singleton`/`@Scoped` type, in its body or an extension | bare | recorded |
 | `@Provides` function or property | `@Teardown(<action>)` | recorded |
-| Method of a `@Singleton`/`@Scoped` type | `@Teardown(<action>)` | error |
+| Method of a `@Singleton`/`@Scoped` type, in its body or an extension | `@Teardown(<action>)` | error |
 | `@Provides` | bare | error |
 | `@Singleton`/`@Scoped` type declaration | either | error |
-| Method in an extension of a `@Singleton`/`@Scoped` type | either | ignored (https://github.com/swift-wire/swift-wire/issues/429) |
 | Method of a `@Factory` template | bare | malformed shapes are errors; a well-formed one is ignored (https://github.com/swift-wire/swift-wire/issues/449) |
-| Any other type, function or property | either | ignored |
+| Any other type, function or property, or an extension of one | either | ignored |
 
 #### Scenario: a `@Factory` template
 - **WHEN** `@Factory(Keys.access) struct Access` declares `@Inject var x: Int` and `@Teardown func close() async {}`
@@ -64,11 +63,13 @@ nothing and WireGen does not look there:
 Pinned by: the recorded and error placements by the requirements below. The `@Factory` and unbound placements are pinned by nothing yet.
 
 ### Requirement: The member form records the method name and its effects
-WireGen SHALL record a bare `@Teardown` on an instance method declared in the body of a `@Singleton` or
-`@Scoped` type as that binding's teardown, keeping the method's name, which may be any name, and whether
-it is `async` and whether it `throws`. A `@Teardown` method declared in an extension of the type is not
-seen: no teardown is recorded and no diagnostic is reported, which is tracked as a possible defect in
-https://github.com/swift-wire/swift-wire/issues/429.
+WireGen SHALL record a bare `@Teardown` on an instance method of a `@Singleton` or `@Scoped` type as
+that binding's teardown, keeping the method's name, which may be any name, and whether it is `async` and
+whether it `throws`. The method MAY be declared in the type's body or in an extension of the type in the
+same module, in any file; an extension names the type as it is qualified, so `extension Outer.Pool` for a
+type nested in `Outer`. A method in an extension goes through the same checks as one in the body, below,
+and the type's body counts before its extensions for which `@Teardown` is the second. An extension of a
+type that is not a `@Singleton` or `@Scoped` binding of the module is not looked at.
 
 #### Scenario: an async throwing teardown method
 - **WHEN** `@Singleton struct Pool` declares `@Teardown func teardown() async throws {}`
@@ -80,14 +81,23 @@ https://github.com/swift-wire/swift-wire/issues/429.
 
 #### Scenario: a teardown method in an extension
 - **WHEN** `@Singleton final class Pool` declares only `@Inject init() {}` and `extension Pool` declares `@Teardown func close() async throws {}`
-- **THEN** the binding has no teardown, the generated graph has no `_wireTeardown` and no `close()` call, and no error is reported
+- **THEN** the binding's teardown is the member `close` with both effects, the generated graph calls `try await pool.close()` from its `teardown()`, and no error is reported
 
-Pinned by: `Tests/WireGenCoreTests/TeardownDiscoveryTests.swift` (`memberTeardownRecordsMethodNameAndEffects`, `syncMemberTeardownHasNoEffects`, `scopedTypeMemberTeardownIsRecorded`). The extension case is pinned by nothing yet.
+#### Scenario: the extension in another file
+- **WHEN** in `@Container ExtensionTeardownContainer`, `ExtensionTeardownResource` declares only `@Inject package init() {}`, and `extension ExtensionTeardownContainer.ExtensionTeardownResource` in another file declares `@Teardown package func close() async throws`
+- **THEN** `Wire.bootstrapExtensionTeardownContainer()` returns a graph whose `teardown()` runs `close()` once and returns no errors
+
+#### Scenario: an extension of a type that is not a binding
+- **WHEN** `extension Plain`, `extension Access` of a `@Factory` template and `extension Imported` of a type the module does not declare each declare a `@Teardown` method, one of them `static`
+- **THEN** no teardown is recorded and no diagnostic is reported
+
+Pinned by: `Tests/WireGenCoreTests/TeardownDiscoveryTests.swift` (`memberTeardownRecordsMethodNameAndEffects`, `syncMemberTeardownHasNoEffects`, `scopedTypeMemberTeardownIsRecorded`), `Tests/WireGenCoreTests/ExtensionTeardownTests.swift` (`aTeardownInAnExtensionInTheSameFileIsRecorded`, `aTeardownInAnExtensionInAnotherFileIsRecordedWhicheverFileIsReadFirst`, `aTeardownInAnExtensionOfANestedTypeIsRecorded`, `aTeardownInAnExtensionOfAScopedTypeIsRecorded`, `aJoinedTeardownIsCalledByTheGeneratedGraph`, `aTeardownInAnExtensionOfAnUnboundTypeIsIgnored`, `aTeardownInAnotherModulesExtensionOfTheTypeIsIgnored`), `Tests/IntegrationTests/ExtensionTeardownTests.swift` (`aTeardownInAnExtensionInAnotherFileRunsAtGraphTeardown`), `GoldenHarness/Golden/_WireGraph.swift.golden`.
 
 ### Requirement: A malformed member teardown is an error and records nothing
 WireGen SHALL report an error and record no teardown when a member `@Teardown` method is `static`,
-takes parameters, carries an argument, or is the second `@Teardown` on the type; the second case keeps
-the first method and adds a note `first @Teardown declared here` at it.
+takes parameters, carries an argument, or is the second `@Teardown` on the type, whether it is declared
+in the type's body or in an extension; the second case keeps the first method and adds a note
+`first @Teardown declared here` at it, and is reported for a second method whatever its own shape.
 
 #### Scenario: a static method
 - **WHEN** `@Teardown static func teardown() {}` is declared
@@ -105,7 +115,15 @@ the first method and adds a note `first @Teardown declared here` at it.
 - **WHEN** a type declares `@Teardown func first() {}` and `@Teardown func second() {}`
 - **THEN** the error is `more than one @Teardown on this type — a binding may declare at most one teardown method.` and the recorded teardown is `first`
 
-Pinned by: `Tests/WireGenCoreTests/TeardownDiscoveryTests.swift` (`staticMemberTeardownIsAnError`, `memberTeardownWithParametersIsAnError`, `argumentOnMemberTeardownIsAnError`, `twoMemberTeardownsIsAnError`).
+#### Scenario: one in the body and one in an extension
+- **WHEN** `Pool` declares `@Teardown func first() {}` in its body and `extension Pool`, in a file read before it, declares `@Teardown func second() {}`
+- **THEN** the same error is reported at `second`, with its note at `first`, and the recorded teardown is `first`
+
+#### Scenario: one in each of two extensions
+- **WHEN** `extension Pool` in `Pool.swift` declares `@Teardown func first() {}` and `extension Pool` in `Pool+Second.swift`, read after it, declares `@Teardown func second() {}`
+- **THEN** the same error is reported at `Pool+Second.swift:2:20`, with its note at `first`, and the recorded teardown is `first`
+
+Pinned by: `Tests/WireGenCoreTests/TeardownDiscoveryTests.swift` (`staticMemberTeardownIsAnError`, `memberTeardownWithParametersIsAnError`, `argumentOnMemberTeardownIsAnError`, `twoMemberTeardownsIsAnError`), `Tests/WireGenCoreTests/ExtensionTeardownTests.swift` (`aStaticTeardownInAnExtensionIsAnErrorAndRecordsNothing`, `aTeardownWithParametersInAnExtensionIsAnError`, `anArgumentOnATeardownInAnExtensionIsAnError`, `aTeardownInTheBodyAndOneInAnExtensionIsTheDuplicateError`, `theBodysTeardownCountsFirstEvenWhenTheExtensionsFileIsReadFirst`, `teardownsInTwoExtensionsAreTheDuplicateError`, `aMalformedSecondTeardownInAnExtensionIsTheDuplicateError`).
 
 ### Requirement: A member teardown method must be at least `internal`
 WireGen SHALL report an error for a member `@Teardown` method that is `private` or `fileprivate`, and
@@ -115,7 +133,7 @@ SHALL still record its teardown.
 - **WHEN** `@Teardown private func teardown() async {}` is declared
 - **THEN** the error is `@Teardown method 'teardown' is 'private' but must be at least 'internal' — Wire's generated bootstrap calls it at scope teardown and lives in a separate file. Change to 'internal', 'package', or 'public'.` and the binding's teardown is recorded
 
-Pinned by: `Tests/WireGenCoreTests/TeardownDiscoveryTests.swift` (`tooPrivateMemberTeardownErrorsButStillRecords`).
+Pinned by: `Tests/WireGenCoreTests/TeardownDiscoveryTests.swift` (`tooPrivateMemberTeardownErrorsButStillRecords`), `Tests/WireGenCoreTests/ExtensionTeardownTests.swift` (`aPrivateTeardownInAnExtensionIsAnErrorButStillRecorded`).
 
 ### Requirement: `@Teardown` on the type declaration is an error
 WireGen SHALL report an error for `@Teardown` attached to a `@Singleton` or `@Scoped` type declaration

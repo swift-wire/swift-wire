@@ -3976,6 +3976,43 @@ private func _wireBootstrapEagerFixture_bindMock() async throws -> _EagerFixture
     }
 }
 
+internal struct _ExtensionTeardownContainerWireGraph: Introspectable, Teardownable {
+    let extensionTeardownResource: ExtensionTeardownContainer.ExtensionTeardownResource
+    let _wireTeardown: @Sendable () async -> [any Error]
+
+    func introspect() -> WiringModel {
+        WiringModel(bindings: [
+            BindingInfo(type: "ExtensionTeardownResource", key: nil, kind: .singleton, scope: nil, dependencies: [], location: SourceLocation(module: "IntegrationTests", file: "Tests/IntegrationTests/ExtensionTeardownExample.swift", line: 18)),
+        ])
+    }
+
+    func teardown() async -> [any Error] {
+        await _wireTeardown()
+    }
+}
+
+private func _wireBootstrapExtensionTeardownContainer() async throws -> _ExtensionTeardownContainerWireGraph {
+    var _wireTeardownActions: [@Sendable () async -> [any Error]] = []
+    let extensionTeardownResource = ExtensionTeardownContainer.ExtensionTeardownResource()
+    _wireTeardownActions.append({
+        var errors: [any Error] = []
+        do {
+            try await extensionTeardownResource.close()
+        } catch {
+            errors.append(error)
+        }
+        return errors
+    })
+    let _wireTeardown: @Sendable () async -> [any Error] = { [_wireTeardownActions] in
+        var errors: [any Error] = []
+        for action in _wireTeardownActions.reversed() {
+            errors.append(contentsOf: await action())
+        }
+        return errors
+    }
+    return _ExtensionTeardownContainerWireGraph(extensionTeardownResource: extensionTeardownResource, _wireTeardown: _wireTeardown)
+}
+
 internal struct _FactoryProxyFixture_bindMockWireGraph<T0: AggregateSearchBackend, T1: GenAppBackend, T2: GenBackend, T3: GenProxyRepository, T4: GenSomethingElse, T5: Greeting, T6: KeyedNamer, T7: KeyedNamer, T8: TeardownResource>: Introspectable, Teardownable {
     @available(*, unavailable, message: "'anyAccountRepository' is constructed by the graph but not a direct property of it. To read it as 'graph.anyAccountRepository', mark its binding at Tests/IntegrationTests/ScopableCascadeExample.swift:50 'allowUnused: true'.") internal var anyAccountRepository: any AccountRepository { fatalError() }
     let accountController: AccountController
@@ -9290,6 +9327,9 @@ internal enum Wire {
     }
     static func bootstrapEagerFixture_bindMock() async throws -> _EagerFixture_bindMockWireGraph<some AggregateSearchBackend, some GenAppBackend, some GenBackend, some GenProxyRepository, some GenSomethingElse, some Greeting, some KeyedNamer, some KeyedNamer, some TeardownResource> {
         try await _wireBootstrapEagerFixture_bindMock()
+    }
+    static func bootstrapExtensionTeardownContainer() async throws -> _ExtensionTeardownContainerWireGraph {
+        try await _wireBootstrapExtensionTeardownContainer()
     }
     static func bootstrapFactoryProxyFixture_bindMock() async throws -> _FactoryProxyFixture_bindMockWireGraph<some AggregateSearchBackend, some GenAppBackend, some GenBackend, some GenProxyRepository, some GenSomethingElse, some Greeting, some KeyedNamer, some KeyedNamer, some TeardownResource> {
         try await _wireBootstrapFactoryProxyFixture_bindMock()

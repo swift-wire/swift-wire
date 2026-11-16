@@ -204,8 +204,10 @@ package struct DiscoveredScopeBoundType: Sendable {
     /// The owned-type teardown action from a `@Teardown` method on this
     /// type (member form), or `nil` when the type declares none. Recorded
     /// here; the teardown walk emits the call in
-    /// reverse dependency order. See `TeardownAction`.
-    package let teardown: TeardownAction?
+    /// reverse dependency order. See `TeardownAction`. `private(set) var` so
+    /// `withTeardown(_:)` can attach one declared in an extension of the type,
+    /// which discovery only joins to the binding once every file is read.
+    package private(set) var teardown: TeardownAction?
     /// `true` when the declaration carries a bare `@Replaces` marker — the
     /// binding supersedes the slot it produces (its own identity). Read by the
     /// graph's duplicate-binding resolution to keep this binding and drop the
@@ -281,6 +283,13 @@ package struct DiscoveredScopeBoundType: Sendable {
     func appendingContributions(_ extra: [Contribution]) -> DiscoveredScopeBoundType {
         var copy = self
         copy.contributions += extra
+        return copy
+    }
+    /// A copy carrying `teardown` and every other field kept — how a `@Teardown` method declared in an
+    /// extension of the type reaches the binding (swift-wire#429). See `attachExtensionTeardowns`.
+    func withTeardown(_ teardown: TeardownAction) -> DiscoveredScopeBoundType {
+        var copy = self
+        copy.teardown = teardown
         return copy
     }
 }
@@ -698,6 +707,10 @@ package struct SourceFileDiscovery: Sendable {
     /// `@Singleton` somewhere in the module — those inits collide
     /// with or shadow the macro-generated init.
     package let nonInjectExtensionInits: [NonInjectExtensionInit]
+    /// `@Teardown` methods found inside `extension` blocks, shape-checked but not yet joined to a
+    /// binding. `WireGen` joins them to the `@Singleton`/`@Scoped` type they extend once the whole
+    /// module is read, because the extension may be in another file. See `attachExtensionTeardowns`.
+    package let extensionTeardowns: [ExtensionTeardownCandidate]
     /// Multibinding key declarations (`CollectedKey`/`MappedKey`/
     /// `BuilderKey` `static let`s) found in this file. Aggregated across
     /// the module by `WireGen` and matched against `@Contributes(to:)`
@@ -755,6 +768,7 @@ package struct SourceFileDiscovery: Sendable {
         declaredTypeNames: [String] = [],
         declaredContainerNames: [String] = [],
         nonInjectExtensionInits: [NonInjectExtensionInit] = [],
+        extensionTeardowns: [ExtensionTeardownCandidate] = [],
         multibindingKeys: [DiscoveredMultibindingKey] = [],
         bindingKeys: [DiscoveredBindingKey] = [],
         adapterAnnotations: [DiscoveredAdapterAnnotation] = [],
@@ -775,6 +789,7 @@ package struct SourceFileDiscovery: Sendable {
         self.declaredTypeNames = declaredTypeNames
         self.declaredContainerNames = declaredContainerNames
         self.nonInjectExtensionInits = nonInjectExtensionInits
+        self.extensionTeardowns = extensionTeardowns
         self.multibindingKeys = multibindingKeys
         self.bindingKeys = bindingKeys
         self.adapterAnnotations = adapterAnnotations
@@ -840,6 +855,7 @@ package func discover(
         declaredTypeNames: visitor.declaredTypeNames,
         declaredContainerNames: visitor.declaredContainerNames,
         nonInjectExtensionInits: visitor.nonInjectExtensionInits,
+        extensionTeardowns: visitor.extensionTeardowns,
         multibindingKeys: visitor.multibindingKeys,
         bindingKeys: visitor.bindingKeys,
         adapterAnnotations: visitor.adapterAnnotations,
