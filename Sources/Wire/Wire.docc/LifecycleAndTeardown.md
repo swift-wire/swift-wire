@@ -44,7 +44,8 @@ struct DatabasePool {
 It may be named anything and takes no parameters, but it must be at least `internal` — the
 generated bootstrap calls it from a separate file, the same visibility rule post-construct
 injection follows. Its effect specifiers are read off the declaration, so the emitted call gets
-the right colour.
+the right colour. It may also sit in an extension of the type, in any file of the same module,
+and a type still declares at most one.
 
 ## The producer form
 

@@ -114,6 +114,9 @@ final class BindingDiscovery: SyntaxVisitor {
     /// WireGen resolves these against the module-wide
     /// `@Singleton`-name set after aggregation.
     var nonInjectExtensionInits: [NonInjectExtensionInit] = []
+    /// `@Teardown` methods found inside `extension` blocks, shape-checked here and joined to the
+    /// type they extend after aggregation. See `ExtensionTeardownCandidate`.
+    var extensionTeardowns: [ExtensionTeardownCandidate] = []
     /// Multibinding key declarations (`CollectedKey`/`MappedKey`/
     /// `BuilderKey` `static let`s) found in this file, in source order.
     /// The aggregate's element/value/result type is read producer-side
@@ -401,6 +404,15 @@ final class BindingDiscovery: SyntaxVisitor {
             contentsOf: nonInjectExtensionInitCandidates(
                 extension: node,
                 extendedName: extendedName,
+                sourcePath: sourcePath,
+                converter: converter
+            )
+        )
+        extensionTeardowns.append(
+            contentsOf: extensionTeardownCandidates(
+                extension: node,
+                extendedName: extendedName,
+                module: module,
                 sourcePath: sourcePath,
                 converter: converter
             )
