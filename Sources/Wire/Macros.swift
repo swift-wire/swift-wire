@@ -8,9 +8,10 @@
 // `@Teardown`, and `@Replaces`.
 
 /// Declares a process-lifetime singleton. The macro generates:
-/// - A `static let key: BindingKey<Self>` for the auto-generated key.
 /// - An `init(...)` taking one parameter per `@Inject` property on the
 ///   type, in declaration order.
+/// - A `static let key: BindingKey<Self>`, which does not key the binding:
+///   a `@Singleton` is always bound unkeyed.
 ///
 /// Apply to a struct or class (final preferred). Generic types are
 /// supported and stay generic — type parameters propagate through the
@@ -46,10 +47,10 @@ public macro Singleton<T>(as: T.Type, allowUnused: Bool = false) =
 ///
 /// The macro generates the same members as `@Singleton`: an `init(...)`
 /// from `@Inject`-marked properties (or the user's `@Inject`-marked
-/// init), and a `static var key: BindingKey<Self>`. Scope identity
-/// (which graph partition the binding belongs to) is read by the
-/// build plugin from the `seed:` argument; it doesn't enter the
-/// generated members.
+/// init), and a `static let key: BindingKey<Self>` that, as there, does
+/// not key the binding. Scope identity (which graph partition the
+/// binding belongs to) is read by the build plugin from the `seed:`
+/// argument; it doesn't enter the generated members.
 ///
 /// Apply to a struct, class, or actor. Generic types are supported.
 ///
