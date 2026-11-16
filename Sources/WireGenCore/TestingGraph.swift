@@ -445,7 +445,7 @@ package func substitutionMatches(_ substitution: BindTypeSubstitution, _ binding
 /// derived from the binding's bound type (opaque prefix stripped so `some
 /// BackendRepository` and a concrete `BackendRepository` share the field
 /// `backendRepository`) and its key.
-private func doublesFieldName(for binding: DiscoveredBinding) -> String {
+func doublesFieldName(for binding: DiscoveredBinding) -> String {
     identifierName(forType: strippedSlotType(binding.boundType), key: binding.keyIdentifier)
 }
 

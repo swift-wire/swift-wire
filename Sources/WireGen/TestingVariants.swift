@@ -124,6 +124,12 @@ extension WireGen {
             .filter { $0.key.container == nil && $0.key.scope != nil }
             .sorted { ($0.key.scope?.seed ?? "") < ($1.key.scope?.seed ?? "") }
         let allProductionBindings = defaultSingletons + seedPartitions.flatMap { $0.value }
+        // Every `@Container` graph's bindings by container — not varied, only matched so a `@BindType` on one
+        // is told that containers are not varied rather than that nothing produces its slot.
+        let containerBindings = resolvedBindings.reduce(into: [String: [DiscoveredBinding]]()) { result, entry in
+            guard let container = entry.key.container else { return }
+            result[container, default: []] += entry.value
+        }
         let partitionInputs = VariantPartitionInputs(
             seedPartitions: seedPartitions,
             defaultSingletons: defaultSingletons,
@@ -135,6 +141,7 @@ extension WireGen {
             partitionInputs: partitionInputs,
             aggregate: aggregate,
             allProductionBindings: allProductionBindings,
+            containerBindings: containerBindings,
             appSingletons: defaultSingletons,
             productionProxies: productionProxies,
             holdProxies: holdProxies,
@@ -159,6 +166,8 @@ extension WireGen {
         let partitionInputs: VariantPartitionInputs
         let aggregate: DiscoveryAggregate
         let allProductionBindings: [DiscoveredBinding]
+        /// Every `@Container` graph's bindings by container name — the slots a variant never varies.
+        let containerBindings: [String: [DiscoveredBinding]]
         /// The production default-graph app singletons — the set the seedless reconstruction resolves its
         /// subject, mock(s), hops, and borrows against.
         let appSingletons: [DiscoveredBinding]
@@ -204,17 +213,24 @@ extension WireGen {
         }
     }
 
-    /// The variant's source-pattern diagnostics: the accumulation's cascade diagnostics, stale `@BindType`
-    /// substitutions (no binding produces the slot), and unmarked seedless roots (an app-scoped route
-    /// contributor consuming the mock but not `@Scopable`'d, which would otherwise orphan).
+    /// The variant's source-pattern diagnostics: the accumulation's cascade diagnostics, unmarked seedless
+    /// roots (an app-scoped route contributor consuming the mock but not `@Scopable`'d, which would otherwise
+    /// orphan), unsupported aggregate proxies, and then — for every `@BindType` none of those already
+    /// reported — why its slot is not varied (`unvariedBindTypeDiagnostics`). `emitted` is the variant's
+    /// other two doubles-field sources besides the accumulation: its seedless reconstructions and its
+    /// seed-scoped factory transforms.
     fileprivate static func variantDiagnostics(
         key: DiscoveredTestingKey,
         accumulation: VariantScopeAccumulation,
+        emitted: (seedless: [SeedlessReconstruction], factoryTransforms: [String: [VariantFactoryTransform]]),
         inputs: VariantBuildInputs
     ) -> [Diagnostic] {
-        accumulation.diagnostics
-            + unmatchedSubstitutions(key.substitutions, against: inputs.allProductionBindings)
-            .map(unmatchedBindTypeDiagnostic)
+        // Every doubles field the variant emits — what tells a varied `@BindType` from one nothing reads.
+        let variedFieldNames = Set(accumulation.doublesFields.keys)
+            .union(emitted.seedless.flatMap(\.doublesFields).map(\.name))
+            .union(emitted.factoryTransforms.values.flatMap { $0 }.flatMap(\.doublesFields).map(\.name))
+        let patternDiagnostics =
+            accumulation.diagnostics
             + unmarkedSeedlessRootDiagnostics(
                 key: key,
                 holdProxies: inputs.holdProxies,
@@ -229,6 +245,14 @@ extension WireGen {
                 appSingletons: inputs.appSingletons,
                 appEdges: inputs.partitionInputs.appEdges,
                 coveredSeeds: Set(accumulation.seedScopes.map(\.seedTypeExpression))
+            )
+        return patternDiagnostics
+            + unvariedBindTypeDiagnostics(
+                key: key,
+                productionBindings: inputs.allProductionBindings,
+                containerBindings: inputs.containerBindings,
+                variedFieldNames: variedFieldNames,
+                diagnosedLocations: Set(patternDiagnostics.map(\.location))
             )
     }
 
@@ -259,19 +283,24 @@ extension WireGen {
             inputs: inputs
         )
 
-        let diagnostics = variantDiagnostics(key: key, accumulation: accumulation, inputs: inputs)
-
-        guard
-            !accumulation.doublesFields.isEmpty || !seedlessReconstructions.isEmpty
-                || !accumulation.failures.isEmpty || !diagnostics.isEmpty
-        else { return nil }
-
         let appGraph = buildVariantAppGraph(
             key: key,
             inputs: inputs,
             accumulation: accumulation,
             seedlessReconstructions: seedlessReconstructions
         )
+        let diagnostics = variantDiagnostics(
+            key: key,
+            accumulation: accumulation,
+            emitted: (seedlessReconstructions, appGraph.factoryTransforms),
+            inputs: inputs
+        )
+
+        guard
+            !accumulation.doublesFields.isEmpty || !seedlessReconstructions.isEmpty
+                || !accumulation.failures.isEmpty || !diagnostics.isEmpty
+        else { return nil }
+
         // Re-point this variant's seed + proxy façades' `wireGraph:` parameter *type* to the variant app graph.
         var seedScopes = accumulation.seedScopes
         for index in seedScopes.indices {
