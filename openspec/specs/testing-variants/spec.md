@@ -106,9 +106,9 @@ production factory a variant factory replaces; a surviving aggregate SHALL list 
 contributors that survive, and an empty order SHALL emit neither. A mocked app binding that is
 lifted or seedlessly reconstructed SHALL NOT be initialised under the variant bootstrap. A key whose
 substitutions match production bindings but reach no seed scope and no seedless route contributor
-SHALL emit no variant at all, and a mocked app singleton no seed scope reaches SHALL stay in the
-variant app graph as its production binding; both are tracked as a possible defect in
-https://github.com/swift-wire/swift-wire/issues/437.
+SHALL emit no variant at all and fail the run, and a mocked app singleton no seed scope reaches
+SHALL stay in the variant app graph as its production binding, with a warning; both diagnostics are
+specified by the requirement for a `@BindType` that varies nothing.
 
 #### Scenario: a mocked eager provider
 - **WHEN** `EagerFixture.bindMock` mocks `any EagerWidget`, which production provides at app bootstrap from `EagerWidgetModule.widget()` and the `@Scoped(seed: EagerRequestSeed.self)` `EagerConsumer` injects
@@ -118,7 +118,7 @@ https://github.com/swift-wire/swift-wire/issues/437.
 - **WHEN** an aggregate lists a contributor the variant drops
 - **THEN** the variant's aggregate keeps the surviving contributors only, and an aggregate with nothing dropped is unchanged
 
-Pinned by: `Tests/IntegrationTests/EagerSingletonBindTypeTests.swift` (`eagerBindTypedBindingIsDroppedFromTheVariantAppGraph`), `Tests/IntegrationTests/BindTypeProxyContributorTests.swift` (`eagerSingletonInitDoesNotRunUnderTheVariantGraph`), `Tests/WireGenCoreTests/TestingGraphTests.swift` (`variantAggregateShedsDroppedContributorsAndKeepsSurvivors`, `variantAggregateRewriteIsANoOpWhenNothingDropped`). The key that reaches no scope, the unreached mocked app singleton and the empty order are pinned by nothing yet.
+Pinned by: `Tests/IntegrationTests/EagerSingletonBindTypeTests.swift` (`eagerBindTypedBindingIsDroppedFromTheVariantAppGraph`), `Tests/IntegrationTests/BindTypeProxyContributorTests.swift` (`eagerSingletonInitDoesNotRunUnderTheVariantGraph`), `Tests/WireGenCoreTests/TestingGraphTests.swift` (`variantAggregateShedsDroppedContributorsAndKeepsSurvivors`, `variantAggregateRewriteIsANoOpWhenNothingDropped`). The unreached mocked app singleton staying in the variant app graph and the empty order are pinned by nothing yet.
 
 ### Requirement: A variant seed scope is entered through a doubles-taking facade
 For each seed scope a key's substitutions reach, directly or through a lift, and that no production bridging
@@ -186,20 +186,44 @@ key whose origin module is not the consumer, with the message
 
 Pinned by: `Tests/WireGenCoreTests/BindTypeDiscoveryTests.swift` (`foreignKeyNamesTheOriginModule`).
 
-### Requirement: A `@BindType` slot nothing produces is an error
-For each substitution matching no binding among the default graph's production-retained app
-singletons and its seed scopes, `WireGen` SHALL emit an error at the attribute with the message
-`@BindType(<slot>, <Mock>.self) substitutes a slot no binding under test produces — check the slot type or key.`
+### Requirement: A `@BindType` that varies nothing says why
+For each substitution that contributes no doubles field to its key's variant, and that no other
+variant diagnostic has already reported at its attribute, `WireGen` SHALL report why, at the
+`@BindType` attribute:
+
+- When no binding among the default graph's production-retained app singletons and its seed scopes
+  matches it, and no `@Container` graph produces it either, an error:
+  `@BindType(<slot>, <Mock>.self) substitutes a slot no binding under test produces — check the slot type or key.`
+- When only a `@Container` graph, or a seed scope under one, produces it, an error:
+  `@BindType(<slot>, <Mock>.self) substitutes a slot produced only in @Container '<Container>', and @Container graphs are not varied under a TestingKey — so this substitution cannot take effect.`
+  With several such containers it names them all, as `@Container graphs '<A>', '<B>'`, in name order.
+- When the default graph produces it but no seed scope's borrow boundary and no seedless route
+  contributor reaches it, and no other substitution in the key is varied either, so the key would
+  emit nothing: one error for the key, at the first such `@BindType` in source order:
+  `@BindType(<slot>, <Mock>.self) substitutes a slot no seed scope or seedless route contributor reads, so nothing under '<key>' is varied and neither _<Key>Doubles nor Wire.bootstrap<Key>() is generated.`
+  When the key has other such substitutions, `reads` is followed by
+  ` (nor does any other slot this key substitutes: <slot>, …)`.
+- When the default graph produces it but nothing under test reaches it, while another substitution
+  makes the variant emit: a warning, and the variant keeps the slot's production binding:
+  `@BindType(<slot>, <Mock>.self) substitutes a slot no seed scope or seedless route contributor reaches, so under '<key>' it keeps its production binding and the <Mock> double is never read.`
 
 #### Scenario: a mistyped slot
 - **WHEN** a key carries `@BindType(NotBound.self, MockNotBound.self)` and no binding produces `NotBound`
 - **THEN** the error reads `@BindType(NotBound, MockNotBound.self) substitutes a slot no binding under test produces — check the slot type or key.`
 
-A binding produced only in a `@Container` graph or a `@Container` seed scope is not matched, so a
-`@BindType` on it reports this message, which is tracked as a possible defect in
-https://github.com/swift-wire/swift-wire/issues/436.
+#### Scenario: a slot only a container produces
+- **WHEN** a key carries `@BindType(Repo.self, MockRepo.self)` and only `@Container` `Feature` produces `any Repo`
+- **THEN** the error reads `@BindType(Repo, MockRepo.self) substitutes a slot produced only in @Container 'Feature', and @Container graphs are not varied under a TestingKey — so this substitution cannot take effect.`
 
-Pinned by: `Tests/WireGenCoreTests/TestingGraphTests.swift` (`unmatchedSubstitutionIsReported`), `Tests/WireGenCoreTests/ScopableCascadeTests.swift` (`unmatchedSubstitutionIsDiagnosed`). The `@Container` exclusion is pinned by nothing yet.
+#### Scenario: a key whose slots nothing under test reads
+- **WHEN** `AppTests.bindDoubles` carries `@BindType(Clock.self, MockClock.self)` then `@BindType(Logger.self, MockLogger.self)`, both slots are app singletons, and no seed scope or seedless route contributor reaches either
+- **THEN** one error is raised, at the `Clock` attribute, reading `@BindType(Clock, MockClock.self) substitutes a slot no seed scope or seedless route contributor reads (nor does any other slot this key substitutes: Logger), so nothing under 'AppTests.bindDoubles' is varied and neither _AppTests_bindDoublesDoubles nor Wire.bootstrapAppTests_bindDoubles() is generated.`
+
+#### Scenario: an unread mock in a variant that emits
+- **WHEN** `AppTests.bindDoubles` also substitutes a seed-scoped `Repo`, so its variant emits, and no seed scope reaches the app singleton `Clock`
+- **THEN** the `Clock` attribute gets the warning `@BindType(Clock, MockClock.self) substitutes a slot no seed scope or seedless route contributor reaches, so under 'AppTests.bindDoubles' it keeps its production binding and the MockClock double is never read.`
+
+Pinned by: `Tests/WireGenCoreTests/TestingGraphTests.swift` (`unmatchedSubstitutionIsReported`), `Tests/WireGenCoreTests/ScopableCascadeTests.swift` (`unmatchedSubstitutionIsDiagnosed`), `Tests/WireGenCoreTests/UnvariedBindTypeDiagnosticsTests.swift` (`slotNothingProducesKeepsTheStaleBindTypeError`, `slotOnlyAContainerProducesSaysContainersAreNotVaried`, `slotSeveralContainersProduceNamesEachContainer`, `keyVaryingNothingIsOneErrorAtItsFirstUnreadBindType`, `keyWhoseOnlyBindTypeIsUnreadNamesNoOtherSlot`, `unreadSlotInAVariantThatEmitsWarnsAtItsBindType`, `variedOrAlreadyReportedBindTypesRaiseNothing`).
 
 ### Requirement: The `@TestScopable` cascade lifts app-scoped hops into the scope
 When a mocked app-scoped binding reaches a seed scope's roots through app-scoped consumers,
