@@ -67,10 +67,11 @@ package struct InjectionRewriteSite: Sendable, Equatable {
     /// Returns the selector's own text separately: it keys the synthesised producer's dependency on the
     /// provider instead of being passed along, since by resolution time the provider is already resolved.
     ///
-    /// A selector written as the literal `nil` is the one spelling whose text is not a key. The adapter
+    /// A selector written as the absent value is the one spelling whose text is not a key. The adapter
     /// declares the argument optional and defaulted `nil`, so `reader: nil` and an omitted `reader:` are
-    /// the same call; it is lifted out like any selector and leaves the provider unkeyed, exactly as if
-    /// it had not been written, rather than keying it by a binding named `nil`.
+    /// the same call, and so are `reader: .none` and `reader: Optional.none`, which spell the same value;
+    /// each is lifted out like any selector and leaves the provider unkeyed, exactly as if it had not
+    /// been written, rather than keying it by a binding named after its text.
     func splittingSelector(labelled selectorLabel: String?) -> (providerKey: String?, rendered: String) {
         guard let selectorLabel else { return (nil, render(arguments)) }
         guard let index = arguments.firstIndex(where: { $0.label == selectorLabel }) else {
@@ -78,8 +79,13 @@ package struct InjectionRewriteSite: Sendable, Equatable {
         }
         var remaining = arguments
         let selector = remaining.remove(at: index)
-        return (selector.text == "nil" ? nil : selector.text, render(remaining))
+        return (Self.absentSelectorSpellings.contains(selector.text) ? nil : selector.text, render(remaining))
     }
+
+    /// The spellings of `Optional.none` a selector can be written in without naming its wrapped type.
+    /// Matched as text, like everything else about the site; a generic spelling such as
+    /// `Optional<BindingKey<ConfigReader>>.none` is not among them.
+    private static let absentSelectorSpellings: Set<String> = ["nil", ".none", "Optional.none"]
 
     private func render(_ arguments: [Argument]) -> String {
         arguments.map { argument in
