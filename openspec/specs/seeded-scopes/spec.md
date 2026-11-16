@@ -168,7 +168,9 @@ label SHALL read `@Singleton` for the default graph, `@Container <C>` for a cont
 access path for a provider, or by its key reference for an aggregate. When the consumer is the
 factory WireGen synthesises for a `@Factory` template, the fix-it note SHALL instead name the
 template and explain its lifetime ("'<Template>' is a @Factory template, so it has no scope of its
-own ..."; see [factory-templates](../factory-templates/spec.md)).
+own ..."; see [factory-templates](../factory-templates/spec.md)). The cross-scope notes SHALL be
+added to any other note the missing binding carries, such as the optional-mismatch note, and SHALL
+NOT replace it.
 
 #### Scenario: a singleton storing a request logger
 - **WHEN** `@Singleton struct Foo` has `@Inject var logger: RequestLogger` and `RequestLogger` is `@Scoped(seed: HBRequestSeed.self)`
@@ -178,11 +180,15 @@ own ..."; see [factory-templates](../factory-templates/spec.md)).
 - **WHEN** `@Provides func makeWidget(logger: RequestLogger) -> Widget` is at module scope
 - **THEN** the fix-it note contains `scope 'makeWidget'`
 
+#### Scenario: an optional producer in the consumer's graph as well
+- **WHEN** `@Singleton struct Foo` has `@Inject var logger: RequestLogger`, `@Provides let maybeLogger: RequestLogger? = nil` is at module scope and `RequestLogger` is `@Scoped(seed: HBRequestSeed.self)`
+- **THEN** the output contains both `note: 'RequestLogger' is bound in @Scoped(seed: HBRequestSeed.self) scope, not @Singleton` and `note: a 'RequestLogger?' producer exists but can't satisfy non-optional 'RequestLogger'`
+
 #### Scenario: a `@Factory` template as the consumer
 - **WHEN** `@Factory(ControllerMiddleware.screenAccess) struct ScreenAccess<Ctx>` has `@Inject var caller: Caller` and `Caller` is `@Scoped(seed: HTTPRequest.self)`
 - **THEN** the output contains `error: no binding produces 'Caller'` and `'ScreenAccess' is a @Factory template`, and does not contain `scope '_WireFactory_ControllerMiddleware_screenAccess'`
 
-Pinned by: `Tests/WireGenCoreTests/CrossScopeDiagnosticsTests.swift` (`singletonStoringScopedBindingRendersCrossScopeNote`, `providerConsumerSurfacedInFixItAsAccessPath`), `Tests/WireGenCoreTests/FactoryLifetimeDiagnosticsTests.swift` (`aTemplateInjectingAScopedBindingIsNamedByTheTemplate`). The `@Container <C> / @Scoped(seed: <Seed>.self)` label and the aggregate consumer name are pinned by nothing yet.
+Pinned by: `Tests/WireGenCoreTests/CrossScopeDiagnosticsTests.swift` (`singletonStoringScopedBindingRendersCrossScopeNote`, `providerConsumerSurfacedInFixItAsAccessPath`, `crossScopeHintKeepsTheOptionalMismatchNote`), `Tests/WireGenCoreTests/FactoryLifetimeDiagnosticsTests.swift` (`aTemplateInjectingAScopedBindingIsNamedByTheTemplate`). The `@Container <C> / @Scoped(seed: <Seed>.self)` label and the aggregate consumer name are pinned by nothing yet.
 
 ### Requirement: Sibling seeded scopes are isolated
 A seed scope's graph SHALL resolve only against its own partition, its seed and its container's

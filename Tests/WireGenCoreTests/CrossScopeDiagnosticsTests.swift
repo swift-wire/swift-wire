@@ -228,6 +228,41 @@ struct CrossScopeDiagnosticsTests {
         #expect(!betaSplit.contains(alphaMarker))
     }
 
+    @Test func crossScopeHintKeepsTheOptionalMismatchNote() throws {
+        // `Foo` injects a non-optional `RequestLogger`. The default graph's only producer returns
+        // `RequestLogger?`, which can't satisfy it, and a non-optional `RequestLogger` is bound in a
+        // seeded scope. The missing binding qualifies for both hints, and attaching the cross-scope
+        // one must not drop the optional-mismatch one it already carried (swift-wire#501).
+        let source = """
+            struct HBRequestSeed {}
+
+            @Provides let maybeLogger: RequestLogger? = nil
+
+            @Scoped(seed: HBRequestSeed.self)
+            struct RequestLogger {}
+
+            @Singleton
+            struct Foo {
+                @Inject var logger: RequestLogger
+            }
+            """
+        let (errors, rendered) = validate(source: source, sourcePath: "Source.swift")
+        let missing = try #require(errors?.missingBindings.first)
+        #expect(missing.crossScopeHint != nil)
+        #expect(missing.optionalMismatchHint == .optionalProducerCannotSatisfyNonOptional)
+        #expect(rendered.contains("error: no binding produces 'RequestLogger'"))
+        #expect(
+            rendered.contains(
+                "note: 'RequestLogger' is bound in @Scoped(seed: HBRequestSeed.self) scope, not @Singleton"
+            )
+        )
+        #expect(
+            rendered.contains(
+                "note: a 'RequestLogger?' producer exists but can't satisfy non-optional 'RequestLogger'"
+            )
+        )
+    }
+
     @Test func crossScopeHintIsAbsentForGenuinelyMissingBindings() throws {
         // Sanity check: a missing binding where the type ISN'T bound
         // anywhere in the discovery produces only the regular missing-

@@ -30,12 +30,7 @@ package func enrichMissingBindingsWithCrossScopeHints(
                 allBindings: allBindings
             )
         else { return missing }
-        return MissingBinding(
-            consumer: missing.consumer,
-            dependency: missing.dependency,
-            typealiasHint: missing.typealiasHint,
-            crossScopeHint: hint
-        )
+        return missing.withCrossScopeHint(hint)
     }
     return GraphResult(
         outcome: .validationFailed(
