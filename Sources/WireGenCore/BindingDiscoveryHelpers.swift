@@ -32,14 +32,16 @@ let injectReadingMacroNames = scopeMacroNames + ["Factory"]
 func unannotatedExtensionProvidesCandidates(
     providerName: String,
     location: SourceLocation,
-    extendedType: String?
+    extendedType: String?,
+    module: String
 ) -> [UnannotatedExtensionProvides] {
     guard let extendedType else { return [] }
     return [
         UnannotatedExtensionProvides(
             extendedType: extendedType,
             providerName: providerName,
-            location: location
+            location: location,
+            module: module
         )
     ]
 }

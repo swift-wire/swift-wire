@@ -14,10 +14,15 @@ package struct UnannotatedExtensionProvides: Sendable {
     package let providerName: String
     /// Anchor for the warning's `file:line:col:` prefix.
     package let location: SourceLocation
+    /// The module the extension is written in. The cross-module-extension
+    /// warning checks the extended type against the types declared in this
+    /// module only, not in every module WireGen scanned (swift-wire#434).
+    package let module: String
 
-    package init(extendedType: String, providerName: String, location: SourceLocation) {
+    package init(extendedType: String, providerName: String, location: SourceLocation, module: String) {
         self.extendedType = extendedType
         self.providerName = providerName
         self.location = location
+        self.module = module
     }
 }

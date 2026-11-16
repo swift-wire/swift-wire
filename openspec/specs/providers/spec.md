@@ -132,17 +132,17 @@ Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`providesInUnannotated
 
 ### Requirement: `@Provides` in an extension of an undeclared type is a warning
 When the extended type is neither a `@Container` (a name carrying `@Container` on a type
-declaration or an extension) nor the name of a top-level type declared in the sources WireGen scanned,
+declaration or an extension) nor the name of a top-level type declared in the extension's own module,
 and the extended type's recorded name contains no `.` or `<`, WireGen SHALL warn
 "@Provides '<name>' in an extension of '<Type>' — '<Type>' isn't declared in this module, so the
 binding falls through to the default graph and any @Container on '<Type>' elsewhere isn't visible
 to discovery. …" A generic specialisation such as `extension Array<Int>` is recorded by its base
 name `Array` and warns; a member type such as `extension Foo.Bar` is recorded as written and does
 not. A type nested in another type or extension, such as `Bar` in `enum A { struct Bar {} }`,
-does not count as declared, because a top-level `extension Bar` cannot name it. The declared names
-are taken from every module WireGen scanned in the run, including composed dependency modules, so an
-extension of a type declared in a dependency module does not warn; whether it should is tracked in
-https://github.com/swift-wire/swift-wire/issues/434.
+does not count as declared, because a top-level `extension Bar` cannot name it. Only the extension's
+own module counts: a type declared in a composed dependency module that WireGen also scanned is
+still imported into the module that extends it, so the extension warns, and an extension written in
+the dependency module is checked against the dependency's own declarations.
 
 #### Scenario: an imported type
 - **WHEN** `extension Logger { @Provides static let appLogger: Logger = Logger() }` is discovered and no `Logger` is declared in the module
@@ -156,11 +156,15 @@ https://github.com/swift-wire/swift-wire/issues/434.
 - **WHEN** `enum A { struct Bar {} }` is declared and `extension Bar { @Provides static let value: Int = 42 }` is discovered, with no top-level `Bar` in the module
 - **THEN** one warning containing "'Bar' isn't declared in this module" is reported
 
+#### Scenario: a type declared only in a composed dependency module
+- **WHEN** module `App` discovers `extension Foo { @Provides static let value: Int = 42 }`, and `public struct Foo {}` is declared only in the scanned dependency module `LibA`
+- **THEN** one warning containing "'Foo' isn't declared in this module" is reported at the `@Provides` in `App`
+
 #### Scenario: an imported type with a container extension in this module
 - **WHEN** `@Container extension Imported {}` and `extension Imported { @Provides static let x: Int = 1 }` are discovered and no `Imported` is declared in the module
 - **THEN** no cross-module-extension warning is reported, and the unannotated-extension warning is
 
-Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`crossModuleExtensionWarningFiresForUndeclaredType`, `crossModuleExtensionWarningFiresDespiteANestedTypeOfTheSameName`, `declaredTypeNamesExcludesNestedDeclarations`, `crossModuleExtensionWarningSkipsLocallyDeclaredType`, `crossModuleExtensionWarningDefersToContainerWarning`, `crossModuleExtensionWarningSkipsMemberTypeTargets`, `crossModuleExtensionWarningTreatsGenericExtensionAsBaseName`, `unannotatedExtensionOfImportedTypeWithEmptyContainerExtensionGetsContainerWarning`).
+Pinned by: `Tests/WireGenCoreTests/DiscoveryTests.swift` (`crossModuleExtensionWarningFiresForUndeclaredType`, `crossModuleExtensionWarningFiresDespiteANestedTypeOfTheSameName`, `declaredTypeNamesExcludesNestedDeclarations`, `crossModuleExtensionWarningSkipsLocallyDeclaredType`, `crossModuleExtensionWarningDefersToContainerWarning`, `crossModuleExtensionWarningSkipsMemberTypeTargets`, `crossModuleExtensionWarningTreatsGenericExtensionAsBaseName`, `unannotatedExtensionOfImportedTypeWithEmptyContainerExtensionGetsContainerWarning`), `Tests/WireGenCoreTests/CrossModuleExtensionDiagnosticsTests.swift` (`firesWhenTheTypeIsDeclaredOnlyInAnotherScannedModule`, `staysSilentWhenTheTypeIsDeclaredInTheExtensionsOwnModule`, `checksADependencyModulesExtensionAgainstThatModule`). The WireGen step that keys the declared names by module is a one-line wiring in the executable target and is pinned by no test.
 
 ### Requirement: A generic `@Provides func` is specialised per requested instantiation
 WireGen SHALL keep a `@Provides func` with generic parameters out of the graph as a template. A
