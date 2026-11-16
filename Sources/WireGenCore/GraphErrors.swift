@@ -35,8 +35,9 @@ package struct MissingBinding: Sendable {
     /// but in a different scope partition than the consumer's. The
     /// most common case: a `@Singleton` `@Inject`s a `@Scoped` type
     /// directly. Renders as `note:` lines beneath the primary
-    /// missing-binding error, including a fix-it suggestion.
-    package let crossScopeHint: CrossScopeHint?
+    /// missing-binding error, including a fix-it suggestion. `private(set) var` so
+    /// `withCrossScopeHint(_:)` can copy `self` and change only this; see that method.
+    package private(set) var crossScopeHint: CrossScopeHint?
     /// Optional hint surfaced when the dependency went unmatched because
     /// of an *optionality* mismatch — a non-optional dependency with only
     /// an optional producer (the asymmetry), or a missing optional that
@@ -44,8 +45,9 @@ package struct MissingBinding: Sendable {
     package let optionalMismatchHint: OptionalMismatchHint?
     /// Set when the dependency is a `BuilderKey` with no contributors in this
     /// partition whose builder can't fold an empty body. Replaces the generic
-    /// "no binding produces" line with one naming the builder and the fix.
-    package let emptyBuilderFold: UnfoldableEmptyBuilderKey?
+    /// "no binding produces" line with one naming the builder and the fix. `private(set) var` so
+    /// `withEmptyBuilderFold(_:)` can copy `self` and change only this.
+    package private(set) var emptyBuilderFold: UnfoldableEmptyBuilderKey?
 
     package init(
         consumer: DiscoveredBinding,
@@ -61,6 +63,24 @@ package struct MissingBinding: Sendable {
         self.crossScopeHint = crossScopeHint
         self.optionalMismatchHint = optionalMismatchHint
         self.emptyBuilderFold = emptyBuilderFold
+    }
+
+    /// This missing binding with `hint` attached, every other hint carried over. Copying `self` rather
+    /// than calling the initialiser means a field added to this struct later is carried too; the
+    /// cross-scope pass once rebuilt the value by hand and silently dropped `optionalMismatchHint`
+    /// (swift-wire#501), the same class of bug as swift-wire#428 and swift-wire#480.
+    func withCrossScopeHint(_ hint: CrossScopeHint) -> MissingBinding {
+        var copy = self
+        copy.crossScopeHint = hint
+        return copy
+    }
+
+    /// This missing binding with `fold` attached, every other hint carried over; see
+    /// `withCrossScopeHint(_:)` for why it copies `self`.
+    func withEmptyBuilderFold(_ fold: UnfoldableEmptyBuilderKey) -> MissingBinding {
+        var copy = self
+        copy.emptyBuilderFold = fold
+        return copy
     }
 }
 

@@ -148,14 +148,7 @@ func attachingEmptyBuilderFolds(
     guard !unfoldable.isEmpty else { return missing }
     return missing.map { entry in
         guard let key = entry.dependency.keyIdentifier, let fold = unfoldable[key] else { return entry }
-        return MissingBinding(
-            consumer: entry.consumer,
-            dependency: entry.dependency,
-            typealiasHint: entry.typealiasHint,
-            crossScopeHint: entry.crossScopeHint,
-            optionalMismatchHint: entry.optionalMismatchHint,
-            emptyBuilderFold: fold
-        )
+        return entry.withEmptyBuilderFold(fold)
     }
 }
 
