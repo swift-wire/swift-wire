@@ -13,7 +13,10 @@ import Wire
 //   • an input is a leaf ordinary bindings consume, which is the whole point: it carries a value the
 //     graph cannot construct for itself;
 //   • a computed property is not an input (no value to pass in), so it neither becomes a binding nor
-//     collides with the keyed `String`s.
+//     collides with the keyed `String`s;
+//   • a `static` stored property is not an input either (it belongs to the type, not the value passed
+//     in), so the generated graph never reads it through `_wireInputs` and still compiles — the caller
+//     reads it directly instead.
 //
 // Its own package because `@GraphInputs` changes `Wire.bootstrap`'s signature for the whole module — see
 // Package.swift.
@@ -33,6 +36,7 @@ struct AppInputs: Sendable {
     @Provides(InputKeys.region) let region: String
     @Provides(InputKeys.stage) let stage: String
     var describedRegion: String { "region=\(region)" }
+    static let defaultStage: String = "prod"
 }
 
 /// An ordinary `@Singleton` consuming inputs — by type, and by key through `@Bind`. Read straight off the
@@ -62,7 +66,7 @@ let graph = try await Wire.bootstrap(
     inputs: AppInputs(
         configuration: RuntimeConfiguration(endpoint: "https://example.test"),
         region: "ap-southeast-2",
-        stage: "prod"
+        stage: AppInputs.defaultStage
     )
 )
 

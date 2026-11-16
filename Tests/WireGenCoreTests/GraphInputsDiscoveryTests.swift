@@ -53,6 +53,36 @@ struct GraphInputsDiscoveryTests {
         #expect(declaration.properties.map(\.keyIdentifier) == ["InputKeys.region", "InputKeys.stage", nil])
     }
 
+    /// A `static` stored property belongs to the type, not to the value passed to
+    /// `Wire.bootstrap(inputs:)`: taking it as an input emitted `_wireInputs.fallback`, which does not
+    /// compile. A `static` computed property and a `static func` were never inputs (one has a getter, the
+    /// other is not a property), so only the stored statics are recorded as skipped.
+    @Test func staticStoredPropertiesAreNotInputs() throws {
+        let declaration = try #require(
+            inputs(
+                in: """
+                    @GraphInputs
+                    struct AppInputs: Sendable {
+                        let configuration: RuntimeConfiguration
+                        static let fallback: Int = 0
+                        static var described: String { "x" }
+                        static func make() -> AppInputs { fatalError() }
+                        nonisolated(unsafe) static var counter: Int = 0
+                        class let legacy: String = ""
+                    }
+                    """
+            ).first
+        )
+        #expect(declaration.properties.map(\.name) == ["configuration"])
+        #expect(declaration.staticMembers.map(\.name) == ["fallback", "counter", "legacy"])
+        let bindings = graphInputBindings(declaration, inputsLocal: "_wireInputs", module: testModule)
+        let accessPaths: [String] = bindings.compactMap {
+            if case .provider(let provider) = $0 { return provider.accessPath }
+            return nil
+        }
+        #expect(accessPaths == ["_wireInputs.configuration"])
+    }
+
     @Test func anUnannotatedStructIsNotInputs() {
         #expect(inputs(in: "struct AppInputs { let x: Int }").isEmpty)
     }
@@ -108,6 +138,26 @@ struct GraphInputsDiscoveryTests {
         #expect(diagnostics.first?.severity == .warning)
     }
 
+    @Test func aStaticStoredPropertyWarnsWhereItIsDeclared() {
+        let source = """
+            @GraphInputs
+            struct AppInputs: Sendable {
+                let configuration: RuntimeConfiguration
+                static let fallback: Int = 0
+                static var described: String { "x" }
+            }
+            """
+        let diagnostics = graphInputsDiagnostics(inputs(in: source))
+        #expect(diagnostics.count == 1)
+        let warning = diagnostics.first
+        #expect(warning?.severity == .warning)
+        #expect(
+            warning?.message
+                == "@GraphInputs 'AppInputs' property 'fallback' is static, so it is not a graph input — inputs are read from the value passed to 'Wire.bootstrap(inputs:)', and a static belongs to the type. Read it directly as 'AppInputs.fallback'."
+        )
+        #expect(warning?.location == SourceLocation(file: "Inputs.swift", line: 4, column: 16))
+    }
+
     @Test func oneWellFormedDeclarationIsSilent() {
         #expect(
             graphInputsDiagnostics(
@@ -127,6 +177,8 @@ struct GraphInputsDiscoveryTests {
             properties: [
                 GraphInput(name: "a", type: "Int", keyIdentifier: nil, location: mockLocation("Lib.swift"))
             ],
+            // Ignored with the rest of the declaration: no static-member warning beside the dependency one.
+            staticMembers: [GraphInputsStaticMember(name: "fallback", location: mockLocation("Lib.swift"))],
             location: mockLocation("Lib.swift"),
             originModule: "SomeLibrary"
         )

@@ -62,16 +62,25 @@ a binding it skips. This is tracked as a defect in https://github.com/swift-wire
 
 Pinned by: nothing yet.
 
-### Requirement: A `static` stored property is taken as an input
-WireGen SHALL NOT read a property's declaration modifiers, so a `static` stored property with a type
-annotation SHALL become an input whose access path `_wireInputs.<name>` does not compile in the
-generated file. This is tracked as a defect in https://github.com/swift-wire/swift-wire/issues/402.
+### Requirement: A `static` stored property is not an input, and warns
+WireGen SHALL NOT take as an input a stored property whose declaration carries the `static` or
+`class` modifier, since it is not a member of the value passed to `Wire.bootstrap(inputs:)`. At each
+such property that would otherwise be an input (a single identifier with its own type annotation and
+no getter) WireGen SHALL warn, at the property's name: "@GraphInputs '<Type>' property '<name>' is
+static, so it is not a graph input — inputs are read from the value passed to
+'Wire.bootstrap(inputs:)', and a static belongs to the type. Read it directly as '<Type>.<name>'." A
+`static` computed property and a `static func` SHALL raise no such warning. The warning is reported
+only for a declaration from outside the external modules.
 
 #### Scenario: a static constant on the inputs struct
-- **WHEN** `@GraphInputs struct AppInputs` declares `let configuration: RuntimeConfiguration` and `static let fallback: Int = 0`
-- **THEN** the inputs are `configuration` and `fallback`, and the provider for `fallback` reads `_wireInputs.fallback`
+- **WHEN** `@GraphInputs struct AppInputs` declares `let configuration: RuntimeConfiguration`, `static let fallback: Int = 0` and `static var described: String { "x" }`
+- **THEN** the only input is `configuration`, the only provider reads `_wireInputs.configuration`, and exactly one warning is reported, naming `fallback` at its name's line and column
 
-Pinned by: nothing yet.
+#### Scenario: a static member compiles beside the inputs
+- **WHEN** the honoured `@GraphInputs struct AppInputs` also declares `static let defaultStage: String`, and the caller reads `AppInputs.defaultStage` and passes it as an input
+- **THEN** the generated graph compiles and the value reaches its consumer
+
+Pinned by: `Tests/WireGenCoreTests/GraphInputsDiscoveryTests.swift` (`staticStoredPropertiesAreNotInputs`, `aStaticStoredPropertyWarnsWhereItIsDeclared`), `GraphInputsHarness/Consumer/Sources/GraphInputsHarnessConsumer/main.swift` (built and run by the `GraphInputsHarness` job in `.github/workflows/swift.yml`).
 
 ### Requirement: `@Provides(key)` keys an input
 An input property carrying `@Provides` with a positional first argument SHALL be keyed by that
