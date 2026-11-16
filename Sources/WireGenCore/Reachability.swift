@@ -13,8 +13,7 @@
 // Two things to keep straight, both of which the note argues at length:
 //
 //   1. **The walk's edges are not the sort's edges.** `dependencyEdges` deliberately omits member
-//      injections (so cycles through them stay legal) and scope-entry thunks (whose identity is a
-//      function type matching no producer). Both consume bindings that are genuinely constructed, so
+//      injections, so cycles through them stay legal. The value is still constructed and delivered, so
 //      `reachabilityEdges` unions them back in — over the same node set, as a *separate* map. Widening
 //      the sort's edges instead would turn a legal member-injection cycle into a build failure.
 //   2. **Roots are per graph.** These are the app/container graph's. A seed scope's roots are the subject
@@ -153,19 +152,24 @@ private func aggregateIsRoot(
     return key.allowUnused && !externalModules.contains(key.originModule)
 }
 
-/// The adjacency the reachability walk traverses: `dependencyEdges` plus the two consumption edges the
+/// The adjacency the reachability walk traverses: `dependencyEdges` plus the member-injection edges the
 /// topological sort deliberately drops.
 ///
-/// - **Member-injection parameters.** `@Inject weak var` / `@Inject func` deliver post-init, so they are
-///   excluded from the sort to keep cycles through them legal — that is the cycle-breaking feature. The
-///   value is still constructed and delivered, so a binding consumed *only* this way is live.
-/// - **Scope-entry thunks.** A `.scopeEntryThunk` dependency's identity is a function type matching no
-///   producer, so `resolveDependencies` skips it — but the thunk constructs the proxy's subject and every
-///   binding it yields out of the scope.
+/// `@Inject weak var` / `@Inject func` deliver post-init, so they are excluded from the sort to keep
+/// cycles through them legal — that is the cycle-breaking feature. The value is still constructed and
+/// delivered, so a binding consumed *only* this way is live. They resolve through `matchProducer`, so
+/// optional promotion is honoured exactly as an ordinary edge's is (a `T?` consumer keeps the `T`
+/// producer live).
 ///
-/// Both resolve through `matchProducer`, so optional promotion is honoured exactly as an ordinary edge's
-/// is (a `T?` consumer keeps the `T` producer live). `DeadBindingDiagnostics` unions the same two sets for
-/// the same reason; this is that union expressed as edges rather than as a consumed set.
+/// A bridging proxy's scope-entry thunk adds no edge here, though `DeadBindingDiagnostics` counts what it
+/// constructs as consumed. That pass draws its consumers from every partition, so the app-partition
+/// proxy marks its seed-scope subject live there. This walk runs over one pruned app or container graph,
+/// and the thunk's subject and yields are `@Scoped` bindings of a seed-scope graph, which is never pruned
+/// and is narrowed per routed root by `reachableBindings(from:in:)` at emission. What the thunk needs from
+/// *this* graph is its borrowed singletons, and those are reached through the `.scopeCapture` edges and
+/// rooted by `ReachabilityPolicy.prune`'s `borrowedByScopes`. A same-typed producer in the app graph
+/// would collide with the scope's borrow of it as a duplicate binding, so a thunk edge could resolve
+/// here only in a build that already fails.
 package func reachabilityEdges(
     in bindings: [BindingIdentity: DiscoveredBinding],
     dependencyEdges: [BindingIdentity: [BindingIdentity]]
@@ -179,13 +183,6 @@ package func reachabilityEdges(
                     for: bridgedDependencyIdentity(parameter, in: binding),
                     in: bindings
                 ) {
-                    extra.append(producer)
-                }
-            }
-        }
-        for dependency in binding.dependencies {
-            for constructed in scopeEntryConstructedIdentities(of: dependency) {
-                if case .resolved(let producer) = matchProducer(for: constructed, in: bindings) {
                     extra.append(producer)
                 }
             }
