@@ -552,6 +552,13 @@ struct BootstrapTests {
         #expect(graph.middlewareHost.composed.step == "auth>log")
     }
 
+    @Test func emptyBuilderMultibindingFoldsAnEmptyBody() async throws {
+        // EmptyMiddlewareRegistry.pipeline has no contributors; PipelineBuilder's
+        // variadic buildBlock folds the empty body into an empty Pipeline.
+        let graph = try await Wire.bootstrap()
+        #expect(graph.emptyMiddlewareHost.pipeline.steps.isEmpty)
+    }
+
     @Test func containerMultibindingAggregatesContainerContributors() async throws {
         // The key, contributors, and consumer all live in PluginContainer,
         // so the aggregate is built in the container's own graph.

@@ -38,7 +38,8 @@ struct MultibindingValidationTests {
             bindingsByPartition: discovery.allBindings,
             conformanceConsumedKeys: Set(
                 discovery.graphConformances.flatMap { $0.members.map(\.keyReference) }
-            )
+            ),
+            resultBuilders: discovery.resultBuilders
         )
     }
 
@@ -173,6 +174,36 @@ struct MultibindingValidationTests {
         #expect(diagnostic.severity == .warning)
         #expect(diagnostic.message.contains("App.services"))
         #expect(diagnostic.message.contains("empty collection"))
+    }
+
+    @Test func emptyBuilderKeyWarnsThatTheConsumerReceivesTheEmptyFold() throws {
+        let source = """
+            @resultBuilder
+            enum HookBuilder { static func buildBlock(_ hooks: any Hook...) -> [any Hook] { hooks } }
+            enum App { static let hooks = BuilderKey<HookBuilder>() }
+            @Singleton
+            struct Host { @Inject(App.hooks) var hooks: [any Hook] }
+            """
+        let diagnostics = livenessDiagnostics(in: source)
+        #expect(diagnostics.map(\.location) == [SourceLocation(file: "M.swift", line: 3, column: 23)])
+        #expect(
+            diagnostics.map(\.message) == [
+                "multibinding key 'App.hooks' is consumed but has no @Contributes contributors — the consumer receives the empty '@HookBuilder' fold. Add a contributor, or declare the key 'allowUnused: true'."
+            ]
+        )
+    }
+
+    @Test func emptyBuilderKeyWhoseBuilderCannotFoldAnEmptyBodyDoesNotWarn() {
+        // Its consumer gets no aggregate and is reported as an error at the injection site
+        // instead, so the warning's "the consumer receives …" would be false.
+        let source = """
+            @resultBuilder
+            enum HookBuilder { static func buildBlock(_ hook: any Hook) -> [any Hook] { [hook] } }
+            enum App { static let hooks = BuilderKey<HookBuilder>() }
+            @Singleton
+            struct Host { @Inject(App.hooks) var hooks: [any Hook] }
+            """
+        #expect(livenessDiagnostics(in: source).isEmpty)
     }
 
     @Test func deadKeyWarns() throws {

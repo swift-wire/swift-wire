@@ -77,3 +77,15 @@ struct MiddlewareHost {
     @Inject(MiddlewareRegistry.list) var list: [any Middleware]
     @Inject(MiddlewareRegistry.composed) var composed: any Middleware
 }
+
+// A builder key nothing contributes to. `PipelineBuilder`'s variadic `buildBlock` is callable with no
+// arguments, so the fold is emitted with an empty body and the host receives `Pipeline(steps: [])`.
+// `allowUnused` silences the consumed-but-empty warning.
+enum EmptyMiddlewareRegistry {
+    static let pipeline = BuilderKey<PipelineBuilder>(allowUnused: true)
+}
+
+@Singleton(allowUnused: true)
+struct EmptyMiddlewareHost {
+    @Inject(EmptyMiddlewareRegistry.pipeline) var pipeline: Pipeline
+}

@@ -43,8 +43,8 @@ Pinned by: `Tests/WireGenCoreTests/GraphConformanceDiscoveryTests.swift` (`captu
 ### Requirement: The protocol and the keys are read as text
 WireGen SHALL read the protocol name from the `conformsTo:` metatype expression, accepting both
 `P.self` and `(any P).self` as `P`, and SHALL read each `members:` element's unlabelled string
-literal as the member name and the canonical text of its `from:` argument as the key reference.
-Nothing in the declaration SHALL be executed; the runtime `WireGraphConformanceV1.Member` SHALL
+literal as the member name and the canonical text of its `from:` argument as the key reference,
+recording the element's source location for member-level diagnostics. Nothing in the declaration SHALL be executed; the runtime `WireGraphConformanceV1.Member` SHALL
 retain only the member name.
 
 #### Scenario: an existential metatype
@@ -84,22 +84,30 @@ Pinned by: `Tests/WireGenCoreTests/GraphConformanceEmissionTests.swift` (`noConf
 
 ### Requirement: A member whose key has no aggregate falls back to an empty accessor
 When a member's key has no aggregate in the graph, WireGen SHALL emit
-`var <member>: [<Element>] { [] }` for a `CollectedKey<Element>` and
-`var <member>: [<Key>: <Value>] { [:] }` for a `MappedKey<Key, Value>`, and SHALL omit the member
-for a `BuilderKey`, without a diagnostic, so the incomplete conformance fails at compile time
-unless the protocol supplies a default implementation for that member. That omission is tracked as
-a defect in https://github.com/swift-wire/swift-wire/issues/446. A key WireGen cannot find is
-reported instead, as the next requirement states.
+`var <member>: [<Element>] { [] }` for a `CollectedKey<Element>`,
+`var <member>: [<Key>: <Value>] { [:] }` for a `MappedKey<Key, Value>`, and
+`@<Builder> var <member>: <ResultType> { }`, the empty fold, for a `BuilderKey<Builder>` whose
+builder can fold an empty body (see [multibindings](../multibindings/spec.md)). For a `BuilderKey`
+whose builder cannot, WireGen SHALL omit the member and SHALL report, at the member's `.init(…)`
+element, the error
+`graph conformance to '<Protocol>' maps member '<member>' to '<Key>', a BuilderKey with no @Contributes contributors in this graph, and its builder '<Builder>' declares no zero-argument buildBlock, so an empty '@<Builder>' fold can't be formed. Declare 'static func buildBlock() -> <ResultType>' in '<Builder>', or contribute to '<Key>'.`
+judged against the default graph, and the build SHALL fail, whether or not the protocol supplies a
+default implementation for that member. A key WireGen cannot find is reported instead, as the next
+requirement states.
 
 #### Scenario: two collected keys with no contributors
 - **WHEN** a conformance maps `routes` to `App.routes`, a `CollectedKey<any RouteContributor>`, and `services` to `App.services`, a `CollectedKey<any Service>`, neither with contributors
 - **THEN** the extension contains `var routes: [any RouteContributor] { [] }` and `var services: [any Service] { [] }`
 
-#### Scenario: the empty accessor is consumed at runtime
-- **WHEN** `EmptyKeys.things` is a `CollectedKey<any RouteThing<RequestCtx>>` nothing contributes to and a conformance maps `emptyThings` to it
-- **THEN** `graph.emptyThings.count` is `0` for `try await Wire.bootstrap()`
+#### Scenario: the empty accessors are consumed at runtime
+- **WHEN** `EmptyKeys.things` is a `CollectedKey<any RouteThing<RequestCtx>>` and `EmptyKeys.builtThings` a `BuilderKey<ThingListBuilder>` whose `buildBlock` is variadic, nothing contributes to either, and a conformance maps `emptyThings` and `emptyBuiltThings` to them
+- **THEN** `graph.emptyThings.count` and `graph.emptyBuiltThings.count` are `0` for `try await Wire.bootstrap()`
 
-Pinned by: `Tests/WireGenCoreTests/GraphConformanceEmissionTests.swift` (`memberWithNoContributorsMapsToEmptyCollection`), `Tests/IntegrationTests/GraphConformanceTests.swift` (`generatedGraphConformsWithEmptyCollectionWhenNoContributors`). The `BuilderKey` omission is pinned by nothing yet.
+#### Scenario: a builder member whose builder needs a component
+- **WHEN** a conformance to `Hooked` maps `hooks` to `Keys.hooks`, a `BuilderKey<HookBuilder>` nothing contributes to, and `HookBuilder` declares only `buildBlock(_ hook: any Hook) -> [any Hook]`
+- **THEN** the extension has no `hooks` member and WireGen reports the error above at the `.init("hooks", from: Keys.hooks)` element
+
+Pinned by: `Tests/WireGenCoreTests/GraphConformanceEmissionTests.swift` (`memberWithNoContributorsMapsToEmptyCollection`), `Tests/WireGenCoreTests/EmptyBuilderKeyTests.swift` (`variadicBuilderMemberIsAnEmptyFoldAccessor`, `buildFinalResultBuilderMemberIsAnEmptyFoldAccessorOfTheFinalResultType`, `zeroParameterBuilderMemberIsAnEmptyFoldAccessor`, `partialBlockOnlyBuilderMemberIsAnErrorAtTheMember`, `fixedArityBuilderMemberIsAnErrorAtTheMember`, `aContributedMemberOverAnUnfoldableBuilderIsNotReported`, `aMemberBuiltWithoutALocationIsReportedAtTheConformance`, `wireGensConformanceCheckReportsUnfoldableMembersOnlyForAGraphThatResolved`), `Tests/IntegrationTests/GraphConformanceTests.swift` (`generatedGraphConformsWithEmptyCollectionWhenNoContributors`, `generatedGraphConformsWithEmptyBuilderFoldWhenNoContributors`), `GoldenHarness/Golden/_WireGraph.swift.golden`. That WireGen exits non-zero on the error is pinned by nothing yet.
 
 ### Requirement: A member whose key is not a declared multibinding key is an error
 When a member's key reference matches, by text, no `CollectedKey`, `MappedKey` or `BuilderKey`

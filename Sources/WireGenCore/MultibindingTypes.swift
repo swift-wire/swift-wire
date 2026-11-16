@@ -128,11 +128,22 @@ package struct DiscoveredAggregate: Sendable {
 package struct DiscoveredResultBuilder: Sendable, Equatable {
     package let typeName: String
     package let resultType: String
+    /// Whether the builder can fold an empty body: its own body declares a
+    /// `buildBlock` callable with no arguments (no parameters, or each one
+    /// variadic or defaulted). A `BuilderKey` with no contributors folds to
+    /// an empty body only when this holds; otherwise the fold wouldn't compile.
+    package let acceptsEmptyBlock: Bool
     package let location: SourceLocation
 
-    package init(typeName: String, resultType: String, location: SourceLocation) {
+    package init(
+        typeName: String,
+        resultType: String,
+        acceptsEmptyBlock: Bool = false,
+        location: SourceLocation
+    ) {
         self.typeName = typeName
         self.resultType = resultType
+        self.acceptsEmptyBlock = acceptsEmptyBlock
         self.location = location
     }
 }

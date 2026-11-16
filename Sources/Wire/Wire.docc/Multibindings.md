@@ -97,9 +97,17 @@ with it, and integer priority avoids the whole class.
 
 ## Empty and unused keys
 
-Zero contributors resolves to an empty aggregate rather than a missing member, so a key is
-always safe to consume. Each key type takes `allowUnused:` to silence the dead-or-empty warning
-when emptiness is genuinely valid:
+Zero contributors resolves to an empty aggregate rather than a missing member: `[]` for a
+`CollectedKey`, `[:]` for a `MappedKey`, and for a `BuilderKey` the fold with an empty body. That
+last one compiles only if your builder can fold nothing, so declare a `buildBlock` that takes no
+arguments (a variadic `buildBlock` like the one above already does, as does
+`static func buildBlock() -> Result`). A builder with only `buildPartialBlock`, or a `buildBlock`
+that needs a component, can't. When such a key is consumed with nothing contributing, the build
+fails with an error at the injection site that names the builder and the `buildBlock()` to add.
+Wire reads these methods from the builder's own declaration, not from its extensions.
+
+`CollectedKey`, `MappedKey` and `BuilderKey` each take `allowUnused:` to silence the dead-or-empty
+warning when emptiness is genuinely valid:
 
 ```swift
 static let optionalHooks = CollectedKey<any Hook>(allowUnused: true)

@@ -22,7 +22,8 @@ package func enrichMissingBindingsWithCrossScopeHints(
     guard case .validationFailed(let errors) = result.outcome else { return result }
     guard !errors.missingBindings.isEmpty else { return result }
     let enriched = errors.missingBindings.map { missing -> MissingBinding in
-        guard missing.crossScopeHint == nil,
+        // An empty-builder consumer is missing because no aggregate was formed, not because of scope.
+        guard missing.crossScopeHint == nil, missing.emptyBuilderFold == nil,
             let hint = crossScopeHintFor(
                 missing: missing,
                 consumerPartition: consumerPartition,

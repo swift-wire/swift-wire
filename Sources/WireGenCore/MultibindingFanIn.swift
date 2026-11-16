@@ -29,10 +29,7 @@ func synthesizeAggregates(
                 .append(ContributorEntry(binding: binding, contribution: contribution))
         }
     }
-    let resultTypeByBuilder = Dictionary(
-        resultBuilders.map { ($0.typeName, $0.resultType) },
-        uniquingKeysWith: { first, _ in first }
-    )
+    let buildersByName = resultBuildersByName(resultBuilders)
     let consumedKeys = consumedKeyReferences(in: bindings, among: Set(keys.map(\.keyReference)))
 
     return keys.compactMap { key in
@@ -42,7 +39,7 @@ func synthesizeAggregates(
         guard
             let shape = aggregateShape(
                 for: key,
-                resultTypeByBuilder: resultTypeByBuilder,
+                buildersByName: buildersByName,
                 contributorCount: contributors.count
             )
         else { return nil }
@@ -85,11 +82,12 @@ private struct ContributorEntry {
 /// The aggregate's type and (for builder) the `@resultBuilder` name, or
 /// `nil` when the aggregate can't be formed: a malformed collected/mapped
 /// declaration (wrong generic arity), a builder whose result type isn't
-/// discoverable, or an *empty* builder (a zero-component fold has no
-/// well-defined result unless the builder defines `buildBlock()`).
+/// discoverable, or an *empty* builder key whose builder can't fold an empty
+/// body (no zero-argument `buildBlock`). An empty builder key whose builder
+/// can fold one gets the empty fold, as an empty collected key gets `[]`.
 private func aggregateShape(
     for key: DiscoveredMultibindingKey,
-    resultTypeByBuilder: [String: String],
+    buildersByName: [String: DiscoveredResultBuilder],
     contributorCount: Int
 ) -> (collectionType: String, builderTypeName: String?)? {
     switch (key.flavour, key.typeArguments) {
@@ -99,12 +97,65 @@ private func aggregateShape(
         return ("[\(arguments[0]): \(arguments[1])]", nil)
     case (.builder, let arguments) where arguments.count == 1:
         let builderTypeName = arguments[0]
-        guard contributorCount > 0, let resultType = resultTypeByBuilder[builderTypeName] else {
-            return nil
-        }
-        return (resultType, builderTypeName)
+        guard let builder = buildersByName[builderTypeName],
+            contributorCount > 0 || builder.acceptsEmptyBlock
+        else { return nil }
+        return (builder.resultType, builderTypeName)
     default:
         return nil
+    }
+}
+
+/// Discovered result builders by simple name, the first declaration winning — the lookup a
+/// `BuilderKey<Builder>`'s generic argument text resolves through.
+func resultBuildersByName(_ resultBuilders: [DiscoveredResultBuilder]) -> [String: DiscoveredResultBuilder] {
+    Dictionary(resultBuilders.map { ($0.typeName, $0) }, uniquingKeysWith: { first, _ in first })
+}
+
+/// The key, as an unfoldable empty builder key, when it is a `BuilderKey` whose builder is
+/// discovered but can't fold an empty body; `nil` for any other key. Whether the key has
+/// contributors is the caller's question.
+func unfoldableEmptyBuilderKey(
+    _ key: DiscoveredMultibindingKey,
+    buildersByName: [String: DiscoveredResultBuilder]
+) -> UnfoldableEmptyBuilderKey? {
+    guard key.flavour == .builder, key.typeArguments.count == 1,
+        let builder = buildersByName[key.typeArguments[0]], !builder.acceptsEmptyBlock
+    else { return nil }
+    return UnfoldableEmptyBuilderKey(
+        keyReference: key.keyReference,
+        builderTypeName: builder.typeName,
+        resultType: builder.resultType
+    )
+}
+
+/// Attach the empty-builder diagnostic to each missing binding that is a consumer of a
+/// `BuilderKey` nothing in this partition contributes to and whose builder can't fold an empty
+/// body — the case `aggregateShape` leaves without an aggregate. Every other missing binding is
+/// returned unchanged.
+func attachingEmptyBuilderFolds(
+    to missing: [MissingBinding],
+    keys: [DiscoveredMultibindingKey],
+    bindings: [DiscoveredBinding],
+    resultBuilders: [DiscoveredResultBuilder]
+) -> [MissingBinding] {
+    let buildersByName = resultBuildersByName(resultBuilders)
+    let contributed = Set(bindings.flatMap { $0.contributions.map(\.keyReference) })
+    var unfoldable: [String: UnfoldableEmptyBuilderKey] = [:]
+    for key in keys where !contributed.contains(key.keyReference) {
+        unfoldable[key.keyReference] = unfoldableEmptyBuilderKey(key, buildersByName: buildersByName)
+    }
+    guard !unfoldable.isEmpty else { return missing }
+    return missing.map { entry in
+        guard let key = entry.dependency.keyIdentifier, let fold = unfoldable[key] else { return entry }
+        return MissingBinding(
+            consumer: entry.consumer,
+            dependency: entry.dependency,
+            typealiasHint: entry.typealiasHint,
+            crossScopeHint: entry.crossScopeHint,
+            optionalMismatchHint: entry.optionalMismatchHint,
+            emptyBuilderFold: fold
+        )
     }
 }
 

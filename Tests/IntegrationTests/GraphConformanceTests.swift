@@ -31,4 +31,15 @@ struct GraphConformanceTests {
         let graph = try await Wire.bootstrap()
         #expect(emptyCount(of: graph) == 0)
     }
+
+    /// Generic over the same composable, reading its `BuilderKey` member — only compiles if
+    /// the plugin emitted the empty `@ThingListBuilder` fold accessor.
+    private func emptyBuiltCount<Graph: EmptyComposable>(of graph: Graph) -> Int {
+        graph.emptyBuiltThings.count
+    }
+
+    @Test func generatedGraphConformsWithEmptyBuilderFoldWhenNoContributors() async throws {
+        let graph = try await Wire.bootstrap()
+        #expect(emptyBuiltCount(of: graph) == 0)
+    }
 }

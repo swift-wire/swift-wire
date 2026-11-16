@@ -46,21 +46,34 @@ enum GraphComposableConformance {
     )
 }
 
-// A second composable whose key has *no* contributors. The generated conformance still
-// holds — the member maps to an empty collection — so an adapter's protocol conforms
-// even when this graph contributes nothing (the case where a consumer depends on an
-// adapter for a utility, not its routes/services). Exercises the empty-accessor path.
+// A second composable whose keys have *no* contributors. The generated conformance still
+// holds — the collected member maps to an empty collection, the builder member to an empty
+// `@ThingListBuilder` fold — so an adapter's protocol conforms even when this graph
+// contributes nothing (the case where a consumer depends on an adapter for a utility, not
+// its routes/services). Exercises the empty-accessor path for both.
 protocol EmptyComposable {
     var emptyThings: [any RouteThing<RequestCtx>] { get }
+    var emptyBuiltThings: [any RouteThing<RequestCtx>] { get }
+}
+
+@resultBuilder
+enum ThingListBuilder {
+    static func buildBlock(_ things: any RouteThing<RequestCtx>...) -> [any RouteThing<RequestCtx>] {
+        things
+    }
 }
 
 enum EmptyKeys {
     static let things = CollectedKey<any RouteThing<RequestCtx>>()
+    static let builtThings = BuilderKey<ThingListBuilder>()
 }
 
 enum EmptyComposableConformance {
     static let decl = WireGraphConformanceV1(
         conformsTo: (any EmptyComposable).self,
-        members: [.init("emptyThings", from: EmptyKeys.things)]
+        members: [
+            .init("emptyThings", from: EmptyKeys.things),
+            .init("emptyBuiltThings", from: EmptyKeys.builtThings),
+        ]
     )
 }

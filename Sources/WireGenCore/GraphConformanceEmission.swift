@@ -10,8 +10,9 @@
 
 /// Emit `extension _WireGraph: <Protocol> { … }` for each conformance, mapping each
 /// member to the default graph's aggregate binding for its key. A member whose key
-/// has *no* contributors in this graph maps to an empty collection (`[]` / `[:]`), so
-/// the conformance holds even when the consumer contributes nothing — an adapter's
+/// has *no* contributors in this graph maps to an empty collection (`[]` / `[:]`), or
+/// to an empty fold for a `BuilderKey` whose builder can fold one, so the conformance
+/// holds even when the consumer contributes nothing — an adapter's
 /// `apply` then works whether or not this particular graph feeds it. The imports the
 /// referenced protocol and element types need are collected upstream (a conformance is
 /// an import source, like a binding — see `WireGen`).
@@ -24,12 +25,14 @@ func appendAllGraphConformances(
     defaultOrder: [DiscoveredBinding],
     variantAppOrders: [String: [DiscoveredBinding]],
     multibindingKeys: [DiscoveredMultibindingKey],
+    resultBuilders: [DiscoveredResultBuilder] = [],
     into lines: inout [String]
 ) {
     appendGraphConformances(
         conformances,
         topologicalOrder: defaultOrder,
         multibindingKeys: multibindingKeys,
+        resultBuilders: resultBuilders,
         into: &lines
     )
     for (name, order) in variantAppOrders.sorted(by: { $0.key < $1.key }) {
@@ -38,6 +41,7 @@ func appendAllGraphConformances(
             structName: "_\(name)WireGraph",
             topologicalOrder: order,
             multibindingKeys: multibindingKeys,
+            resultBuilders: resultBuilders,
             into: &lines
         )
     }
@@ -48,9 +52,11 @@ func appendGraphConformances(
     structName: String = "_WireGraph",
     topologicalOrder: [DiscoveredBinding],
     multibindingKeys: [DiscoveredMultibindingKey],
+    resultBuilders: [DiscoveredResultBuilder] = [],
     into lines: inout [String]
 ) {
     guard !conformances.isEmpty else { return }
+    let buildersByName = resultBuildersByName(resultBuilders)
 
     // Aggregate bindings keyed by their multibinding-key reference, so a member's
     // `from:` reference resolves to the graph property carrying that key's product.
@@ -78,15 +84,15 @@ func appendGraphConformances(
                 )
             } else if let accessor = emptyMemberAccessor(
                 member: member,
-                key: keysByReference[member.keyReference]
+                key: keysByReference[member.keyReference],
+                buildersByName: buildersByName
             ) {
                 lines.append(accessor)
             }
-            // A member whose key is unknown, or a `BuilderKey` (an empty fold has no
-            // defined result), can't form an empty value — it's skipped. An unknown
-            // key is reported once, before emission, by
-            // `graphConformanceUnknownKeyDiagnostics`; an empty `BuilderKey` member
-            // surfaces as a compile error at the conformance.
+            // A member whose key is unknown, or a `BuilderKey` whose builder can't fold
+            // an empty body, can't form an empty value — it's skipped. Both are reported
+            // before emission: an unknown key by `graphConformanceUnknownKeyDiagnostics`,
+            // an unfoldable builder by `graphConformanceEmptyBuilderDiagnostics`.
         }
         lines.append("}")
     }
@@ -94,11 +100,14 @@ func appendGraphConformances(
 
 /// The `var <name>: <collectionType> { <empty> }` accessor for a member whose key has
 /// no contributors in this graph — an empty `[]` for a `CollectedKey`, `[:]` for a
-/// `MappedKey`. Returns `nil` for a `BuilderKey` or an unknown key (no well-defined
-/// empty value). Mirrors `aggregateShape`'s collected/mapped type derivation.
+/// `MappedKey`, and `@<Builder> var <name>: <ResultType> { }`, the empty fold, for a
+/// `BuilderKey` whose builder can fold an empty body. Returns `nil` for any other
+/// `BuilderKey` or an unknown key (no empty value to witness the member with). Mirrors
+/// `aggregateShape`'s type derivation.
 private func emptyMemberAccessor(
     member: DiscoveredGraphConformance.Member,
-    key: DiscoveredMultibindingKey?
+    key: DiscoveredMultibindingKey?,
+    buildersByName: [String: DiscoveredResultBuilder]
 ) -> String? {
     guard let key else { return nil }
     switch (key.flavour, key.typeArguments) {
@@ -106,9 +115,79 @@ private func emptyMemberAccessor(
         return "    var \(member.name): [\(arguments[0])] { [] }"
     case (.mapped, let arguments) where arguments.count == 2:
         return "    var \(member.name): [\(arguments[0]): \(arguments[1])] { [:] }"
+    case (.builder, let arguments) where arguments.count == 1:
+        guard let builder = buildersByName[arguments[0]], builder.acceptsEmptyBlock else { return nil }
+        return "    @\(builder.typeName) var \(member.name): \(builder.resultType) { }"
     default:
         return nil
     }
+}
+
+/// Every graph-conformance diagnostic WireGen reports: members whose key is unknown, and members whose
+/// empty `BuilderKey` can't be folded. The latter is judged against the default graph, where the
+/// conformance's members read their aggregates; a graph that failed has no order (`nil`), and its own
+/// errors already stop the build.
+package func graphConformanceDiagnostics(
+    _ conformances: [DiscoveredGraphConformance],
+    defaultOrder: [DiscoveredBinding]?,
+    multibindingKeys: [DiscoveredMultibindingKey],
+    resultBuilders: [DiscoveredResultBuilder]
+) -> [Diagnostic] {
+    let unknownKeys = graphConformanceUnknownKeyDiagnostics(
+        conformances: conformances,
+        declaredMultibindingKeyReferences: Set(multibindingKeys.map(\.keyReference))
+    )
+    guard let defaultOrder else { return unknownKeys }
+    return unknownKeys
+        + graphConformanceEmptyBuilderDiagnostics(
+            conformances: conformances,
+            topologicalOrder: defaultOrder,
+            multibindingKeys: multibindingKeys,
+            resultBuilders: resultBuilders
+        )
+}
+
+/// A graph-conformance member whose `BuilderKey` has no aggregate in the default graph
+/// (nothing there contributes to it) and whose builder declares no zero-argument
+/// `buildBlock`. Emission can't fold an empty body for it and leaves the member out,
+/// which would otherwise surface as the compiler's generic "does not conform" error,
+/// or not at all when the protocol has a default implementation for the member. An
+/// error at the member's `.init(…)` element, naming the conformance, member, key,
+/// builder and the fix.
+package func graphConformanceEmptyBuilderDiagnostics(
+    conformances: [DiscoveredGraphConformance],
+    topologicalOrder: [DiscoveredBinding],
+    multibindingKeys: [DiscoveredMultibindingKey],
+    resultBuilders: [DiscoveredResultBuilder]
+) -> [Diagnostic] {
+    let buildersByName = resultBuildersByName(resultBuilders)
+    let aggregatedKeys = Set(
+        topologicalOrder.compactMap { binding -> String? in
+            guard case .aggregate = binding else { return nil }
+            return binding.keyIdentifier
+        }
+    )
+    var keysByReference: [String: DiscoveredMultibindingKey] = [:]
+    for key in multibindingKeys {
+        keysByReference[key.keyReference] = key
+    }
+    var diagnostics: [Diagnostic] = []
+    for conformance in conformances {
+        for member in conformance.members where !aggregatedKeys.contains(member.keyReference) {
+            guard let key = keysByReference[member.keyReference],
+                let fold = unfoldableEmptyBuilderKey(key, buildersByName: buildersByName)
+            else { continue }
+            diagnostics.append(
+                Diagnostic(
+                    location: member.location ?? conformance.location,
+                    message:
+                        "graph conformance to '\(conformance.protocolName)' maps member '\(member.name)' to '\(member.keyReference)', \(fold.reasonAndFix)",
+                    severity: .error
+                )
+            )
+        }
+    }
+    return diagnostics.sorted { $0.location < $1.location }
 }
 
 /// A graph-conformance member whose `from:` key matches no multibinding key

@@ -365,13 +365,14 @@ struct WireGen {
         diagnostics += multibindingLivenessDiagnostics(
             multibindingKeys: aggregate.multibindingKeys,
             bindingsByPartition: aggregate.allBindings,
-            conformanceConsumedKeys: Set(
-                aggregate.graphConformances.flatMap { $0.members.map(\.keyReference) }
-            )
+            conformanceConsumedKeys: Set(aggregate.graphConformances.flatMap { $0.members.map(\.keyReference) }),
+            resultBuilders: aggregate.resultBuilders
         )
-        diagnostics += graphConformanceUnknownKeyDiagnostics(
-            conformances: aggregate.graphConformances,
-            declaredMultibindingKeyReferences: Set(aggregate.multibindingKeys.map(\.keyReference))
+        diagnostics += graphConformanceDiagnostics(
+            aggregate.graphConformances,
+            defaultOrder: graphs.defaultGraph.outcome.topologicalOrder,
+            multibindingKeys: aggregate.multibindingKeys,
+            resultBuilders: aggregate.resultBuilders
         )
         diagnostics += unknownBindingKeyDiagnostics(
             bindingsByPartition: aggregate.allBindings,
@@ -596,6 +597,7 @@ extension WireGen {
             seedScopeOrders: seedScopeOrders,
             graphConformances: inputs.aggregate.graphConformances,
             multibindingKeys: inputs.aggregate.multibindingKeys,
+            resultBuilders: inputs.aggregate.resultBuilders,
             syntheticTypeDeclarations: (inputs.injectionRewrites.isEmpty
                 ? [] : [injectionRewriteHelperDeclaration])
                 + inputs.injectionRewrites.map(\.declaration)

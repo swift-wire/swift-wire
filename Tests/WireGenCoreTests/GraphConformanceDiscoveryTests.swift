@@ -33,8 +33,16 @@ struct GraphConformanceDiscoveryTests {
         #expect(conformance.protocolName == "HummingbirdComposable")
         #expect(
             conformance.members == [
-                .init(name: "routes", keyReference: "HummingbirdKeys.routes"),
-                .init(name: "middleware", keyReference: "HummingbirdKeys.middleware"),
+                .init(
+                    name: "routes",
+                    keyReference: "HummingbirdKeys.routes",
+                    location: SourceLocation(file: "Conformances.swift", line: 5, column: 13)
+                ),
+                .init(
+                    name: "middleware",
+                    keyReference: "HummingbirdKeys.middleware",
+                    location: SourceLocation(file: "Conformances.swift", line: 6, column: 13)
+                ),
             ]
         )
         #expect(conformance.originModule == testModule)
