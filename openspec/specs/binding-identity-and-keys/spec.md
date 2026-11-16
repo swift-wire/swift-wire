@@ -110,15 +110,22 @@ Pinned by: `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`everyProducer
 For an unkeyed duplicate, WireGen SHALL add the note "to disambiguate, declare named keys (e.g.
 `static let primary = BindingKey<<T>>()`) and tag each binding/consumer with
 `@Provides(<T>.primary)` / `@Inject(<T>.primary)`" at the first binding. A keyed duplicate SHALL
-carry no such note. `<T>` is the canonical identity text, so for a `some` or `any` type the note
-suggests `BindingKey<anyLogger>()`, which is not valid Swift; this is tracked as a defect in
-https://github.com/swift-wire/swift-wire/issues/423.
+carry no such note. In this note and in the duplicate error, `<T>` is the type as the source spells
+it (the first binding's declared type, or the consumer's for a generic ambiguity), not the
+whitespace-free identity text, so a `some` or `any` type keeps its space (`BindingKey<any Logger>()`).
+The suggested key reference `<T>.primary` still names a member of an existential for such a type
+(`any Logger.primary`), which Swift reads as a type rather than a key; a key has to be declared on
+some named type instead.
+
+#### Scenario: two unkeyed existentials
+- **WHEN** `S.swift` declares `@Provides let one: any Logger = L()` on line 3 and `@Provides let two: any Logger = L()` on line 4
+- **THEN** the output contains "S.swift:3:15: error: type 'any Logger' has multiple bindings; the dependency graph is ambiguous", and the fix-it note at `S.swift:3:15` suggests `static let primary = BindingKey<any Logger>()`
 
 #### Scenario: two unkeyed databases
 - **WHEN** `@Provides let dbA: Database = Database()` and `@Provides let dbB: Database = Database()` are both declared without a key
 - **THEN** besides the duplicate error, WireGen notes at `dbA` that the bindings can be told apart by declaring `static let primary = BindingKey<Database>()`, tagging each binding `@Provides(Database.primary)` and each consumer `@Inject(Database.primary)`
 
-Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`renderUnkeyedDuplicateAppendsFixItNote`, `renderDuplicateKeyedBindingsNamesTheKey`, `someAndAnyProducersForOneProtocolAreDuplicates`), `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`unkeyedDuplicateBindingShowsFixItNote`, `keyedDuplicateBindingNamesTheKeyAndOmitsFixItNote`).
+Pinned by: `Tests/WireGenCoreTests/GraphTests.swift` (`renderUnkeyedDuplicateAppendsFixItNote`, `renderDuplicateKeyedBindingsNamesTheKey`, `someAndAnyProducersForOneProtocolAreDuplicates`), `Tests/WireGenCoreTests/DiagnosticGalleryTests.swift` (`unkeyedDuplicateBindingShowsFixItNote`, `keyedDuplicateBindingNamesTheKeyAndOmitsFixItNote`, `existentialDuplicateBindingNamesTheTypeAsWritten`, `someAndAnyDuplicateNamesTheExistentialSlotAsWritten`).
 
 ### Requirement: Duplicates stop validation before resolution
 When any duplicate binding is found, WireGen SHALL fail the graph with the duplicates alone and

@@ -393,6 +393,49 @@ struct DiagnosticGalleryTests {
         #expect(!rendered.contains("Databases.swift:7:5: note: to disambiguate"))
     }
 
+    @Test func existentialDuplicateBindingNamesTheTypeAsWritten() throws {
+        // The identity of `any Logger` is the whitespace-free `anyLogger`;
+        // quoting that would name a type the user never wrote and put
+        // `BindingKey<anyLogger>()`, which doesn't parse, into the fix-it
+        // (swift-wire#423). The diagnostic spells the type as the source does.
+        let source = """
+            protocol Logger: Sendable {}
+            struct L: Logger {}
+            @Provides let one: any Logger = L()
+            @Provides let two: any Logger = L()
+            """
+        let (_, rendered) = validate(source: source, sourcePath: "S.swift")
+        #expect(
+            rendered.split(separator: "\n").map(String.init) == [
+                "S.swift:3:15: error: type 'any Logger' has multiple bindings; the dependency graph is ambiguous",
+                "S.swift:4:15: note: also bound here",
+                "S.swift:3:15: note: to disambiguate, declare named keys (e.g. "
+                    + "`static let primary = BindingKey<any Logger>()`) and tag each binding/consumer with "
+                    + "`@Provides(any Logger.primary)` / `@Inject(any Logger.primary)`",
+            ]
+        )
+    }
+
+    @Test func someAndAnyDuplicateNamesTheExistentialSlotAsWritten() throws {
+        // `some Logger` and `any Logger` producers collide on the `any Logger`
+        // slot; the diagnostic names that slot with its space, from the
+        // `any` producer's spelling, whichever of the two is declared first.
+        let source = """
+            protocol Logger: Sendable {}
+            struct L: Logger {}
+            @Provides let opaque: some Logger = L()
+            @Provides let boxed: any Logger = L()
+            """
+        let (_, rendered) = validate(source: source, sourcePath: "S.swift")
+        #expect(
+            rendered.contains(
+                "error: type 'any Logger' has multiple bindings; the dependency graph is ambiguous"
+            )
+        )
+        #expect(rendered.contains("`static let primary = BindingKey<any Logger>()`"))
+        #expect(!rendered.contains("anyLogger"))
+    }
+
     @Test func keyedProviderSatisfiesKeyedConsumerCleanly() throws {
         // Positive case — a keyed `@Provides` and a keyed `@Inject` on
         // the same (type, key) resolve, no validation errors. Confirms

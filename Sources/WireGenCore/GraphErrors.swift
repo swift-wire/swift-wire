@@ -164,6 +164,10 @@ package struct CrossScopeHint: Sendable {
 /// the same type with *different* keys coexist — only same `(type, key)`
 /// fires this error.
 package struct DuplicateBinding: Sendable {
+    /// The slot's type as the source spells it — the first binding's declared
+    /// type, or the consumer's for a generic ambiguity — never the canonical
+    /// identity, which drops the space after `some`/`any` (`anyLogger`) and so
+    /// would put Swift that doesn't parse into the key fix-it.
     package let boundType: String
     /// The key identifier shared by all of the duplicates, or `nil`
     /// when they're all unkeyed. Surfaced in the diagnostic so the user
