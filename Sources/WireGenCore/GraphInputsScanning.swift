@@ -18,6 +18,10 @@ package struct DiscoveredGraphInputs: Sendable, Equatable {
     package let typeName: String
     /// Its stored properties, in declaration order. Each becomes a binding.
     package let properties: [GraphInput]
+    /// Its `static` (or `class`) stored properties that would otherwise read as inputs, in declaration
+    /// order. None is an input — the caller never passes one in — and `graphInputsDiagnostics` warns at
+    /// each so the skip is visible.
+    package let staticMembers: [GraphInputsStaticMember]
     package let location: SourceLocation
     /// The module that declared it. Inputs are the *consumer's* to supply, so only declarations from the
     /// home package are honoured — see `resolvedGraphInputs`.
@@ -26,11 +30,13 @@ package struct DiscoveredGraphInputs: Sendable, Equatable {
     package init(
         typeName: String,
         properties: [GraphInput],
+        staticMembers: [GraphInputsStaticMember] = [],
         location: SourceLocation,
         originModule: String
     ) {
         self.typeName = typeName
         self.properties = properties
+        self.staticMembers = staticMembers
         self.location = location
         self.originModule = originModule
     }
@@ -54,11 +60,26 @@ package struct GraphInput: Sendable, Equatable {
     }
 }
 
+/// A `static` stored property of a `@GraphInputs` struct — skipped, since it belongs to the type and not
+/// to the value passed to `Wire.bootstrap(inputs:)`, and reported where it is declared.
+package struct GraphInputsStaticMember: Sendable, Equatable {
+    package let name: String
+    package let location: SourceLocation
+
+    package init(name: String, location: SourceLocation) {
+        self.name = name
+        self.location = location
+    }
+}
+
 /// The `@GraphInputs` declaration on `node`, or `nil` when it carries no such attribute.
 ///
 /// A property with no explicit type annotation is skipped: Wire reads syntax, never infers, and an input
 /// whose type it cannot see cannot become a binding. `graphInputsDiagnostics` reports those rather than
 /// letting them vanish.
+///
+/// A `static` (or `class`) stored property is not an input either: it is not a member of the value the
+/// caller passes in, so `_wireInputs.<name>` would not compile. It is recorded in `staticMembers` instead.
 func graphInputsDeclaration(
     named name: TokenSyntax,
     attributes: AttributeListSyntax,
@@ -69,19 +90,28 @@ func graphInputsDeclaration(
 ) -> DiscoveredGraphInputs? {
     guard hasAttribute(attributes, named: "GraphInputs") else { return nil }
     var properties: [GraphInput] = []
+    var staticMembers: [GraphInputsStaticMember] = []
     for member in members {
         guard let variable = member.decl.as(VariableDeclSyntax.self) else { continue }
+        let isStatic = variable.modifiers.contains {
+            $0.name.tokenKind == .keyword(.static) || $0.name.tokenKind == .keyword(.class)
+        }
         for binding in variable.bindings {
             guard let identifier = binding.pattern.as(IdentifierPatternSyntax.self)?.identifier.text,
                 let type = binding.typeAnnotation?.type.trimmedDescription,
                 isStoredProperty(binding)
             else { continue }
+            let location = makeSourceLocation(of: binding.pattern, sourcePath: sourcePath, converter: converter)
+            if isStatic {
+                staticMembers.append(GraphInputsStaticMember(name: identifier, location: location))
+                continue
+            }
             properties.append(
                 GraphInput(
                     name: identifier,
                     type: type,
                     keyIdentifier: providesKeyIdentifier(in: variable.attributes),
-                    location: makeSourceLocation(of: binding.pattern, sourcePath: sourcePath, converter: converter)
+                    location: location
                 )
             )
         }
@@ -89,6 +119,7 @@ func graphInputsDeclaration(
     return DiscoveredGraphInputs(
         typeName: name.text,
         properties: properties,
+        staticMembers: staticMembers,
         location: makeSourceLocation(of: name, sourcePath: sourcePath, converter: converter),
         originModule: module
     )
@@ -135,7 +166,8 @@ package func resolvedGraphInputs(
 /// Diagnostics for the `@GraphInputs` declarations across a module: more than one is ambiguous (which
 /// would `Wire.bootstrap` take?), a stored property Wire cannot type is silently absent from the graph
 /// unless it is reported, and one declared by a dependency is ignored — quietly enough to be baffling
-/// downstream, since its bindings then resolve against nothing.
+/// downstream, since its bindings then resolve against nothing. A `static` stored property is skipped
+/// rather than taken as an input, and is reported so the skip is not mistaken for a missing binding.
 package func graphInputsDiagnostics(
     _ declarations: [DiscoveredGraphInputs],
     externalModules: Set<String> = []
@@ -160,6 +192,18 @@ package func graphInputsDiagnostics(
                     message:
                         "multiple @GraphInputs types are declared ('\(declarations[0].typeName)' and '\(extra.typeName)') — the graph takes one 'inputs:' value, so merge them into a single type.",
                     severity: .error
+                )
+            )
+        }
+    }
+    for declaration in declarations {
+        for member in declaration.staticMembers {
+            diagnostics.append(
+                Diagnostic(
+                    location: member.location,
+                    message:
+                        "@GraphInputs '\(declaration.typeName)' property '\(member.name)' is static, so it is not a graph input — inputs are read from the value passed to 'Wire.bootstrap(inputs:)', and a static belongs to the type. Read it directly as '\(declaration.typeName).\(member.name)'.",
+                    severity: .warning
                 )
             )
         }
