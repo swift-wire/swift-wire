@@ -12,6 +12,11 @@
 > activation hint end-to-end. This note records the design — the
 > **activation model**, cross-module **naming** (deferred), and cross-module
 > **visibility** — so those coupled decisions aren't relitigated.
+>
+> **See also:** [`ModuleScopedBindings.md`](../../Proposals/ModuleScopedBindings.md) proposes letting a
+> library binding stay `internal`, with each library generating its own code and the root still
+> resolving the whole graph. It would change this note's visibility threshold and where generated
+> code lives.
 
 ## What composition is
 
